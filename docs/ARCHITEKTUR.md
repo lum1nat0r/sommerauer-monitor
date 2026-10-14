@@ -18,7 +18,8 @@ flowchart LR
 ## Komponenten
 
 - Registerprofil: versionierte, freigegebene Gruppen; öffentliche Vollreferenz ist
-  keine ausführbare Konfiguration. Nur die drei Kernblöcke sind Erstprofil-Kandidaten.
+  keine ausführbare Konfiguration. Das implementierte Erstprofil `core` enthält
+  ausschließlich die drei bestätigten Blöcke in `backend/registers.py`.
 - Transport: enger FC03-Zugriff mit einer Deadline; streng MBAP/PDU/Unit/Transaktion
   prüfen. Fehler liefern Typ plus Anzahl bereits empfangener Bytes.
 - Decoder: reine Funktionen, Signalherkunft und Gültigkeit. Kein I/O und keine

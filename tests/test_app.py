@@ -19,6 +19,10 @@ def test_collector_cannot_be_enabled_without_host() -> None:
         Settings(_env_file=None, COLLECTOR_ENABLED=True)
 
 
+def test_configuration_rejects_unimplemented_register_profiles() -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, REGISTER_PROFILE="all")
+
 def test_public_configuration_does_not_return_host(monkeypatch: pytest.MonkeyPatch) -> None:
     get_settings.cache_clear()
     monkeypatch.setenv("MODBUS_HOST", "private.example.invalid")

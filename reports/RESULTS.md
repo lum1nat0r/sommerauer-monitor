@@ -44,3 +44,24 @@ Gerätezugriff. Lokale Maschine stellte Node.js 26.7.0/npm 12.0.2 statt der für
 festgelegten Node.js 22.14.0/npm 10.9.2 bereit; npm meldete Engine-Warnungen,
 der lokale Build war dennoch erfolgreich. Der CI-Workflow pinnt die festgelegten
 Versionen. Keine privaten Hostdaten oder Geräte-Secrets verwendet.
+
+## 14.10.2026 – Issue #3: Geprüftes Kernprofil und reine Registerdecoder
+
+Implementiert wurde `backend/registers.py` mit dem aktiven `core`-Profil für
+4102/1, 28688/2 und 36864/2 sowie reinen signed16-, Temperatur- und
+Betriebsminuten-Decodern. Resultate binden Rohworte, Offset, Quelle und
+Profil-/Decoderversion. Ungültige Werte liefern typisierte Decode-Fehler;
+Zusatzregister werden nicht interpretiert. Eine zeitbezogene Prüfung verwirft
+Rückgänge und Zuwächse oberhalb der verstrichenen Minuten plus einer Minute
+Quantisierungsreserve. Der Vollkatalog bleibt davon getrennt und alle Einträge
+bleiben deaktiviert.
+
+Tatsächlich geprüft:
+
+- `uv run pytest` – 17 bestanden; ein Starlette/AnyIO-DeprecationWarning.
+- `uv run ruff check .` – bestanden.
+- Offline-Smoke über `uv run python -c`: signed16-Temperatur `-4`, Zählerübergang
+  5759→5760 und Zeitplausibilität bestanden.
+
+Kein Transport, Sammler, Datenbank, Live-Test oder Gerätezugriff gehört zu
+diesem Issue; diese Teile bleiben offen.

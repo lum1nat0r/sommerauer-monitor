@@ -18,15 +18,25 @@ Die privaten Rohdaten werden hier nicht veröffentlicht.
 | 36864 / 2 | 9000, 9001 | `buffer.top_temperature`, `buffer.bottom_temperature` | signed16, ganze °C |
 
 Big-endian pro 16-Bit-Wort. `signed = raw if raw < 32768 else raw - 65536`.
-Bei den Kern-Temperaturkanälen ist 110 Ersatz-/Fehlerwert. Bisherige lokale
-Plausibilität: strikt `-5 < signed < 110`; keine Soll-/Betriebstemperaturgrenzen.
-Diese Grenze nicht auf die unbestätigte Außentemperatur übertragen.
+Bei den Kern-Temperaturkanälen ist 110 Ersatz-/Fehlerwert. Gültig ist strikt
+`-5 < signed < 110`; keine Soll-/Betriebstemperaturgrenzen. Diese Grenze nicht auf
+die unbestätigte Außentemperatur übertragen.
+
+Das ausführbare Erstprofil `core` ist ausschließlich in
+[`backend/registers.py`](../backend/registers.py) definiert: exakt die drei oben
+aufgeführten Blöcke. `config/register_catalog.json` bleibt eine getrennte
+Faktenreferenz und keine Pollingliste; die 194 statischen Einträge sind nicht aktiv.
+Dekodierte Werte tragen Rohworte, Blockoffset, Quelle sowie Profil- und
+Decoderversion, damit eine Interpretation nachvollziehbar bleibt.
 
 `Gesamtminuten = Tage * 1440 + Restminuten`, Restminuten 0..1439.
-Das ist kein Float und kein üblicher 32-Bit-Zähler. Kein garantierter atomarer
-Tageswechsel; widersprüchliche Rückgänge/Sprünge als Datenfehler behandeln und
-offline klären. Sprungprüfung anhand tatsächlich verstrichener Zeit definieren,
-gerätespezifischen Zählertakt/Reset/Überlauf nicht erraten.
+Das ist kein Float und kein üblicher 32-Bit-Zähler. Die Tagesgrenze wird durch
+Umrechnung in Gesamtminuten behandelt. Für Verlaufskontrollen werden Rückgänge
+abgewiesen; ein Zuwachs darf höchstens die verstrichene Zeit in ganzen Minuten
+plus eine Minute für die unbekannte Phase der Zähler-Minutenkante betragen.
+Verglichen wird die tatsächlich verstrichene Zeit zwischen Beobachtungen. Diese
+konservative Schranke setzt weder Heizungs-Tastgrad noch Zählerrücksetzung oder
+Überlauf voraus. Unplausible Verläufe sind Datenfehler und werden nicht korrigiert.
 Es sind Anlagen-Betriebsminuten, nicht bewiesene Flammenlaufzeit oder Brennerstarts.
 BO01/BO02 bezeichnen an dieser Anlage oben/unten desselben Puffers.
 

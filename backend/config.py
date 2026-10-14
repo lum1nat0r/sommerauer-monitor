@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator, model_validator
@@ -17,7 +18,7 @@ class Settings(BaseSettings):
     modbus_host: str | None = Field(default=None, alias="MODBUS_HOST")
     modbus_port: int = Field(default=502, alias="MODBUS_PORT", ge=1, le=65535)
     modbus_unit_id: int = Field(default=255, alias="MODBUS_UNIT_ID", ge=0, le=255)
-    register_profile: str = Field(default="core", alias="REGISTER_PROFILE", min_length=1)
+    register_profile: Literal["core"] = Field(default="core", alias="REGISTER_PROFILE")
     collector_enabled: bool = Field(default=False, alias="COLLECTOR_ENABLED")
     data_dir: Path = Field(default=Path("/data"), alias="DATA_DIR")
     display_timezone: str = Field(default="Europe/Vienna", alias="DISPLAY_TIMEZONE")

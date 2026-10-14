@@ -11,8 +11,10 @@ Darstellung derselben Minuten; nicht als unabhängig gemessenes Signal ausgeben.
 Pro Beobachtung: eindeutige ID, Signal-ID, tatsächlich beobachteter UTC-Zeitpunkt,
 Empfangs-/Speicherzeit bei Bedarf separat, Rohwortliste, dekodierter Wert oder null,
 Einheit, Qualität, Datenquelle, Registerprofil- und Decoderversion, Anfrage-ID.
-Metadaten der Anfrage: Start/Ende, Offset/Anzahl, Funktion/Unit, Ergebnis/Fehlerklasse.
-Tatsächliche Zeitpunkte pro Gruppe; kein vorgetäuschter simultaner Gesamtsnapshot.
+Die reinen Decoder binden diese Interpretation an `source`, Profil-/Decoderversion,
+Blockoffset und Rohworte. Metadaten der Anfrage: Start/Ende, Offset/Anzahl,
+Funktion/Unit, Ergebnis/Fehlerklasse. Tatsächliche Zeitpunkte pro Gruppe; kein
+vorgetäuschter simultaner Gesamtsnapshot.
 
 Qualität mindestens `ok`, `invalid`, `unavailable`; `stale` entsteht beim Lesen aus
 dem Alter relativ zum jeweiligen Erfassungsintervall und ist nicht automatisch
