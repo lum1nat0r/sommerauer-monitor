@@ -4,11 +4,13 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 
 from backend.config import get_settings
+from backend.storage import SQLiteStore
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    get_settings()
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    application.state.storage = SQLiteStore(settings.data_dir / "monitor.sqlite3")
     yield
 
 

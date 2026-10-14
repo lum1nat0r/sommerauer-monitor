@@ -6,6 +6,12 @@ from backend.config import Settings, get_settings
 from backend.main import app
 
 
+@pytest.fixture(autouse=True)
+def isolated_database(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    yield
+
 def test_fresh_configuration_is_disabled_without_host() -> None:
     settings = Settings(_env_file=None)
 

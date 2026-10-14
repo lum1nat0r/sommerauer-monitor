@@ -1,6 +1,7 @@
 # Signal-, Speicher- und API-Vertrag
 
-Dies ist ein Implementierungsentwurf, kein bereits verfügbares API.
+Die Signaldecodierung und SQLite-Speicherbasis sind implementiert; API-Verläufe
+und Sammler-Integration bleiben spätere Arbeitspakete.
 
 ## Signale und Messungen
 
@@ -22,11 +23,13 @@ ein ungültiger ursprünglicher Messwert. API liefert Alter und Frischegrenze.
 Netzausfall erzeugt Ereignis/Lücke, keine fiktive Null oder wiederholte Messung.
 Eine zuvor gültige Messung wird nicht nachträglich ungültig umgeschrieben.
 
-SQLite-Vorschlag: Tabellen für Signaldefinitionen/Profile, Leseanfragen,
-Beobachtungen, Ereignisse, Sammlerzustand, Konfigurationsversion und Migrationen.
-Indizes mindestens auf Signal + beobachtetem Zeitpunkt sowie Ereigniszeit.
-IDs und Transaktionen verhindern doppelte Speicherung bei Wiederaufnahme.
-Zählerworte zusammen mit dem daraus berechneten Signal nachvollziehbar erhalten.
+`backend/storage.py` verwaltet versionierte Tabellen für Signaldefinitionen/Profile,
+Leseanfragen, Beobachtungen, Ereignisse, Konfigurationsversionen, Sammlerzustand und
+Schema-Migrationen. Beobachtungen plus Anfrage werden in einer Transaktion gespeichert.
+Eine Anfrage-ID ist idempotent: Wiederholung wird ignoriert statt Messwerte zu duplizieren.
+Ein eindeutiger Index unterstützt Signal-/Zeitabfragen; diese sind chronologisch,
+halb-offen nach Zeitbereich und auf höchstens 10.000 Punkte begrenzt. Es gibt keine
+zeitgesteuerte Löschung und noch keine Aggregation.
 
 ## Dauerhafte Speicherung
 

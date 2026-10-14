@@ -11,9 +11,11 @@ Vorhandenen Poolnamen nicht voraussetzen; Betreiber wählt lokalen appdata-Pfad.
 Kein `privileged`, Docker-Socket-Mount oder Host-Netzwerk als Standard erforderlich.
 Zugriff ausschließlich LAN/Tailscale; keine Portfreigabe ins Internet einrichten.
 
-DB und Laufzustand über Containerersatz erhalten. SQLite-WAL nur auf geeignetem
-lokalem Dateisystem; aktive DB nicht auf SMB/NFS. Konfigurations-/Tokenwerte nicht
-in Image, Browserbundle, URLs oder Logs einbetten. Erstinstallation ohne Polling.
+Die Anwendung legt `/data/monitor.sqlite3` an und nutzt SQLite-WAL mit `synchronous=FULL`.
+`DATA_DIR` kann lokal abweichen; das Verzeichnis muss persistent und beschreibbar sein.
+WAL-Datenbanken ausschließlich auf geeignetem lokalem Dateisystem betreiben, nicht über
+SMB/NFS. Konfigurations-/Tokenwerte nicht in Image, Browserbundle, URLs oder Logs einbetten.
+Erstinstallation ohne Polling.
 
 Healthcheck unterscheidet App-/DB-Erreichbarkeit von angehaltener Erfassung.
 Ein harter Messstopp soll nicht durch automatische Container-Neustarts umgangen
@@ -21,14 +23,14 @@ werden. Neustartbudget und Quittierung aus FEHLERVERHALTEN gelten auch hier.
 
 ## Sicherung, Update und Wiederherstellung
 
-- Konsistente DB-Sicherung über SQLite-Backup-API oder bei geschlossener DB;
-  aktive Hauptdatei allein reicht bei WAL nicht.
-- Konfiguration, Schema-/App-Version und Sammlerzustand konsistent berücksichtigen.
-- Backup/Restore und Migration mit echten synthetischen Daten praktisch testen.
-- Vor Migration Sicherung; Schemaänderungen/Abwärtskompatibilität dokumentieren.
-- Restore darf alte Steuerungs-/Erfassungszustände nicht unbemerkt aktivieren;
-  kontrolliert pausiert prüfen. Noch keine aktive Heizungssteuerung in V1.
-- Speicherverbrauch anzeigen; volles Volume führt zum Erfassungsstopp.
+- `SQLiteStore.backup_to()` nutzt die SQLite-Online-Backup-API; die aktive Hauptdatei
+  allein ist wegen WAL unvollständig.
+- `SQLiteStore.restore_from()` prüft Integrität und Schema und setzt gespeicherten
+  Collector-Zustand vorsorglich auf `paused`.
+- Schema-Version steht in `PRAGMA user_version`; unbekannte neuere Versionen stoppen
+  den Start. Vor späteren Schema-Upgrades bleibt ein externes Backup erforderlich.
+- Speicherverbrauch umfasst Datenbank-, WAL- und SHM-Datei. Speicherfehler werden als
+  `StorageError` an den Aufrufer gemeldet; der Sammler muss darauf stoppen.
 - Sicherungen dürfen rotieren, dauerhaft aufbewahrte Originalmessungen nicht.
 
 Release-Prüfungen: nicht-root starten, Volume-Rechte, Neustart/Persistenz, Offline-

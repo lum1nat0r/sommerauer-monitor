@@ -92,3 +92,37 @@ Grenzen: kein Sammler, kein automatischer Wiederaufnahme-Mechanismus und keine
 Integration in den API-Lebenszyklus; kein Live-, Unraid- oder Hardwaretest.
 Der Simulatorwert `42` ist ausschließlich synthetisch und kein Messwert.
 Änderungen bleiben uncommitted; kein Commit/PR erstellt.
+
+## 14.10.2026 – Issue #5: SQLite-Historie, Ereignisse, Migrationen und Sicherung
+
+`backend/storage.py` implementiert das SQLite-Schema v1 für Profile/Signale,
+Leseanfragen, Beobachtungen, Ereignisse, Konfigurationsversionen und Sammlerzustand.
+Messzyklen schreiben Anfrage und Beobachtungen atomar; Anfrage-IDs verhindern
+Duplikate bei Wiederholung. Beobachtungen enthalten Rohworte, Qualität, UTC-Zeit,
+Quelle sowie Profil-/Decoder-Version. Es gibt keine automatische Messwertlöschung.
+Chronologische Verlaufsabfragen unterstützen Zeitgrenzen und höchstens 10.000 Punkte.
+
+Schema-Migrationen prüfen `PRAGMA user_version`; neuere, unbekannte Schemata stoppen
+den Start. SQLite-Online-Backup erstellt konsistente Sicherungen trotz WAL; Restore
+prüft die Integrität und setzt einen gespeicherten Sammlerzustand auf `paused`.
+Speicherbedarf berücksichtigt DB-, WAL- und SHM-Datei. Speicher-/SQL-Fehler werden
+als `StorageError` gemeldet. FastAPI initialisiert beim Start `/data/monitor.sqlite3`;
+es wird weiterhin kein Sammler gestartet und kein Modbus-Zugriff ausgeführt.
+
+Tatsächlich geprüft:
+
+- `uv run pytest` – 40 bestanden; ein vorhandenes Starlette/AnyIO-DeprecationWarning.
+- `uv run ruff check .` – bestanden.
+- Tests prüfen atomare Rücknahme bei fehlerhaftem Beobachtungsdatensatz,
+  Wiederholungs-Deduplizierung, Migration/Neustart, DB-Schreibfehler (synthetisch
+  durch SQLite-Abbruchtrigger), chronologische/halb-offene Zeitfilter, 10.050
+  synthetische Messungen mit 10.000-Punkte-Grenze sowie Backup/Restore inklusive
+  Integritätsprüfung und pausiertem Sammlerzustand.
+- API-Smoke via `uv run python -c` und FastAPI TestClient: `/api/health` gab HTTP 200
+  und `{"status":"ok"}` zurück; `monitor.sqlite3` wurde beim Start angelegt.
+
+Grenzen: kein integrierter Sammler, keine Live-Daten/API-Verlaufsroute, kein realer
+vollgelaufener Datenträger und kein Unraid-/Docker-/Hardwaretest. DB-Speicherfehler
+werden als `StorageError` nach oben gemeldet; der Sammler-Stopp folgt mit dessen Issue.
+Keine Modbus-Kommunikation. Issue und Kommentare nicht verändert; Änderungen bleiben
+uncommitted, kein Commit/PR erstellt.

@@ -1,7 +1,8 @@
 # Sommerauer Monitor – Arbeitsplan
 
 Stand: 14.10.2026. Der Nutzer hat den Plan positiv bestätigt und Repository plus
-Issues beauftragt. Noch keine App implementiert, kein Image veröffentlicht.
+Issues #2–#5 haben Projektgrundlage, Decoder, Transport/Simulator und SQLite geliefert;
+Sammler, vollständiges Dashboard, Docker/Image und Geräteprüfung bleiben offen.
 Konkrete Entwurfswerte unten sind Startwerte für die Implementierung, keine
 Herstellerfreigaben. Keine neue Gerätekommunikation bei dieser Übergabe.
 

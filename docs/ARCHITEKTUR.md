@@ -28,8 +28,11 @@ flowchart LR
   stillschweigende Skalierung unbekannter Einträge.
 - Sammler: endlicher Testmodus und später Dauerbetrieb; jeweils ein Besitzer der
   Geräteschnittstelle. Prozess-/Deployment-Sperre, kein Start pro Webworker.
-- Repository/SQLite: Transaktionen für Messungen und Zustandswechsel; Ausfälle
-  führen zum Stopp, statt weiter ungespeichert zu messen.
+- Repository (`backend/storage.py`): versioniertes SQLite-Schema, atomare und
+  idempotente Erfassungszyklen, Ereignis-/Zustands-/Konfigurationsspeicherung,
+  begrenzte Chronologieabfragen, Online-Backup/Restore und Speicherfehler als
+  `StorageError`. Anwendungsstart öffnet `/data/monitor.sqlite3` und prüft Migrationen;
+  noch kein Sammler schreibt Daten.
 - API/UI: Lesen aus DB, kein Modbus beim HTTP-Refresh. Verwaltungsaktionen nur
   lokal in der App, validiert und zugriffsgeschützt.
 - Ausgabeadapter später: MQTT unabhängig von der Verfügbarkeit des Brokers;
@@ -54,17 +57,16 @@ und zusammen mit aktualisierten Locks.
 
 Der FC03-Transport ist eine synchrone Socket-Implementierung ohne Bibliotheks-Retry.
 Der Offline-Simulator (`python -m backend.modbus_simulator`) bindet ausschließlich an
-Loopback und bietet deterministische Antworten/Fehler. Beide Komponenten sind
-noch nicht in den API-/Sammler-Lebenszyklus integriert; App-Start bleibt offline.
+Loopback und bietet deterministische Antworten/Fehler. Weder Transport noch Simulator
+sind in den Sammler-/API-Leseablauf integriert; App-Start startet ausschließlich die
+lokale SQLite-Datenbank und löst keine Modbus-Kommunikation aus.
 
-Frische Installation: ohne konfiguriertes Ziel/Profil keine Geräteverbindung. Der
-Anwendungsstart führt überhaupt keine Modbus-Kommunikation aus; der explizite Transport
-bleibt nur über den Client-Aufruf aktiv. Kein automatischer Import, keine Suche,
-keine alte Standard-IP. Ein später explizit eingerichteter Betrieb darf
-nach normalem Neustart seinen dokumentierten Zustand wieder aufnehmen; harter Stopp,
-manuelle Pause und Fehlerbudget bleiben erhalten. Keine Wiederaufnahme während
-Backup/Restore oder bei fehlender Zustandsdatei nach bereits erkanntem Speicherfehler.
-Die genaue Crash-Konsistenz wird in den Sammler-/Speicher-Issues getestet.
+SQLite liegt in `DATA_DIR/monitor.sqlite3` (Standard `/data`) auf lokalem persistentem
+Speicher. WAL, `synchronous=FULL`, versionierte Migration und SQLite-Online-Backup
+werden durch `backend/storage.py` umgesetzt. Restore prüft Integrität und startet einen
+gesicherten Sammlerzustand pausiert. Die Anwendung gibt den Datenpfad nicht über
+`/api/config` aus. Netzwerkdateisysteme wie SMB/NFS sind für die aktive WAL-DB nicht
+vorgesehen.
 
 Shutdown: neue Anfragen sperren, laufende Anfrage höchstens bis Deadline beenden,
 Speichertransaktionen abschließen, Zustand sichern, Verbindung schließen. Mehrere
