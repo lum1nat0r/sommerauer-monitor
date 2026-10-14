@@ -17,10 +17,18 @@ Stand 14.10.2026; Herkunft jeweils angegeben.
 | 60 s für Kernblöcke; Zusatzwerte langsamer | Technischer Entwurf, Lastvorgaben einhalten |
 | 5 Wiederaufnahmen mit 1/2/5/10/15 min Pause; Reset nach 3 guten Vollzyklen | Konkreter Entwurfswert für Implementierung und Offline-Tests |
 
-Noch offen: Lizenz (MIT vorgeschlagen), Bibliotheksversionen und Modbus-Bibliothek
-vs. kleiner eigener Lesetransport, Zugriffsschutz der lokalen Verwaltungsfunktionen,
+| Projektgrundlage | Entscheidung / Herkunft |
+|---|---|
+| Python-Laufzeit CPython 3.12.9; Abhängigkeiten in `uv.lock` | Konservative unterstützte Laufzeit, eingefrorener reproduzierbarer Satz |
+| Node.js 22.14.0, npm 10.9.2; Frontend-Abhängigkeiten in `package-lock.json` | Node-22-LTS Buildbasis, feste Entwicklungs-/CI-Versionen |
+| Erststart ohne Host, Erfassung standardmäßig deaktiviert; Host in API-Ausgabe redigiert | Offline-sichere Projektkonfiguration; keine Gerätezugriffe implementiert |
+| CI nur mit synthetischen/in-process Tests und Frontend-Build | GitHub Actions workflow `.github/workflows/ci.yml`; keine Anlagenzugriffe/Secrets |
+
+Noch offen: Lizenz (MIT vorgeschlagen), Wahl einer Modbus-Bibliothek vs. kleinem
+eigenem Lesetransport, Zugriffsschutz der lokalen Verwaltungsfunktionen,
 Unraid-Poolpfad/UID/GID, geprüfte Einheiten und Grenzen der Zusatzregister.
-Diese Punkte in den zugeordneten Issues entscheiden und hier fortschreiben.
+Die Foundation-Abhängigkeiten sind in `pyproject.toml` und `package.json` exakt
+fixiert; konkrete Modbus-Abhängigkeit folgt erst im Transport-Issue.
 
 Später offen: digitale FP-2-Anbindung, Kollektordaten, Modellgüte, X Minuten bis
 Rückfall, Temperatur-/Versorgungsgrenzen, geeigneter autonomer Rückfallmechanismus.

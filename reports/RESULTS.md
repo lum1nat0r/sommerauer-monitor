@@ -13,3 +13,34 @@ aus dem privaten Vorprojekt und sind in docs/QUELLEN.md als solche eingeordnet.
 Lokale Übergabeprüfung: Katalog gegen private Faktenreferenz, relative Links,
 JSON-Dateien und Ausschluss privater Artefakte. Noch keine App-Funktionstests.
 Issue-Reihenfolge und aktuelle Links stehen in docs/ROADMAP.md.
+
+## 14.10.2026 – Issue #2: Projektgrundlage und Offline-CI
+
+Implementiert: Python/FastAPI und React/TypeScript-Projektstruktur, lokal geladene
+Umgebungskonfiguration, standardmäßig deaktivierter Sammler, redigierte
+Konfigurationsantwort, Python-/npm-Locks und GitHub Actions für ausschließlich
+in-process API-Tests, statische Qualitätsprüfung und Frontend-Build. Die Anwendung
+enthält noch keinen Modbus-Transport, Sammler, Datenbank oder Docker-Auslieferung.
+MIT bleibt Vorschlag; keine Lizenzdatei angelegt. Issue und GitHub-Kommentare wurden
+nicht verändert.
+
+Tatsächlich geprüft:
+
+- `uv lock`, `uv sync --locked`
+- `uv run ruff check .` – bestanden.
+- `uv run pytest` – 4 bestanden; ein DeprecationWarning aus Starlette/AnyIO.
+- `npm install --package-lock-only`, `npm ci`, `npm run build` – Build bestanden.
+- API via Uvicorn gestartet; `/api/health` lieferte `{"status":"ok"}`,
+  `/api/config` meldete `host_configured=false` und `collector_enabled=false`.
+- UI im Chromium-Browser auf Loopback geöffnet; API-Erreichbarkeit und die deaktivierte
+  Erfassung ohne Hostkonfiguration sichtbar.
+- Testfälle belegen Start ohne Host, Fehler bei aktivierter Erfassung ohne Host und
+  dass die API-Antwort weder den gesetzten Hostwert noch den lokalen Datenpfad enthält.
+- Suche nach IPv4-Adressen in Code, Konfiguration, CI und relevanter Dokumentation
+  fand nur die dokumentierten Loopback-URLs für lokale Entwicklung.
+
+Grenzen: Kein GitHub Actions-Lauf, Docker-Build, Unraid-/Hardwaretest oder
+Gerätezugriff. Lokale Maschine stellte Node.js 26.7.0/npm 12.0.2 statt der für CI
+festgelegten Node.js 22.14.0/npm 10.9.2 bereit; npm meldete Engine-Warnungen,
+der lokale Build war dennoch erfolgreich. Der CI-Workflow pinnt die festgelegten
+Versionen. Keine privaten Hostdaten oder Geräte-Secrets verwendet.
