@@ -20,8 +20,10 @@ flowchart LR
 - Registerprofil: versionierte, freigegebene Gruppen; öffentliche Vollreferenz ist
   keine ausführbare Konfiguration. Das implementierte Erstprofil `core` enthält
   ausschließlich die drei bestätigten Blöcke in `backend/registers.py`.
-- Transport: enger FC03-Zugriff mit einer Deadline; streng MBAP/PDU/Unit/Transaktion
-  prüfen. Fehler liefern Typ plus Anzahl bereits empfangener Bytes.
+- Transport: `backend/modbus.py` erzeugt ausschließlich FC03-Anfragen zu den exakten
+  `core`-Blöcken, immer Unit 255, höchstens zwei Register und mit 3-s-Gesamtdeadline.
+  Keine Wiederholungen. MBAP/PDU, Protokoll-ID, Länge, Transaktion, Unit, Funktion
+  und Byteanzahl werden geprüft; Fehler enthalten empfangene Bytezahl.
 - Decoder: reine Funktionen, Signalherkunft und Gültigkeit. Kein I/O und keine
   stillschweigende Skalierung unbekannter Einträge.
 - Sammler: endlicher Testmodus und später Dauerbetrieb; jeweils ein Besitzer der
@@ -50,13 +52,15 @@ verwendet; Node 22 ist die LTS-Reihe für den React/Vite-Build. CI und Lockdatei
 fixieren reproduzierbare Eingaben. Änderungen dieser Versionen erfolgen bewusst
 und zusammen mit aktualisierten Locks.
 
-Der vorhandene API/UI-Startpunkt dient lokaler Offline-Entwicklung. Modbus-Transport,
-Sammler, Datenbank und Auslieferung des UI aus dem API-Prozess folgen in späteren Issues.
+Der FC03-Transport ist eine synchrone Socket-Implementierung ohne Bibliotheks-Retry.
+Der Offline-Simulator (`python -m backend.modbus_simulator`) bindet ausschließlich an
+Loopback und bietet deterministische Antworten/Fehler. Beide Komponenten sind
+noch nicht in den API-/Sammler-Lebenszyklus integriert; App-Start bleibt offline.
 
 Frische Installation: ohne konfiguriertes Ziel/Profil keine Geräteverbindung. Der
-aktuelle Startpunkt führt überhaupt keine Modbus-Kommunikation aus; Profil `core`
-bezeichnet nur den vorgesehenen künftigen Default. Kein automatischer Import,
-keine Suche, keine alte Standard-IP. Ein später explizit eingerichteter Betrieb darf
+Anwendungsstart führt überhaupt keine Modbus-Kommunikation aus; der explizite Transport
+bleibt nur über den Client-Aufruf aktiv. Kein automatischer Import, keine Suche,
+keine alte Standard-IP. Ein später explizit eingerichteter Betrieb darf
 nach normalem Neustart seinen dokumentierten Zustand wieder aufnehmen; harter Stopp,
 manuelle Pause und Fehlerbudget bleiben erhalten. Keine Wiederaufnahme während
 Backup/Restore oder bei fehlender Zustandsdatei nach bereits erkanntem Speicherfehler.

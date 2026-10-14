@@ -65,3 +65,30 @@ Tatsächlich geprüft:
 
 Kein Transport, Sammler, Datenbank, Live-Test oder Gerätezugriff gehört zu
 diesem Issue; diese Teile bleiben offen.
+
+## 14.10.2026 – Issue #4: Strikter FC03-Transport und Loopback-Simulator
+
+`backend/modbus.py` implementiert einen eigenen synchronen TCP-Lesetransport ohne
+Drittbibliothek und ohne Retries. Requests sind auf exakt die drei `core`-Blöcke,
+FC03, Unit 255, höchstens zwei Register und maximal 3 Sekunden begrenzt. Antworten
+werden als MBAP/PDU geprüft; Fehler tragen die Zahl empfangener Bytes. Timeout/
+Verbindungsfehler ohne Bytes und unvollständige Teilantworten haben getrennte
+Fehlerklassen. `backend/modbus_simulator.py` liefert deterministische synthetische
+Antworten und Fehler und bindet ausschließlich an `127.0.0.1`; der App-Start
+aktiviert weder Transport noch Simulator. Keine Gerätekommunikation.
+
+Tatsächlich geprüft:
+
+- `uv run pytest` – 31 bestanden; ein bestehendes Starlette/AnyIO-DeprecationWarning.
+- `uv run ruff check .` – bestanden.
+- Simulator-CLI auf `127.0.0.1:1502` gestartet und aus separatem Client-Aufruf
+  tatsächlich abgefragt: Offset 4102 lieferte synthetisch
+  `RegisterRead(offset=4102, words=(42,), unit_id=255, function_code=3)`.
+- Neue synthetische Transporttests prüfen fragmentierte Antworten, Unit,
+  Transaktion, Protokoll-ID, MBAP-Länge, Funktion, Byteanzahl, Modbus-Exception,
+  Timeout ohne Antwortbytes, unvollständige Antwort, Profilgrenze und Loopbackbindung.
+
+Grenzen: kein Sammler, kein automatischer Wiederaufnahme-Mechanismus und keine
+Integration in den API-Lebenszyklus; kein Live-, Unraid- oder Hardwaretest.
+Der Simulatorwert `42` ist ausschließlich synthetisch und kein Messwert.
+Änderungen bleiben uncommitted; kein Commit/PR erstellt.

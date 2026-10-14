@@ -1,9 +1,9 @@
 # Nächste Schritte
 
-Stand 14.10.2026: Projektgrundlage sowie das offlinefähige, enge `core`-Profil und
-reine Registerdecoder umgesetzt. Es gibt weiterhin keinen Modbus-Transport,
-Sammler, Speicher oder Gerätezugriff. Nächster Implementierungsschritt: [Issue #4](https://github.com/lum1nat0r/sommerauer-monitor/issues/4)
-– strikter FC03-Leseclient und lokaler Modbus-Simulator.
+Stand 14.10.2026: Projektgrundlage, enges `core`-Profil/Decoder, strikter
+FC03-Lesetransport ohne Retries sowie der Loopback-Modbus-Simulator sind umgesetzt.
+Es gibt weiterhin keinen Sammler, Speicher oder Gerätezugriff. Nächste Schritte gemäß
+Issue-Roadmap; kein Live-Test in diesem Arbeitsschritt.
 
 Zuerst [AGENTS](AGENTS.md), [Plan](docs/PLAN.md), [Entscheidungen](docs/ENTSCHEIDUNGEN.md),
 [Registerwissen](docs/MODBUS.md) und [Fehlerverhalten](docs/FEHLERVERHALTEN.md) lesen.

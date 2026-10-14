@@ -47,9 +47,11 @@ Wenn der Zustand nicht verlässlich lesbar ist: gestoppt, nicht automatisch neu 
 
 Modbus-Exception, falsche Unit/Funktion/Transaktion, ungültige MBAP-Länge oder
 Protokoll-ID, falsche Byteanzahl, vollständige ungültige Antwort oder nach Deadline
-unvollständige Antwort -> Protokollstopp. Normale TCP-Fragmentierung innerhalb der
-Deadline ist kein Fehler. Eine abgebrochene Verbindung nach Teilantwort zählt
-ebenfalls als Protokollfehler, nicht als reine Nichterreichbarkeit.
+unvollständige Antwort -> Protokollstopp. Der Transport liefert dazu die empfangene
+Byteanzahl: Verbindungsfehler/Timeout ohne Antwortbytes ist von Teilantwort/Abbruch
+unterschieden. Normale TCP-Fragmentierung innerhalb der Deadline ist kein Fehler.
+Eine abgebrochene Verbindung nach Teilantwort zählt ebenfalls als Protokollfehler,
+nicht als reine Nichterreichbarkeit.
 
 110 bei Kern-Temperaturkanälen, ungültiger Wertebereich, Restminuten >=1440 oder
 widersprüchlicher Zähler -> Datenstopp. Keine Null einsetzen, nicht korrigieren,

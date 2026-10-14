@@ -3,9 +3,9 @@
 Geplante lokale Monitoring-App für eine Sommerauer-Pelletsheizung: Modbus-Datenlogging,
 dauerhafte Minutenhistorie und Web-Dashboard auf Unraid.
 
-**Stand 14.10.2026: Projektgrundlage, offlinefähiger API/UI-Startpunkt sowie das
-bestätigte Kernprofil mit reinen Decodern umgesetzt. Erfassung, Speicherung,
-Modbus-Transport, Docker-Image und Geräteprüfung sind noch nicht implementiert.**
+**Stand 14.10.2026: Projektgrundlage, offlinefähiger API/UI-Startpunkt, bestätigtes
+Kernprofil/Decoder sowie ein strikter FC03-Lesetransport und Loopback-Simulator
+umgesetzt. Sammler, Speicherung, Docker-Image und Geräteprüfung fehlen weiterhin.**
 
 ## Hier mit der Arbeit beginnen
 
@@ -45,9 +45,11 @@ Lokale Einstellungen stehen in `.env`, niemals echte Hostnamen oder Zugangsdaten
 Beispiele, Logs oder CI übernehmen.
 
 `/api/config` enthält weder Hostwert noch lokalen Datenpfad. Der Host wird nur als
-gesetzt/nicht gesetzt ausgewiesen.
-Ein aktivierter Sammler ohne `MODBUS_HOST` ist ungültige Konfiguration. Ein Sammler
-oder Modbus-Transport ist in diesem Arbeitsschritt noch nicht implementiert.
+gesetzt/nicht gesetzt ausgewiesen. Der enge FC03-Client und Offline-Simulator sind
+unter `backend/modbus.py` und `backend/modbus_simulator.py` verfügbar; der
+Anwendungsstart startet weder Sammler noch Simulator und führt keine Gerätezugriffe aus.
+Den Simulator lokal mit `uv run python -m backend.modbus_simulator` starten
+(Standardbindung `127.0.0.1:1502`); Faults sind per `--fault` wählbar.
 
 Lizenz: noch nicht festgelegt. Vor einem Software-Release muss der Betreiber entscheiden;
 der MIT-Vorschlag ist keine erteilte Lizenz.

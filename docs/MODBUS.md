@@ -40,6 +40,27 @@ konservative Schranke setzt weder Heizungs-Tastgrad noch Zählerrücksetzung ode
 Es sind Anlagen-Betriebsminuten, nicht bewiesene Flammenlaufzeit oder Brennerstarts.
 BO01/BO02 bezeichnen an dieser Anlage oben/unten desselben Puffers.
 
+## FC03-Transport und Offline-Simulator
+
+`backend/modbus.py` akzeptiert nur `RegisterBlock`-Einträge des ausführbaren
+`core`-Profils und sendet FC03/Unit 255 mit maximal zwei Registern. Eine synchrone
+Socket-Anfrage verwendet eine feste Gesamtdeadline von 3 Sekunden ab Aufruf
+(einschließlich Warten auf den Client-Lock, Verbindungsaufbau und Empfang).
+Es gibt keine Retry- oder parallele Request-Ebene.
+
+Der Transport setzt die erwartete Antwortlänge nach MBAP-Header und Profilblock
+zusammen und prüft Transaktions-ID, Protokoll-ID 0, MBAP-Länge, Unit, FC03,
+Exception-PDU und Byteanzahl. Empfangene Bytes werden in Fehlern geführt.
+Timeout/Abbruch ohne Antwortbytes ist `ConnectionError`; Deadline-/Verbindungsabbruch
+nach Teilantwort ist `IncompleteResponseError`; fehlerhafte vollständige Protokolle
+sind `ProtocolError`. TCP-Fragmentierung wird bis zur Deadline zusammengesetzt.
+
+`backend/modbus_simulator.py` liefert feste synthetische Werte für die drei
+Kernblöcke und definierte Faults (Fragmentierung, Verzögerung, Teilantwort,
+verfälschte Header/PDU, Exception und Verbindungsabbruch). Bibliotheks-/API-Start
+aktiviert ihn nicht. Modulstart bindet auf `127.0.0.1:1502`; die Klasse verweigert
+nicht-loopback Ziele. Kein Scan, Modbus-Schreibbefehl oder Diagnosemodus.
+
 ## Weitere Kandidaten
 
 | Offset / Anzahl | Tabellenbezeichnung | Stand |
