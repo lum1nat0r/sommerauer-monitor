@@ -1,0 +1,64 @@
+{
+  "source_kind": "synthetischer_test",
+  "not_device_measurements": true,
+  "cases": [
+    {
+      "name": "kessel_ganze_grad",
+      "offset": 4102,
+      "words": [
+        65
+      ],
+      "expected": {
+        "boiler.temperature": 65
+      }
+    },
+    {
+      "name": "puffer_paar",
+      "offset": 36864,
+      "words": [
+        64,
+        32
+      ],
+      "expected": {
+        "buffer.top_temperature": 64,
+        "buffer.bottom_temperature": 32
+      }
+    },
+    {
+      "name": "betriebsminuten",
+      "offset": 28688,
+      "words": [
+        12,
+        34
+      ],
+      "expected": {
+        "boiler.operating_minutes": 17314
+      }
+    },
+    {
+      "name": "ersatzwert",
+      "offset": 4102,
+      "words": [
+        110
+      ],
+      "expected_error": "invalid_temperature"
+    },
+    {
+      "name": "falsche_restminuten",
+      "offset": 28688,
+      "words": [
+        12,
+        1440
+      ],
+      "expected_error": "invalid_counter"
+    },
+    {
+      "name": "signed16_ohne_kanalannahme",
+      "words": [
+        65530
+      ],
+      "signed16_result": -6,
+      "note": "Reine Umwandlung, keine gueltige Kern-Temperatur und kein Nachweis eines Aussenfuehlers"
+    }
+  ]
+}
