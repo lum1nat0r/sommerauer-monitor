@@ -27,7 +27,7 @@ die unbestätigte Außentemperatur übertragen.
 
 Das ausführbare Erstprofil `core` ist ausschließlich in
 [`backend/registers.py`](../backend/registers.py) definiert: exakt die drei oben
-aufgeführten Blöcke. `config/register_catalog.json` bleibt eine getrennte
+aufgeführten Blöcke. `backend/resources/register_catalog.json` bleibt eine getrennte
 Faktenreferenz und keine Pollingliste; die 194 statischen Einträge sind nicht aktiv.
 Dekodierte Werte tragen Rohworte, Blockoffset, Quelle sowie Profil- und
 Decoderversion, damit eine Interpretation nachvollziehbar bleibt.
@@ -78,12 +78,13 @@ Katalog und der bisherigen Projektdokumentation; die privaten Primärbelege
 wurden für Issue #11 nicht eingesehen. Es gibt für diese Kandidaten weder
 einen neuen Geräteantwort- noch einen Benutzer-/Displayabgleich. Sie bleiben
 außerhalb des ausführbaren `core`-Profils und sind nicht als Messwerte/API-
-Signale verfügbar. Vor einem begründeten privaten FC03-Lauf müssen die
-Primärbelege Semantik und Decoder klären; der private Ziel-/Laufplan und der
-Ausschluss anderer Leser sind hier nicht verfügbar. Daher wurde kein
-Gerätezugriff unternommen und kein Zusatzintervall aktiviert. Der Kernplan
-bleibt unverändert: drei bestätigte Blöcke im 60-s-Raster; die Zusatzwerte
-haben kein eingeplantes Intervall.
+Signale verfügbar. Vor ihrer Nutzung als interpretierte Monitoring-Signale müssen
+Primärbelege Semantik und Decoder klären. Der getrennte Diagnosepfad darf dagegen
+dokumentierte Rohworte ohne erfundene Interpretation gezielt auswählen; ein
+späterer Live-Lauf braucht einen endlichen privaten Ziel-/Laufplan und den
+Ausschluss anderer Leser. In #30 wurde kein Gerätezugriff unternommen und kein
+Zusatzintervall aktiviert. Der Kernplan bleibt unverändert: drei bestätigte
+Blöcke im 60-s-Raster; Zusatzwerte haben kein eingeplantes Intervall.
 
 Ein erfolgreicher einzelner zukünftiger Read wäre kein Beleg für dauerhaft
 gültige Skalierung oder Betriebsfreigabe.
@@ -93,11 +94,56 @@ Die Zuordnungen oben sind Kandidaten, kein bestätigter Zusatzumfang. Nie alle
 
 ## Vollkatalog und Grenzen
 
-[`config/register_catalog.json`](../config/register_catalog.json) enthält alle 199
+[`backend/resources/register_catalog.json`](../backend/resources/register_catalog.json) enthält alle 199
 Projektzuordnungen: 5 historisch live/Display bestätigt, 194 nur statisch.
 Felder: Offset, interner Code, Projektname, Wortanzahl, dokumentierter Importstatus,
 Prüfstatus, Einheit/Decoder soweit bekannt. Unbekannte Semantik bleibt unbekannt.
 Alle `polling_enabled` sind absichtlich false: Dokumentation ist keine Aktivierung.
+
+### Diagnoseauswahl (Issue #30)
+
+`backend/catalog.py` lädt die einzige kanonische Ressource erst mit
+`load_catalog() -> RegisterCatalog` über `importlib.resources.files("backend")`;
+der Arbeitsordner spielt keine Rolle. `entries` ist eine unveränderliche
+Offset-Zuordnung zu `CatalogEntry`, `metadata` bewahrt alle Top-Level-Felder außer
+der separat abgebildeten Registerliste. Auch verschachtelte Belegfelder sind
+unveränderlich. `sha256` bezeichnet die geladenen Dateibytes, **nicht** den
+historischen Tabellenhash `profile_sha256`.
+
+Schema 1, FC03/Unit 255, eindeutige ganzzahlige Offsets 0..65535, ein Wort je
+Eintrag, numerisch passende Hexcodes und vollständige exakte Kernblöcke werden
+validiert. Bool gilt nicht als Integer. Fehlende/leere/beschädigte Ressourcen
+liefern `CatalogUnavailable.code == "catalog_unavailable"`; keine Teilmenge oder
+Ersatzquelle. Erfolg und Fehlschlag werden pro Prozess gecacht; ein neuer
+Paketstand benötigt einen Prozessneustart. Kernimport, Kerndecoder und Sammler
+benötigen diesen Katalog nicht.
+
+`build_read_blocks(register_ids: list[str]) -> tuple[CatalogReadBlock, ...]`
+akzeptiert ausschließlich IDs wie `register:33408`. Es dedupliziert, sortiert
+nach Offset und verlangt anschließend 1–3 Blöcke. Ein Wort aus 28688/2 oder
+36864/2 erweitert auf den exakten Kernblock. Andere dokumentierte Register
+bleiben einzelne Worte: 4098 und 4099 werden **nicht** zusammengefasst.
+Leere/fremde Auswahlen, Lücke 4103, Steuer-IDs und vier Blöcke werden mit
+`CatalogSelectionError` abgewiesen. Keine freie Adresse, Nachbarzusammenfassung,
+Lückenüberbrückung, Folgeanfrage oder Netzwerkaktivität.
+
+Der Inventarvertrag bewahrt Originalfelder unter `CatalogEntry.fields` und
+stellt Bezeichnung (`csv_label`), Offset, Hexcode, Import-/Belegstatus und
+Decoderbeschreibung bereit. `read_support` ist `confirmed_core` für die fünf
+Kernworte, sonst `documented_raw`; `write_support` bleibt immer `unknown`.
+Uninterpretierte Einheiten und alle dekodierten Messwerte sind `None`
+(später JSON `null`). Textliche Unklarheitsbeschreibungen bleiben erhalten;
+Auswahl ändert weder Belegstatus noch Pollingprofil.
+
+`CONTROL_CANDIDATES` enthält separat exakt `control:buffer.start` und
+`control:buffer.target`, mit internen Codes 9040/9020 und potenziellen Offsets
+36928/36896 aus [START/Rückfall](START_RUECKFALL.md). Beide haben
+`read_block = None` und `write_support = "unknown"`, gehören nicht zu den
+199 FC03-Auswahlen. Keine Schreibkodierung oder Rückfallfähigkeit abgeleitet.
+Ein Name wie `Leistung_Soll` beweist ebenfalls keine Schreibbarkeit.
+Diese Bibliotheksreferenz ist noch kein ausführbarer Diagnose-Lesepfad;
+Transport, Laufsteuerung, API und Dashboard folgen in eigenen Unterissues.
+
 
 Nicht enthalten im importierten Profil: Zustandskanal 4097; START-Code 9040 hex
 (potenzieller Offset 36928), SOLL-Code 9020 hex (potenzieller Offset 36896).

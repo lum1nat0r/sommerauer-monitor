@@ -11,6 +11,12 @@ und vom Betreiber bestätigtem Displayabgleich belegt
 ([Ergebnisse](reports/RESULTS.md), [Betriebsplan](docs/INBETRIEBNAHME.md)).
 Offen: tatsächliches Unraid-Deployment und Langzeitbetrieb. Kein Dauerbetrieb aktiviert.
 
+Issue #30 ergänzt die isolierte Katalogreferenz für das Register-Prüfwerkzeug:
+199 unveränderte Zuordnungen als validierte Paketressource, unveränderlicher
+Prozesssnapshot und Auswahl von 1–3 engen Leseblöcken. Noch kein Diagnose-Runner,
+keine Diagnose-API und keine Diagnoseoberfläche; Kernpolling bleibt unverändert.
+Vertrag und Grenzen: [Modbus/Katalog](docs/MODBUS.md#diagnoseauswahl-issue-30).
+
 ## Hier mit der Arbeit beginnen
 
 1. [AGENTS.md](AGENTS.md): Arbeitsrahmen und Grenze für Geräteänderungen.
@@ -95,7 +101,7 @@ Lizenz: eigener App-Code unter [MIT](LICENSE), vom Betreiber am 15.10.2026 best�
 |---|---|
 | [Architektur](docs/ARCHITEKTUR.md) | Bausteine, Zuständigkeiten und Konfiguration |
 | [Modbus](docs/MODBUS.md) | Offsets, Decoder, Prüfstatus und bekannte Grenzen |
-| [Registerkatalog](config/register_catalog.json) | Alle 199 dokumentierten Projektzuordnungen; kein aktives Pollingprofil |
+| [Registerkatalog](backend/resources/register_catalog.json) | Alle 199 dokumentierten Projektzuordnungen; kein aktives Pollingprofil |
 | [Datenmodell](docs/DATENMODELL.md) | Signalnamen, Historie, Qualität, Zeitstempel, API-Vertrag |
 | [Fehlerverhalten](docs/FEHLERVERHALTEN.md) | Zustände, Wiederverbindungsbudget und harter Stopp |
 | [Inbetriebnahme](docs/INBETRIEBNAHME.md) | Begrenzte Lesetests und Übergang zum Dauerbetrieb |

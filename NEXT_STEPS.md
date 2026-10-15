@@ -14,6 +14,22 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
+## Register-Prüfwerkzeug: Übergabe nach #30
+
+Die kanonische Ressource liegt ausschließlich unter
+[`backend/resources/register_catalog.json`](backend/resources/register_catalog.json).
+`backend.catalog.load_catalog()` liefert einen validierten, unveränderlichen
+Snapshot mit Dateibytes-Hash; `build_read_blocks()` löst nur Katalog-IDs in
+1–3 enge Blöcke auf. 194 Rohregister bleiben uninterpretierte Diagnosekandidaten,
+START/SOLL getrennte Steuerkandidaten ohne Leseblock oder Schreibfähigkeit.
+Kein neues Polling und keine Geräteabfrage durch Import, Laden oder Auswahl.
+
+Nächstes Paket des Epics #29 ist #31: Diagnosejournal, dauerhafte Reservierungen
+und Migration/Restore. Danach #32 Transport, dann #33 Runner; noch keine
+Diagnoserouten oder UI integrieren. Wheel-Laufzeitnachweis außerhalb des Checkouts
+bleibt #39 vorbehalten. Offline-Nachweise zu #30: [Ergebnisse](reports/RESULTS.md).
+
+
 ## Begrenzter Full-Stack-Test am Gerät
 
 Durchgeführt am 15.10.2026: Ziel aus privater `.env`; Port 502, Unit 255,
