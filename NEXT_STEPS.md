@@ -14,7 +14,13 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
-## Register-Prüfwerkzeug: Übergabe nach #39
+## Register-Prüfwerkzeug: Abschluss von Epic #29
+
+Die Pakete #30–#39 sind zusammengeführt. Die
+[Abschlussmatrix](reports/RESULTS.md#15102026--issue-29-epicabschluss)
+ordnet Anforderungen, PRs und vorhandene Laufzeitbelege zu.
+Kein weiteres Implementierungspaket aus #29 offen; Container-/Unraid-Nachweis,
+Langzeitbetrieb und Stellweg/autonomer Rückfall (#18) sind dadurch nicht erfüllt.
 
 Die kanonische Ressource liegt ausschließlich unter
 [`backend/resources/register_catalog.json`](backend/resources/register_catalog.json).
