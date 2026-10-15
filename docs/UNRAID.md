@@ -79,11 +79,50 @@ Schema-Upgrades behalten; keine aktive Hauptdatei ohne WAL-Sicherung kopieren.
 
 ## Build- und Prüfgrenzen
 
-Das Dockerfile pinnt Python 3.12.9, Node 22.14.0, npm-Lockdatei und uv 0.12.2;
+Das Dockerfile pinnt Python 3.12.9, Node 26.7.0, npm 12.0.2, npm-Lockdatei und uv 0.12.2;
 Compose setzt das Ziel auf `linux/amd64`. Es gibt derzeit weder veröffentlichtes
 Image noch Release-Tag. Lokale Docker-Prüfungen sind keine Prüfung auf Unraid 7.3.2.
 Eine tatsächliche Unraid-Installation, Hardware- oder Geräteprüfung wird nur nach
 Ausführung als bestanden bezeichnet.
+
+### GitHub-Image-Build und Veröffentlichungsgrenze
+
+`.github/workflows/image.yml` baut und startet auf jedem Pull Request ein
+`linux/amd64`-Image offline ohne Registry-Anmeldung und ohne Push. Die bestehende
+Offline-CI prüft Python und Frontend; ein normaler Push auf `main` veröffentlicht
+und baut kein Image.
+Ein manueller Workflow-Start ist kein Veröffentlichungsweg. CI und Image-Build
+enthalten weder private Zieladressen noch Gerätezugriffe.
+
+Erst ein Push eines Versionstags `vX.Y.Z` im Original-Repository startet den
+Release-Job. Er verlangt eine vorhandene Lizenzdatei `LICENSE`, eine zu
+`pyproject.toml` passende Version, einen Tag-Commit aus `main` und ein
+geschlossenes Inbetriebnahme-Issue #13. Der Job führt Offline-Tests, Lint und
+Frontend-Build erneut aus, baut das Image genau einmal und prüft den gestarteten
+Container ohne Modbus-Ziel und mit
+`COLLECTOR_ENABLED=false` auf API-/Datenbankgesundheit, Version und inaktive
+Erfassung. Erst danach meldet sich der Job mit `GITHUB_TOKEN` (nur dieser Job
+besitzt `packages: write`) bei GHCR an und pusht das geprüfte Image als
+`ghcr.io/lum1nat0r/sommerauer-monitor:X.Y.Z`. Es gibt keinen `latest`- oder
+`main`-Tag und keinen automatischen Austausch des Betreibercontainers. Der
+Workflow gibt den Registry-Digest im Job-Ergebnis aus; für ein festes
+Deployment kann `ghcr.io/lum1nat0r/sommerauer-monitor@sha256:…` verwendet
+werden. PR-Builds haben nur Leserechte.
+
+Vor dem ersten Versionstag: Lizenzentscheidung dokumentieren, #13 einschließlich
+der noch offenen Geräte-/Unraid-Nachweise auswerten, die Releasefreigabe im Rahmen
+von #14 festhalten und Branch-/Tag-Rulesets so einrichten, dass ausschließlich
+`main`-Commits getaggt werden. Der Workflow prüft Lizenzdatei, Version,
+Commit-Zugehörigkeit und Issue-Status technisch; ein geschlossenes Issue
+ersetzt **nicht** die fachliche Abnahme von #13 oder die Tag-Berechtigungen.
+GHCR-Pakete sind bei Erstveröffentlichung
+standardmäßig privat; die Sichtbarkeit erst nach Lizenz- und Releasefreigabe
+bewusst auf öffentlich setzen und einen anonymen Pull prüfen. Bis dahin bleibt
+der Imageverweis im Unraid-Template ein Platzhalter. Das Betreiber-Deployment
+erfolgt weiterhin manuell mit gesichertem `/data` und lokaler Konfiguration.
+
+Quellen: [GitHub-Workflow-Syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax),
+[GHCR-Berechtigungen und Sichtbarkeit](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
 
 ## Sicherung, Update und Wiederherstellung
 

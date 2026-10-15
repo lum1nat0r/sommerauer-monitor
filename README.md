@@ -72,9 +72,12 @@ Mit `cp .env.example .env` lokale Defaults anlegen, dort einen beschreibbaren
 `DATA_PATH` setzen und mit `docker compose up --build -d` lokal bauen. Der Container
 läuft als UID 99/GID 100, bindet Port 8000, persistiert ausschließlich in `/data`
 und startet ohne Hostadresse oder aktivierte Erfassung. `/api/version` meldet
-Buildversion und Revision. Der Unraid-Template-Imageverweis ist ein erwarteter
-Registrypfad, kein veröffentlichtes Image; es gibt noch keinen Release-Tag.
-Lokale Docker-Prüfungen belegen keine Installation auf Unraid oder Gerätefunktion.
+Buildversion und Revision. Pull Requests prüfen jetzt einen `linux/amd64`-Image-Build
+ohne Push; ausschließlich freigegebene Versionstags können nach Offline-Prüfungen
+ein GHCR-Image veröffentlichen ([Strategie und Sperren](docs/UNRAID.md#github-image-build-und-veröffentlichungsgrenze)).
+Der Unraid-Template-Imageverweis ist weiterhin ein erwarteter Registrypfad,
+kein veröffentlichtes Image; es gibt noch keinen Release-Tag. Lokale
+Docker-Prüfungen belegen keine Installation auf Unraid oder Gerätefunktion.
 
 Lizenz: noch nicht festgelegt. Vor einem Software-Release muss der Betreiber entscheiden;
 der MIT-Vorschlag ist keine erteilte Lizenz.

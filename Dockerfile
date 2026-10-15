@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22.14.0-bookworm-slim AS frontend-build
+FROM node:26.7.0-bookworm-slim AS frontend-build
 WORKDIR /src
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install --global npm@12.0.2 && npm ci
 COPY frontend ./frontend
 COPY vite.config.ts ./
 RUN npm run build
@@ -25,6 +25,7 @@ ARG APP_UID=99
 ARG APP_GID=100
 LABEL org.opencontainers.image.title="Sommerauer Monitor" \
       org.opencontainers.image.description="Lokales, lesendes Heizungsmonitoring" \
+      org.opencontainers.image.source="https://github.com/lum1nat0r/sommerauer-monitor" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${BUILD_REVISION}"
 ENV PATH="/opt/venv/bin:${PATH}" \

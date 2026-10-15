@@ -1,0 +1,115 @@
+name: Container-Image
+
+on:
+  pull_request:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  pull-request-build:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      IMAGE: sommerauer-monitor
+      APP_VERSION: pr-${{ github.event.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Image ohne Registry-Zugriff bauen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.IMAGE }}:${{ env.APP_VERSION }}
+          build-args: |
+            APP_VERSION=${{ env.APP_VERSION }}
+            BUILD_REVISION=${{ github.sha }}
+      - name: Image ohne Gerätekonfiguration starten und prüfen
+        run: bash scripts/smoke_image.sh
+
+  release:
+    if: github.event_name == 'push' && github.repository == 'lum1nat0r/sommerauer-monitor'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/lum1nat0r/sommerauer-monitor
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.9'
+      - name: Release-Referenz und Lizenz prüfen
+        shell: bash
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test -s LICENSE
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          VERSION="${GITHUB_REF_NAME#v}"
+          python - "$VERSION" <<'PY'
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          project = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          if project['project']['version'] != sys.argv[1]:
+              raise SystemExit('Release-Tag und Projektversion stimmen nicht überein')
+          PY
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Inbetriebnahme-Issue als Release-Voraussetzung prüfen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: test "$(gh issue view 13 --repo "$GITHUB_REPOSITORY" --json state --jq .state)" = CLOSED
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: '0.12.2'
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run pytest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+      - run: npm install --global npm@12.0.2
+      - run: npm ci
+      - run: npm run build
+      - uses: docker/setup-buildx-action@v3
+      - name: Release-Image lokal bauen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.IMAGE }}:${{ env.APP_VERSION }}
+          build-args: |
+            APP_VERSION=${{ env.APP_VERSION }}
+            BUILD_REVISION=${{ github.sha }}
+      - name: Image ohne Gerätekonfiguration starten und prüfen
+        run: bash scripts/smoke_image.sh
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Geprüftes Image veröffentlichen
+        shell: bash
+        run: |
+          docker push "$IMAGE:$APP_VERSION"
+          docker buildx imagetools inspect "$IMAGE:$APP_VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
