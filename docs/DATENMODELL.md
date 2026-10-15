@@ -1,7 +1,7 @@
 # Signal-, Speicher- und API-Vertrag
 
-Die Signaldecodierung, SQLite-Speicherung, Erfassung und persistente Sammlerzustände
-sind implementiert; Messwert-/Verlaufs-API und Verwaltungssteuerung bleiben offen.
+Signaldecodierung, SQLite-Speicherung, Erfassung, persistente Sammlerzustände und
+lesende Messwert-/Verlaufs-/Ereignis-API sowie geschützte Sammleraktionen sind umgesetzt.
 
 ## Signale und Messungen
 
@@ -44,22 +44,36 @@ UTC intern; Europe/Vienna für Anzeige. CSV mit ISO-8601-Zeit/Offset, Einheit un
 Qualität, frei wählbarem Zeitraum. Keine doppelten/ausgelassenen Stunden beim
 Sommerzeitwechsel. Große Exporte streamen; Abfrageumfang/Sortierung deterministisch.
 
-## Geplante API-Funktionen
+## HTTP-API
 
-| Funktion | Erwarteter Inhalt |
+FastAPI veröffentlicht OpenAPI unter `/openapi.json` und Swagger UI unter `/docs`.
+Alle Leseendpunkte arbeiten ausschließlich mit SQLite; kein Refresh löst Modbus aus.
+
+| Route | Vertrag |
 |---|---|
-| App-Gesundheit | Prozess/DB separat vom Messzustand |
-| Aktuelle Signale | letzter Wert, Messzeit, Alter, Qualität, Einheit |
-| Verlauf | Signal(e), Zeitraum, Auflösung/Punktlimit, Lücken |
-| Ereignisse | sortiert, Filter, Pagination |
-| CSV | Originalmessungen im Zeitraum; keine stillen Aggregate |
-| Erfassungszustand (`GET /api/collector/status`) | Zustand, Fehlergrund, verbrauchte Versuche, nächste Aktion/Zeit |
-| Pause/Fortsetzen | ausschließlich Sammlersteuerung; kein Kesselbefehl |
-| Konfiguration | validierte App-Konfiguration, redigierte Geheimnisse |
+| `GET /api/health` | App- und Datenbankstatus; unabhängig vom Sammlerzustand |
+| `GET /api/config` | Redigierte Konfiguration; Hostwert und Datenpfad fehlen |
+| `PUT /api/config` | Nur `display_timezone`; speichert Version und Ereignis |
+| `GET /api/signals/current` | Letzter Wert, Einheit, Messzeit, Alter, Qualität und Freshness |
+| `GET /api/history/{signal_id}` | ISO-8601-Zeitbereich, UTC-normalisiert, seitenweise bis 10.000 Rohpunkte |
+| `GET /api/events` | Neueste Ereignisse mit `limit`/`offset` |
+| `GET /api/export.csv` | Streamt alle passenden Originalmessungen ohne Downsampling |
+| `GET /api/collector/status` | Zustand und begrenzte Wiederaufnahme |
+| `POST /api/collector/pause`, `/resume`, `/acknowledge-and-start` | Geschützte Sammleraktionen, keine Heizungsbefehle |
 
-Weitere HTTP-Routen und Schemas beim API-Issue festlegen, OpenAPI und Fehlerantworten
-dokumentieren. Reads lösen nie Modbus aus. Verwaltungsaktionen erfordern einen
-konkreten lokalen Zugriffsschutz und Schutz gegen unbeabsichtigte Browseraufrufe;
-dieses Issue ergänzt deshalb nur den lesenden Statusendpunkt. Konfigurationsänderungen
-transaktional, bei relevanten Änderungen kontrolliert pausieren. Keine beliebigen
-Register/Funktionen als HTTP-Parameter anbieten.
+Zeitfilter müssen eine Zeitzone enthalten; Start ist inklusiv, Ende exklusiv.
+Historienseiten sortieren nach Messzeit und Beobachtungs-ID. CSV-Zeitstempel
+bleiben als gespeicherte ISO-8601-UTC-Werte erhalten; Rohworte, Qualität und
+Decoderherkunft sind enthalten. Fehlerdetails aus Transport und Speicher werden
+nicht öffentlich ausgegeben.
+
+Mutierende Requests benötigen eine exakt gleiche `Origin`-Quelle, dürfen nicht
+als `cross-site` markiert sein und müssen `X-Requested-With: SommerauerMonitor`
+setzen. Dadurch werden formularbasierte und cross-origin Browseraktionen abgewiesen.
+Dies ist CSRF-Schutz, kein Ersatz für Netzwerk-/Betriebssystem-Zugriffsschutz:
+App nur im vertrauenswürdigen LAN/Tailscale bereitstellen.
+
+Die API-Konfiguration ändert ausschließlich die Anzeigezeitzone. Modbus-Ziel,
+Port, Unit, Profil und Datenpfad bleiben Deployment-Konfiguration und werden
+niemals per Verwaltungsroute geändert. Verwaltungsaktionen benötigen einen
+konfigurierten Collector; fehlt er, antwortet die Route mit HTTP 409.
