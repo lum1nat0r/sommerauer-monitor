@@ -237,3 +237,5 @@ Tatsächlich geprüft:
 Grenzen: kein Modbus-Zugriff, keine Live-/Unraid-/Docker-Prüfung und keine visuelle
 UI-Prüfung. Der Schreibzugriff auf Konfiguration umfasst absichtlich nur
 `display_timezone`; Ziel-/Verbindungsparameter bleiben Deployment-Konfiguration.
+Commit: `a1af16d` (`Implement local API for #8`). Pull Request:
+https://github.com/lum1nat0r/sommerauer-monitor/pull/20 (Basis `main`, nach dem Merge von #7). GitHub Actions waren bei Übergabe noch ausstehend; ein früherer Lauf hatte beide Jobs bestanden.
