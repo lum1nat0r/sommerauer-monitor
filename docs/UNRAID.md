@@ -109,7 +109,8 @@ Workflow gibt den Registry-Digest im Job-Ergebnis aus; für ein festes
 Deployment kann `ghcr.io/lum1nat0r/sommerauer-monitor@sha256:…` verwendet
 werden. PR-Builds haben nur Leserechte.
 
-Vor dem ersten Versionstag: Lizenzentscheidung dokumentieren, #13 einschließlich
+MIT für eigenen App-Code ist am 15.10.2026 bestätigt (`LICENSE`).
+Vor dem ersten Versionstag: #13 einschließlich
 der noch offenen Geräte-/Unraid-Nachweise auswerten, die Releasefreigabe im Rahmen
 von #14 festhalten und Branch-/Tag-Rulesets so einrichten, dass ausschließlich
 `main`-Commits getaggt werden. Der Workflow prüft Lizenzdatei, Version,

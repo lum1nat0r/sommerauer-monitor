@@ -694,3 +694,11 @@ beschreibt die nächste Betreiberinstallation, ohne sie zu aktivieren.
 Unraid-Mount/Neustart/Containerersatz/externes Backup und Restore sowie
 tatsächlicher Dauerbetrieb bleiben offen. Keine neue Lizenz-/Releasefreigabe
 und keine Aktivierung zusätzlicher Gerätefunktionen.
+
+## 15.10.2026 – MIT-Lizenz vom Betreiber bestätigt
+
+Der Betreiber hat MIT für eigenen App-Code ausdrücklich akzeptiert.
+`LICENSE` enthält den MIT-Lizenztext; README, Entscheidungen und Release-
+Checklisten führen die Lizenzentscheidung nicht mehr als offen.
+Herstellerdateien, rekonstruierter Herstellercode und Rechte an Abhängigkeiten
+sind davon nicht erfasst. Kein Release-Tag, Registry-Push oder Deployment ausgelöst.
