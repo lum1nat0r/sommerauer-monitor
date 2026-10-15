@@ -4,10 +4,13 @@ import csv
 from datetime import datetime, timezone
 import io
 import json
+import os
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from backend.collector import Collector, CollectorStopped
@@ -87,6 +90,14 @@ async def protect_mutations(request: Request, call_next):
             return JSONResponse(status_code=403, content={"detail": "Same-origin request required"})
     return await call_next(request)
 
+
+
+@app.get("/api/version")
+def version_info() -> dict[str, str]:
+    return {
+        "version": os.environ.get("APP_VERSION", app.version),
+        "revision": os.environ.get("BUILD_REVISION", "unknown"),
+    }
 
 @app.get("/api/health")
 def health(request: Request) -> dict[str, object]:
@@ -295,3 +306,7 @@ def acknowledge_collector(request: Request) -> dict[str, object]:
     except CollectorStopped as exc:
         raise HTTPException(409, "Collector cannot be acknowledged in its current state") from exc
     return collector.status()
+
+static_directory = Path(__file__).resolve().parent.parent / "static"
+if static_directory.is_dir():
+    app.mount("/", StaticFiles(directory=static_directory, html=True), name="frontend")

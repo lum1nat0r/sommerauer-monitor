@@ -280,3 +280,71 @@ Anlagenverträglichkeit oder Live-API-/Deployment-Funktion.
 Grenzen: keine Gerätezugriffe; Zusatzregister bleiben inaktiv. Ein Browser-/
 Gerätetest mit realen Messdaten und Deployment ist nicht Teil dieser Offline-
 Implementierung. Keine unabhängige Geräte-/Herstellerprüfung.
+
+## 15.10.2026 – Issue #10: Docker-Paket und Unraid-Template
+
+Ergänzt wurden ein mehrstufiges `Dockerfile` (Node-Frontendbuild, Python-
+Runtime), `compose.yaml`, `unraid-template.xml` und Build-Context-Ausschlüsse.
+Das Image bindet das Vite-Frontend in FastAPI ein, läuft standardmäßig mit UID
+99/GID 100, enthält `/api/version` und prüft API-/SQLite-Erreichbarkeit per
+Healthcheck. Compose begrenzt es auf `linux/amd64`, Bridge-Netzwerk,
+read-only Root-Dateisystem, Capability-Drop, Init-Prozess und geordneten
+SIGTERM-Shutdown. Persistenter Zustand bleibt unter `/data`; Collector und
+Modbus sind standardmäßig deaktiviert. Das Unraid-Template bleibt auf ein noch
+nicht veröffentlichtes Image verwiesen; kein Release-Tag wird behauptet.
+
+Tatsächlich geprüft:
+
+- `uv run --locked pytest -q` – 63 bestanden; ein vorhandenes
+  Starlette/AnyIO-DeprecationWarning.
+- `uv run --locked ruff check .` – bestanden.
+- `npm run build` – TypeScript-Prüfung und Vite-Produktionsbuild bestanden.
+- Lokaler FastAPI-Smoke mit dem gebauten `dist`: UI-Einstieg, JavaScript-Bundle,
+  `/api/health` und `/api/version` lieferten HTTP 200; Version/Revision und
+  Datenbankstatus geprüft. Keine Containerverifikation.
+- `docker compose config --quiet` – Compose-Konfiguration gültig.
+- `uv run --locked python -c "import xml.etree.ElementTree as ET; ET.parse('unraid-template.xml')"`
+  – Template-XML wohlgeformt.
+- Loopback-Simulator gestartet und über `ModbusTcpClient` Offset 4102 abgefragt:
+  synthetische Antwort `RegisterRead(offset=4102, words=(42,), unit_id=255, function_code=3)`.
+- `docker compose build --progress=plain` scheiterte vor Buildstart: Docker-CLI
+  konnte keine Verbindung zum Docker-Engine-Pipe
+  `//./pipe/dockerDesktopLinuxEngine` öffnen.
+
+Grenzen und offene Abnahme: Die lokale Docker-Engine war nicht verfügbar. Daher
+wurden Image-Build, Nicht-root-Prozess im Container, Volume-Schreibrechte,
+Containerersatz/Persistenz, Healthcheck, Container-Shutdown, harte Stopps im
+Container und Start ohne Hostkonfiguration nicht verifiziert. `docker compose
+config` und synthetische Python-Tests ersetzen diese Containerprüfungen nicht.
+Keine Unraid-7.3.2-Installation, keine Gerätezugriffe und kein Release-Tag.
+
+## 15.10.2026 – Podman-Nachprüfung zu Issue #10
+
+Nach Verfügbarkeit des lokalen Podman-5.8.1-Engines wurde das Image auf
+`linux/amd64` gebaut. `podman compose --env-file .podman-smoke.env up -d --build`
+baute den Stack und startete ihn; `/api/health` und die UI waren erreichbar.
+Die Compose-Healthcheck-Argumente wurden dafür auf das Modul
+`backend.healthcheck` umgestellt. Manueller Healthcheck lieferte `healthy`.
+
+Tatsächlich geprüft:
+
+- Compose-Container mit UID 99/GID 100: UI-HTML, JS-Bundle, Health, Konfiguration
+  und Sammlerstatus erreichbar. Ohne Hostkonfiguration: `host_configured=false`,
+  `collector_enabled=false`, Zustand `unconfigured`.
+- Persistenter Compose-Bind-Mount: SQLite wurde beschreibbar angelegt und blieb
+  über Containerersatz erhalten; zuvor gespeicherte Anzeigezeitzone `UTC` blieb
+  erhalten.
+- Geteilter Loopback-Netzwerk-Namespace mit ausschließlich dem Projektsimulator:
+  Collector speicherte synthetisch `boiler.temperature=42`.
+- Simulator-Fault `exception`: Collector ging zu `stopped_protocol`, blieb nach
+  Containerersatz gestoppt; Wiederaufnahmezähler blieb 0.
+- Geordnetes Stoppen der Collector-Container endete mit Exitcode 0. Der Compose-
+  Healthcheck meldete nach Neustart `healthy`.
+- `uv run --locked pytest -q` – 63 bestanden; ein vorhandenes
+  Starlette/AnyIO-DeprecationWarning. `uv run --locked ruff check .` – bestanden.
+- `npm audit` meldete eine hohe Vite-Schwachstelle in der gepinnten Version 6.2.2;
+  verfügbarer Fix laut Audit: 6.4.4. Vite ist Build-/Entwicklungsabhängigkeit und
+  wird nicht in die Runtime-Stufe kopiert; die Sperrdateien blieben unverändert.
+
+Grenzen: Podman-/Container-Smokes sind keine Unraid-7.3.2-Prüfung. Keine
+Gerätezugriffe. Eine tatsächliche Release-Veröffentlichung erfolgte nicht.
