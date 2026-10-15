@@ -24,8 +24,11 @@ Tabelle. Interner Speichervertrag und Datenschutz:
 
 Issue #32 ergänzt `read_catalog()` über denselben strikten FC03-Telegrammpfad
 wie Kernreads und den expliziten synthetischen Simulator-Katalogmodus
-(`--catalog`). Noch kein Diagnose-Runner, keine Diagnose-API oder Oberfläche;
-kein zusätzliches Kernpolling und keine Live-Abnahme.
+(`--catalog`). Issue #33 ergänzt den endlichen manuellen `ReadCheckRunner` mit
+gemeinsamem Gerätebesitz, persistenten Stopps und gesperrter Recovery:
+höchstens drei explizite Reads, 60 s Abstand einschließlich Speicherung,
+600 s Laufzeit; keine zusätzlichen Kernmessungen. Diagnose-API/Lifespan und
+Oberfläche folgen getrennt in #35/#36; keine Live-Abnahme.
 
 ## Hier mit der Arbeit beginnen
 
