@@ -9,8 +9,9 @@ from uuid import UUID
 import sqlite3
 
 import pytest
+from pydantic import ValidationError
 
-from backend.storage import SCHEMA_VERSION, SQLiteStore, StorageError
+from backend.storage import SCHEMA_VERSION, RevisionConflict, SQLiteStore, StorageError
 
 
 def make_store(tmp_path):
@@ -848,3 +849,266 @@ def test_late_hard_error_requires_new_acknowledgement_after_recovery_ack(tmp_pat
     store.acknowledge_diagnostic_run(run_id, "Protokollfehler zusätzlich geklärt")
     reserve(store, waiting)
     assert store.get_diagnostic_run(run_id)["requests_reserved"] == 1
+
+
+def control_draft(**changes):
+    draft = {
+        "candidate_id": "control:buffer.start",
+        "purpose": "Synthetischer Offline-Rückstellversuch",
+        "source_reference": None,
+        "address_evidence": None,
+        "function_code": None,
+        "encoding_evidence": None,
+        "before_value": None,
+        "test_value": None,
+        "restore_value": None,
+        "value_unit": None,
+        "allowed_range_evidence": None,
+        "max_duration_seconds": None,
+        "max_write_requests": None,
+        "stop_conditions": None,
+        "verification_steps": None,
+        "restore_steps": None,
+        "host_loss_behavior": None,
+        "network_loss_behavior": None,
+        "device_restart_behavior": None,
+        "operator_approval_reference": None,
+    }
+    draft.update(changes)
+    return draft
+
+
+def test_control_revisions_preserve_documents_values_and_reopen(tmp_path):
+    store = make_store(tmp_path)
+    draft = control_draft(before_value="synthetisch vorher", test_value="synthetisch Versuch",
+                          restore_value="synthetisch zurück")
+    expected = deepcopy(draft)
+    first = store.save_control_plan(None, None, draft)
+    plan_id = first["plan_id"]
+    assert UUID(plan_id).version == 4
+    assert first["revision"] == 1
+    assert_utc(first["created_at"])
+    assert first["draft"] == expected
+    assert first["execution_enabled"] is False
+    assert first["assessment"]["status"] == "draft"
+    with sqlite3.connect(store.path) as connection:
+        original_json = connection.execute(
+            "SELECT document_json FROM control_plans WHERE plan_id = ? AND revision = 1",
+            (plan_id,),
+        ).fetchone()[0]
+    draft["before_value"] = "synthetisch neuer Vorwert"
+    draft["test_value"] = "synthetisch neuer Versuch"
+    draft["restore_value"] = "synthetisch neuer Rückstellwert"
+    second = store.save_control_plan(plan_id, 1, draft)
+    assert second["revision"] == 2
+    assert second["draft"] == draft
+    assert second["execution_enabled"] is False
+    with pytest.raises(RevisionConflict) as conflict:
+        store.save_control_plan(plan_id, 1, expected)
+    assert conflict.value.code == "revision_conflict"
+    first["draft"]["restore_value"] = "nur Rückgabewert verändert"
+    draft["test_value"] = "nur Eingabewert verändert"
+    reopened = SQLiteStore(store.path)
+    historical = reopened.get_control_plan(plan_id, 1)
+    assert historical["draft"] == expected
+    assert historical["execution_enabled"] is False
+    assert historical["source_status"] == first["source_status"]
+    assert historical["assessment"] == first["assessment"]
+    assert reopened.get_control_plan(plan_id) == second
+    assert reopened.get_control_plan(plan_id, 2) == second
+    with sqlite3.connect(store.path) as connection:
+        rows = connection.execute(
+            "SELECT revision, document_json FROM control_plans WHERE plan_id = ? ORDER BY revision",
+            (plan_id,),
+        ).fetchall()
+    assert [row[0] for row in rows] == [1, 2]
+    assert rows[0][1] == original_json
+
+
+def test_concurrent_control_updates_commit_exactly_one_revision(tmp_path):
+    first = make_store(tmp_path)
+    second = SQLiteStore(first.path)
+    original = first.save_control_plan(None, None, control_draft())
+    plan_id = original["plan_id"]
+    barrier = Barrier(2)
+
+    def update(store, value):
+        barrier.wait(timeout=10)
+        try:
+            return store.save_control_plan(plan_id, 1, control_draft(test_value=value))
+        except RevisionConflict as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(update, first, "synthetischer Versuch A"),
+            executor.submit(update, second, "synthetischer Versuch B"),
+        ]
+        outcomes = [future.result(timeout=15) for future in futures]
+    successes = [result for result in outcomes if isinstance(result, dict)]
+    conflicts = [result for result in outcomes if isinstance(result, RevisionConflict)]
+    assert len(successes) == len(conflicts) == 1
+    assert conflicts[0].code == "revision_conflict"
+    assert first.get_control_plan(plan_id) == successes[0]
+    assert first.get_control_plan(plan_id)["revision"] == 2
+    assert first.get_control_plan(plan_id, 1) == original
+    assert first.get_control_plan(plan_id, 3) is None
+
+
+@pytest.mark.parametrize("expected_revision", [None, True, False, 0, -1, 1.0, "1", [], {}])
+def test_control_updates_require_strict_positive_expected_revision(tmp_path, expected_revision):
+    store = make_store(tmp_path)
+    original = store.save_control_plan(None, None, control_draft())
+    with pytest.raises(StorageError):
+        store.save_control_plan(original["plan_id"], expected_revision, control_draft())
+    assert store.get_control_plan(original["plan_id"]) == original
+    assert store.get_control_plan(original["plan_id"], 2) is None
+
+
+@pytest.mark.parametrize("expected_revision", [1, 0, -1, True, 1.0, "1"])
+def test_new_control_plan_rejects_any_expected_revision(tmp_path, expected_revision):
+    store = make_store(tmp_path)
+    with pytest.raises(StorageError):
+        store.save_control_plan(None, expected_revision, control_draft())
+    assert store.list_control_plans() == []
+
+
+def test_control_missing_id_or_revision_never_creates_a_plan(tmp_path):
+    store = make_store(tmp_path)
+    assert store.get_control_plan("missing-plan") is None
+    assert store.get_control_plan("missing-plan", 1) is None
+    with pytest.raises(StorageError, match="nicht gefunden"):
+        store.save_control_plan("missing-plan", 1, control_draft())
+    assert store.list_control_plans() == []
+    original = store.save_control_plan(None, None, control_draft())
+    assert store.get_control_plan(original["plan_id"], 2) is None
+    with pytest.raises(RevisionConflict):
+        store.save_control_plan(original["plan_id"], 2, control_draft())
+    assert store.get_control_plan(original["plan_id"]) == original
+
+
+@pytest.mark.parametrize("plan_id", ["", "   ", False, 1, []])
+def test_control_invalid_update_ids_are_not_new_plans(tmp_path, plan_id):
+    store = make_store(tmp_path)
+    with pytest.raises(StorageError):
+        store.save_control_plan(plan_id, 1, control_draft())
+    with pytest.raises(StorageError):
+        store.get_control_plan(plan_id)
+    assert store.list_control_plans() == []
+
+
+@pytest.mark.parametrize("revision", [True, False, 0, -1, 1.0, "1"])
+def test_control_get_rejects_invalid_revision(tmp_path, revision):
+    store = make_store(tmp_path)
+    original = store.save_control_plan(None, None, control_draft())
+    with pytest.raises(StorageError):
+        store.get_control_plan(original["plan_id"], revision)
+
+
+def test_control_list_returns_latest_revisions_in_stable_order(tmp_path, monkeypatch):
+    store = make_store(tmp_path)
+    assert store.list_control_plans() == []
+    monkeypatch.setattr("backend.storage.utc_now", lambda: "2026-10-15T10:00:00+00:00")
+    first = store.save_control_plan(None, None, control_draft(purpose="Plan A"))
+    second = store.save_control_plan(None, None, control_draft(purpose="Plan B"))
+    third = store.save_control_plan(None, None, control_draft(purpose="Plan C"))
+    monkeypatch.setattr("backend.storage.utc_now", lambda: "2026-10-15T11:00:00+00:00")
+    latest = store.save_control_plan(second["plan_id"], 1, control_draft(purpose="Plan B neu"))
+    expected = [latest, *sorted([first, third], key=lambda item: item["plan_id"])]
+    assert store.list_control_plans() == expected
+    assert SQLiteStore(store.path).list_control_plans() == expected
+    listed = store.list_control_plans()
+    listed[0]["draft"]["purpose"] = "nur Ausgabe verändert"
+    assert store.get_control_plan(second["plan_id"]) == latest
+    assert store.get_control_plan(second["plan_id"], 1) == second
+
+
+@pytest.mark.parametrize("changes", [
+    {"candidate_id": "register:4103"},
+    {"candidate_id": "control:unknown"},
+    {"unexpected": "verbotenes Zusatzfeld"},
+    {"purpose": ""},
+    {"purpose": "x" * 4001},
+    {"source_reference": "x" * 4001},
+    {"function_code": 0},
+    {"function_code": 128},
+    {"max_duration_seconds": 0},
+    {"max_duration_seconds": -1},
+    {"max_write_requests": 0},
+    {"max_write_requests": -1},
+])
+def test_invalid_control_draft_creates_no_plan_or_revision(tmp_path, changes):
+    store = make_store(tmp_path)
+    invalid = control_draft(**changes)
+    with pytest.raises(ValidationError):
+        store.save_control_plan(None, None, invalid)
+    assert store.list_control_plans() == []
+    original = store.save_control_plan(None, None, control_draft())
+    with pytest.raises(ValidationError):
+        store.save_control_plan(original["plan_id"], 1, invalid)
+    assert store.get_control_plan(original["plan_id"]) == original
+    assert store.get_control_plan(original["plan_id"], 2) is None
+    assert store.list_control_plans() == [original]
+
+
+@pytest.mark.parametrize("updating", [False, True])
+def test_control_insert_failure_rolls_back_and_redacts_private_error(tmp_path, updating):
+    store = make_store(tmp_path)
+    original = store.save_control_plan(None, None, control_draft()) if updating else None
+    plan_id = original["plan_id"] if original else None
+    expected_revision = 1 if original else None
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            """CREATE TRIGGER synthetic_control_failure AFTER INSERT ON control_plans
+            BEGIN SELECT RAISE(FAIL, 'private-host.invalid/private/path'); END"""
+        )
+    with pytest.raises(StorageError) as error:
+        store.save_control_plan(plan_id, expected_revision, control_draft(test_value="synthetisch"))
+    assert str(error.value) == "Steuerplan konnte nicht gespeichert werden"
+    assert "private-host" not in str(error.value)
+    assert store.list_control_plans() == ([original] if original else [])
+    with sqlite3.connect(store.path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM control_plans").fetchone()[0] == int(updating)
+        connection.execute("DROP TRIGGER synthetic_control_failure")
+    saved = store.save_control_plan(plan_id, expected_revision, control_draft(test_value="synthetisch"))
+    assert saved["revision"] == (2 if updating else 1)
+    if updating:
+        assert store.get_control_plan(plan_id, 1) == original
+
+
+@pytest.mark.parametrize("operation", ["save", "get", "list"])
+def test_control_connection_errors_are_safe_storage_errors(tmp_path, monkeypatch, operation):
+    store = make_store(tmp_path)
+
+    def fail_connection():
+        raise sqlite3.OperationalError("private-host.invalid/private/path")
+
+    monkeypatch.setattr(store, "_connect", fail_connection)
+    with pytest.raises(StorageError) as error:
+        if operation == "save":
+            store.save_control_plan(None, None, control_draft())
+        elif operation == "get":
+            store.get_control_plan("synthetic-id")
+        else:
+            store.list_control_plans()
+    assert "private-host" not in str(error.value)
+    assert "private/path" not in str(error.value)
+
+
+
+@pytest.mark.parametrize("operation", ["get", "list"])
+def test_corrupt_control_json_is_a_safe_storage_error(tmp_path, operation):
+    store = make_store(tmp_path)
+    original = store.save_control_plan(None, None, control_draft())
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            "UPDATE control_plans SET document_json = ? WHERE plan_id = ?",
+            ("private-host.invalid/private/path", original["plan_id"]),
+        )
+    with pytest.raises(StorageError) as error:
+        if operation == "get":
+            store.get_control_plan(original["plan_id"])
+        else:
+            store.list_control_plans()
+    assert "private-host" not in str(error.value)
+    assert "private/path" not in str(error.value)

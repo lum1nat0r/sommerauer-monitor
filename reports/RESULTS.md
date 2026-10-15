@@ -967,3 +967,50 @@ Keine Live-/Unraid-/Browserabnahme, keine privaten Originalbelege unabhängig
 neu geprüft, keine Geräte- oder Schreibkommunikation. HTTP/Lifespan und die
 Betreiberangabe zum Ausschluss fremder Leser bleiben ausdrücklich #35,
 Diagnoseoberfläche #36; Steuerplanbewertung folgt getrennt mit #34.
+
+## 15.10.2026 – Issue #34: Formale Offline-Steuerentwürfe und Revisionen
+
+`backend/control_plans.py` ergänzt den exakten 20-Felder-Entwurf, konkrete
+fehlende Voraussetzungen und formale Bewertung. Vollständige Betreibertexte
+ergeben ausschließlich `ready_for_review`, keinen unabhängigen Quellenbeleg und
+keine Gerätefreigabe. Sensorblocker sowie START-/SOLL-Rückfalllücke bleiben
+unabhängig von Vollständigkeit und Revision erhalten. Keine Schreibkodierung,
+Temperaturgrenze, FC06-Fähigkeit oder Gerätefunktion abgeleitet.
+
+Save/Get/List verwenden die vorhandene Schema-2-Tabelle. Neue Revisionen werden
+unter `BEGIN IMMEDIATE` nur angehängt; konkurrierende Updates mit derselben
+erwarteten Revision ergeben genau einen Erfolg und einen `revision_conflict`.
+Alte Vor-/Versuchs-/Rückstellwerte bleiben erhalten. Die gemeinsame private
+Exportprojektion enthält Revision, Entwurf, Betreiber-Quellenstatus, Bewertung
+und immer `execution_enabled:false`. API und UI bleiben #35/#36.
+
+Tatsächlich ausschließlich synthetisch/offline geprüft, CPython 3.12.9 über
+`uv run --isolated --python 3.12.9 --locked`, uv 0.12.2:
+
+- `pytest tests/test_storage.py tests/test_control_plans.py`: **164 bestanden**.
+  Null-/Leerzustände, Textlänge 4000/4001, numerische Grenzen, unbekannte IDs und
+  Zusatzfelder, konkrete fehlende Quellen-/Rückstellangaben, vollständige Pläne,
+  Sensorblocker über Revision/Export, SQLite-Wiederöffnen, neueste Listen,
+  konkurrierende Updates und injizierter Insertfehler mit vollständigem Rollback.
+- Gesamtsuite mit explizit leerem `MODBUS_HOST`, deaktiviertem Collector und
+  Diagnosequelle `device`: zunächst **455 bestanden**, nach Entfernen eines
+  redundanten Sensorfalls final **454 bestanden**; jeweils eine bestehende
+  Starlette/AnyIO-DeprecationWarning. Beide geänderten Testdateien enthalten.
+- `ruff check .`: bestanden.
+- `uv build --python 3.12.9`: Source-Distribution und Wheel gebaut.
+- `npm ci` erfolgreich; npm meldete ein blockiertes esbuild-Installationsskript.
+  `npm run build` mit Node 26.7.0/npm 12.0.2 dennoch erfolgreich
+  (TypeScript und Vite). Kein Frontend geändert.
+
+Separater Verbraucherlauf außerhalb pytest: temporäre SQLite, ausschließlich
+synthetischer START-Entwurf, Socketkonstruktor explizit gesperrt. Anlage als
+`draft`, vollständige Revision 2 als `ready_for_review`, veraltetes Update
+abgewiesen. Nach Wiederöffnen alte Revision unverändert, aktuelle Revision
+und Liste identisch; JSON-Rundlauf erhält Quellenstatus, Rückfallblocker und
+`execution_enabled:false`. Temporäres Verbraucherskript und eigene
+Python-Buildartefakte anschließend entfernt.
+
+System-`python` ist 3.14.7, die lokale Standard-uv-Umgebung 3.12.13; deshalb alle
+Verhaltensprüfungen explizit isoliert unter der geforderten 3.12.9 ausgeführt.
+Private `.env` nicht als Testziel verwendet. Keine Geräteverbindung,
+Live-/Browser-/Unraid-Abnahme, neuen Primärbelege oder Schreibfreigaben.

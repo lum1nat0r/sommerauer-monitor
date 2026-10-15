@@ -30,6 +30,12 @@ höchstens drei explizite Reads, 60 s Abstand einschließlich Speicherung,
 600 s Laufzeit; keine zusätzlichen Kernmessungen. Diagnose-API/Lifespan und
 Oberfläche folgen getrennt in #35/#36; keine Live-Abnahme.
 
+Issue #34 ergänzt rein offline bewertete Steuerentwürfe mit atomaren,
+unveränderlichen SQLite-Revisionen und privater Exportprojektion. Auch vollständig
+ausgefüllte Pläne bleiben nicht ausführbar; Sensorblocker und ungeklärter
+autonomer START-/SOLL-Rückfall bleiben sichtbar.
+[Vertrag](docs/DATENMODELL.md#steuerentwürfe-und-revisionen-issue-34).
+
 ## Hier mit der Arbeit beginnen
 
 1. [AGENTS.md](AGENTS.md): Arbeitsrahmen und Grenze für Geräteänderungen.

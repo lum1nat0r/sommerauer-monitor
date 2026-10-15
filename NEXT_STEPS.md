@@ -50,8 +50,12 @@ Diagnoseende/Quittierung. Live-Start braucht zusätzlich die ausdrückliche
 Betreiberangabe `{other_readers_stopped: true}`; der interne Dienst ersetzt
 diese spätere API-Prüfung nicht und erkennt keine Leser auf fremden Volumes.
 
-Danach #34 Steuerplanbewertung; `control_plans` hat noch keine
-Revisionsoperationen. API-/Lifespan-Anbindung bleibt #35, UI #36.
+Paket #34 ergänzt formale Steuerplanbewertung und unveränderliche Revisionen
+über `save_control_plan`/`get_control_plan`/`list_control_plans`. Gemeinsames
+Dokument enthält Entwurf, Quellenstatus, Bewertung und `execution_enabled:false`.
+Die Liste liefert ausschließlich neueste Revisionen; veraltete Updates werfen
+`RevisionConflict` mit Code `revision_conflict`. API-/Lifespan-Anbindung bleibt
+#35, UI #36. Details: [Steuerplanvertrag](docs/DATENMODELL.md#steuerentwürfe-und-revisionen-issue-34).
 Private Speicherdicts dürfen nicht als API ausgegeben werden; der Runner liefert
 nur bereinigte Status-/Ergebnisdicts ohne Ziel/Fingerprint. Wheel-Laufzeitnachweis
 außerhalb des Checkouts bleibt #39 vorbehalten.
