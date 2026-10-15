@@ -3,6 +3,13 @@
 Spätere Arbeit, kein Bestandteil des Monitoring-Releases und keine Schreibfreigabe.
 Echte Temperaturmessungen bleiben unverändert.
 
+Seit #34–#36 können START-/SOLL-Entwürfe offline im Diagnosebereich vorbereitet,
+formal bewertet, revisioniert gespeichert und privat exportiert werden.
+#38 belegt Persistenz und Revisionskonflikte; #39 zusätzlich die Vorbereitung
+in der gebauten Oberfläche ohne Gerätehost. Auch vollständige Entwürfe bleiben
+`execution_enabled:false`. Stellweg, Kodierung und autonomer Rückfall sind
+dadurch nicht nachgewiesen; es existiert kein Schreibadapter/-endpunkt.
+
 ## Belegt und nicht belegt
 
 Benutzerbeobachtung: Absenken von START hält den Kessel aus. Kein protokollierter

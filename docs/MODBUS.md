@@ -160,7 +160,10 @@ Mit #32 existiert der enge Transport; #33 orchestriert den endlichen manuellen
 Prüflauf mit gemeinsamer OS-Sperre, Planbindung, Reservierung und Betreiberreview.
 Unbekannte Rohworte erhalten ausschließlich `raw_only`; nur exakte Kernblöcke
 liefern `confirmed_core`/`decoded_signals`. Auch diese Werte bleiben getrennte
-Diagnosebelege, keine neuen Minutenmessungen. API und Dashboard folgen getrennt.
+Diagnosebelege, keine neuen Minutenmessungen. API und Dashboard sind seit #35/#36
+angebunden. #39 belegt zusätzlich 199 Einträge aus dem installierten Wheel
+außerhalb des Checkouts mit identischen Ressourcenbytes sowie die gebaute UI;
+das ist kein zusätzlicher Geräte-, Decoder- oder Dauerbetriebsnachweis.
 
 
 Nicht enthalten im importierten Profil: Zustandskanal 4097; START-Code 9040 hex

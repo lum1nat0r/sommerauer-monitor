@@ -1561,3 +1561,148 @@ kontrolliert beendet. Der eigene npm-/Vite-Prozessbaum musste unter Windows
 nach erfolgloser normaler Beendigung gezielt beendet werden. Temporären
 Wrapper und lokale synthetische Testdateien entfernt; nur bereinigte
 Oberflächenscreenshots bleiben im Repository.
+
+## 15.10.2026 – Issue #39: Wheel und gebaute Laufzeitoberfläche
+
+Reine Offline-Paketabnahme auf Basis des zusammengeführten Stands von #37/#38.
+Keine Geräteadresse konfiguriert, kein Simulator gestartet, kein Collector
+aktiviert, keine Geräteanfrage. Keine privaten Originalquellen unabhängig
+eingesehen. Benutzerangaben und historische Gerätebelege bleiben davon getrennt.
+Voraussetzungen: [automatisierte Matrix #37](#15102026--issue-37-automatisierte-diagnose-gesamtabnahme),
+[Browser-/Persistenz-/Fehlerbelege #38](#15102026--issue-38-reale-offline-browserabnahme).
+Zugehörige abgeschlossene PRs: [#47](https://github.com/lum1nat0r/sommerauer-monitor/pull/47)
+und [#48](https://github.com/lum1nat0r/sommerauer-monitor/pull/48).
+Die früheren Einträge beschreiben ihren damaligen Stand, keine nachträglich
+umdatierte Paketprüfung. Der dort historische Pfad `config/register_catalog.json`
+bleibt erhalten; heute ausschließlich `backend/resources/register_catalog.json`.
+
+### Wheel: tatsächliches Artefakt und isolierter Import
+
+Verwendet: **CPython 3.12.9**, **uv 0.12.2**, **Node 26.7.0**, **npm 12.0.2**.
+Der vorgefundene Projektinterpreter war 3.12.13; ein erster Wheelbuild damit
+zählt nicht als verbindlicher Nachweis. Der Wechsel der bestehenden `.venv`
+scheiterte unter Windows an „Zugriff verweigert“. Deshalb frische temporäre
+Buildumgebung mit 3.12.9 außerhalb des Repositories angelegt und
+`UV_PROJECT_ENVIRONMENT` explizit darauf gesetzt, keine fremden Prozesse beendet.
+
+Tatsächlich erfolgreiche Befehlsfolge (temporäre Orte hier nur als Platzhalter):
+
+```sh
+uv venv --python 3.12.9 <buildenv>
+uv sync --locked --python 3.12.9
+uv build --wheel --python 3.12.9
+uv venv --python 3.12.9 <runtime>
+uv pip install --python <runtime-python> <ermitteltes-wheel>
+uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file <requirements>
+uv pip sync --python <runtime-python> <requirements>
+uv pip install --no-deps --python <runtime-python> <ermitteltes-wheel>
+```
+
+Wheel per Verzeichnisauflistung ermittelt, nicht aus Version/Dateinamen geraten:
+**`sommerauer_monitor-0.1.0-py3-none-any.whl`**.
+Die erste Installation löste Abhängigkeiten auf; anschließend ausdrücklich mit
+dem Export aus `uv.lock` synchronisiert und das konkrete Wheel ohne Neuauflösung
+installiert. Nach dieser Synchronisierung den Import erneut ausgeführt.
+Frische Runtime, kein editable Projekt, CWD außerhalb des Repositories,
+`PYTHONPATH`/`PYTHONHOME` entfernt, zusätzlich Python-Isolationsmodus `-I`:
+
+```sh
+<runtime-python> -I -c "from backend.catalog import load_catalog; print(len(load_catalog().entries))"
+```
+
+Erwartet **199**, tatsächlich stdout **`199`**. `backend.catalog.__file__`
+verweist auf `runtime/Lib/site-packages/backend/catalog.py`, nicht den Checkout.
+`backend` ist ein Namespacepaket (`backend.__file__` ist `None`); deshalb den
+konkreten Modulpfad geprüft. Ressource per `importlib.resources` aus derselben
+installierten Umgebung gelesen, SHA-256 mit Buildinput verglichen:
+
+```text
+a4f8b8c47ca99d496e8c2778286611a180c53f915a16438d41b794ff6ac43c09
+```
+
+Beide Hashes identisch. Alle 199 Zuordnungen unverändert; keine zweite
+Katalogdatei oder Fallbackquelle angelegt. Das Backend-Wheel enthält nicht die
+Frontend-Builddateien. Keine Paketkorrektur erforderlich.
+
+### Gebaute Oberfläche: tatsächlich bedient, nicht Vite
+
+`npm ci` erfolgreich; bestehende Warnung zum blockierten esbuild-Installationsskript.
+`npm run build` inklusive TypeScript erfolgreich: **33 Module**, **982 ms**,
+`index-B5MTvnbq.js` (242.295 Bytes), `index-C1PgQ3gu.css` (10.313 Bytes).
+Vite 6.2.2 unverändert; der in #38 belegte Sicherheitsbefund bleibt offen,
+kein Abhängigkeitsupgrade in dieser Paketabnahme.
+
+Buildinhalt ohne Wheel in das Geschwisterverzeichnis `static` des installierten
+Backendpakets kopiert, entsprechend dem vorhandenen Dockerfile-/StaticFiles-
+Layout. Uvicorn mit dem frischen Runtime-Python und `-I` außerhalb des Checkouts
+auf Loopback gestartet. Explizit `MODBUS_HOST=""`, `COLLECTOR_ENABLED=false`,
+`DIAGNOSTICS_SOURCE=device`, eigenes temporäres `DATA_DIR`; dort keine `.env`.
+Keine private Deploymentdatei oder vorhandene Datenbank verwendet.
+
+Standard-Browserstart scheiterte am Browserdaemon; erfolgreich mit lokalem
+Edge über dieselbe Browserautomation geprüft. Tatsächlich:
+
+- Übersicht geöffnet, zu Diagnose und zurück gewechselt, Katalog neu geladen.
+- Katalog-GET **200**, **199 Einträge**; `/api/config`:
+  `host_configured:false`, `collector_enabled:false`, `diagnostics_source:device`.
+  „Anlage-aktuell (Gerät)“ ist dabei Quellenmodus, kein Verbindungsnachweis.
+- HTML, gebaute JS-/CSS-Dateien jeweils **200** vom Uvicorn-Server.
+  Kein Vite-/Devserver verwendet.
+- Nach **33408** gesucht: genau `Aussen_Ist`, Details `documented_raw`,
+  Interpretation/Einheit ungeklärt, kein gespeicherter Diagnosebeleg.
+- Register ausgewählt, synthetischen Zweck eingegeben, bewusst Planung geklickt:
+  **409 `target_not_configured`**, deutsche Konfliktmeldung sichtbar.
+  Kein Lauf erzeugt, keine Start-/Readaktion erreichbar; kein automatischer Retry.
+  Der einzige App-POST in dieser Browsersitzung war dieser Planversuch.
+- START und SOLL separat gewählt und jeweils „Neuen Entwurf vorbereiten“:
+  Kandidatenfeld **`control:buffer.start`** bzw. **`control:buffer.target`**.
+  `execution_enabled:false` und Quellen-/Freigabe-/Rückfallgrenzen sichtbar.
+  Keine Entwürfe gespeichert; Persistenzbeweis bleibt der reale Nachweis aus #38.
+- Reload und erneuter Diagnosewechsel: Katalog weiter erreichbar.
+
+Bereinigte Screenshots der tatsächlich gebauten Oberfläche:
+[Suche/Details und hostlose Blockade](issue39-hostlos.png),
+[SOLL-Offlinevorbereitung](issue39-steuerentwurf.png).
+Browserfremde Edge-Neutab-Netzwerkfehler sind keine App-/Gerätefehler;
+ein fehlendes Favicon lieferte 404, ohne die Bedienung zu beeinträchtigen.
+
+SQLite danach: Integrität **`ok`**, jeweils **0 Zeilen** in `observations`,
+`diagnostic_runs`, `diagnostic_requests`, `control_plans`. Keine Minutenhistorie
+verändert und keine Reservierung verbraucht.
+
+### Containergrenze und zusätzliche Prüfungen
+
+**Containerlauf lokal ungeprüft: Docker nicht verfügbar**.
+`docker version` liefert CLI **29.4.1**, Kontext `desktop-linux`, aber keine
+Verbindung zur Docker-Linux-Engine (Named Pipe nicht vorhanden, Exitcode 1).
+Deshalb weder Containerbuild noch Containerstart/API-Abnahme behauptet.
+Statischer Befund: Das bestehende Dockerfile kopiert `backend` einschließlich
+Ressource in den Backendbuild und die Runtime sowie `dist` nach `static`;
+das ist kein Containerlaufbeweis. Kein neues Containerkonzept erforderlich.
+
+In der temporären, aus `uv.lock` aufgebauten CPython-3.12.9-Buildumgebung:
+
+```text
+python -m pytest
+707 passed, 1 warning in 82.83s
+python -m ruff check .
+All checks passed!
+```
+
+Bekannte Starlette-/AnyIO-DeprecationWarning, kein Testfehler. Keine neuen
+permanenten Tests oder Produktionscodeänderungen erforderlich: bestehende
+Verhaltenssuite plus tatsächlicher Paket-/Browser-Smoke.
+Aufruferprüfung in Backend/Tests/Dokumentation: ausschließlich Paketloader/
+kanonische Ressource; alte `config/`-Nennung nur als historischer Ergebnisbeleg.
+Kein wieder eingeführter Direktleser, Kompatibilitätsalias oder Registereditor.
+Dokumentation aktualisiert, keine zweite normative Vertrags-/Katalogkopie.
+
+Browser beendet; eigener hostloser Uvicorn-Prozess unter Windows per
+`terminate()` beendet (Exitcode **1**, kein behaupteter geordneter Lifespan-Shutdown).
+Temporäre Umgebungen, Buildkopie, Datenbank und Logs anschließend entfernt;
+nur bereinigte Screenshots und dieser Bericht bleiben.
+Kein Tag, Release, Image-/Registry-Push, Deployment oder Unraid-Zugriff.
+Linux-/Unraid-Laufzeit, Langzeitbetrieb, zusätzliche Registerinterpretationen
+und autonome START-/SOLL-Rückstellung bleiben ungeprüft. Neue Live-Lesearbeit
+verlangt einen eigenen endlichen öffentlichen Alias-/privaten Zielplan;
+echte Steueränderungen zusätzlich konkrete Betreiberfreigabe.

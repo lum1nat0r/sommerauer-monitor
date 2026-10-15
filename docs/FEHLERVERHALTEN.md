@@ -190,3 +190,13 @@ Diagnoseende und Quittierung starten niemals das Monitoring. Ein neuer Plan
 umgeht keine Sperre; quittierte alte IDs bleiben terminal. Bewusstes Fortsetzen
 über bestehende Collectoraktionen bleibt an dessen Zustandsprüfung und die
 konservative erste 60-s-Schranke bei vorhandenen Diagnoseversuchen gebunden.
+
+### Hostlose Paketabnahme (Issue #39)
+
+Ohne Gerätehost und mit `COLLECTOR_ENABLED=false` bleiben Katalog, Historie
+und Offline-Steuerentwürfe erreichbar. Die Planung eines Leseprüflaufs
+liefert `409 target_not_configured`; daraus entsteht kein startbarer Lauf.
+Der fehlende Host ist ein Konfigurationsblocker, kein Gerätefehler und
+kein Anlass für automatische Wiederholung. #39 hat diesen Pfad über die
+gebaute StaticFiles-Oberfläche geprüft; Fristen, Besitz-/Budget-/Restore-
+und Quittierungsverträge oben bleiben unverändert.
