@@ -44,7 +44,7 @@ Ein Lauf speichert einen unveränderlichen Plan (Schema 1): Kataloghash,
 ausgewählte IDs, aufgelöste Blockliste, Zweck, Quelle, privaten Host-/Port-Snapshot,
 Ziel-Fingerprint, FC03/Unit 255, 3 s Deadline, exakt 1–3 Anfragen entsprechend
 der Blockanzahl, 60 s Mindestabstand, 600 s Höchstdauer und Stopbedingungen.
-Die Settings-basierte Zielbindung und monotone Zeitprüfung liefert erst #33.
+Settings-basierte Zielbindung und monotone Zeitprüfung liefert #33.
 
 Planfelder: `schema_version`, `catalog_sha256`, `register_ids`, `blocks`
 (jeweils `offset`/`count`), `purpose`, `source`, `target` (`host`/`port`),
@@ -69,9 +69,9 @@ Auch diagnostisch gelesene Kernwerte erzeugen keine Minutenbeobachtung.
 `get_diagnostic_run` und `list_diagnostic_runs` sind **private interne**
 Speicheroperationen: `plan` enthält den privaten Snapshot, `requests` enthält
 `raw_words`, `decoded` und `review`. Diese Dicts niemals direkt veröffentlichen.
-#35 muss eine explizite bereinigte Projektion mit Quelle und Alias
-`Anlage-aktuell` beziehungsweise `Simulator` erstellen, ohne Host, lokale Pfade,
-Fingerprint oder rohe Exceptions.
+Die HTTP-Projektion aus #35 erhält Quelle und Alias `Anlage-aktuell`
+beziehungsweise `Simulator`, ohne Host-/Port-Snapshot, lokale Pfade,
+Fingerprintwerte oder rohe Exceptions.
 
 Restore akzeptiert ausschließlich Backups mit Schema 1 oder 2 und verlangt ein
 noch nicht existierendes Offline-Ziel. Es überschreibt deshalb kein laufendes
@@ -127,8 +127,8 @@ enthält `plan_id`, `revision`, `created_at`, `draft`, `assessment`,
 zwingend `execution_enabled: false`. Sie ist ein **privater** Download; Freitext
 kann private Betreiberangaben enthalten und gehört nicht in öffentliche Berichte.
 Keine Geräte-I/O beim Speichern, Laden, Listen oder Exportieren. HTTP-Routen und
-CSRF-Anbindung folgen in #35, Formular in #36. Kein Schreibadapter, Telegramm,
-Timer, Import oder Ausführungsendpunkt.
+CSRF-Anbindung sind mit #35 umgesetzt, Formular bleibt #36. Kein Schreibadapter,
+Telegramm, Timer, Import oder Ausführungsendpunkt.
 
 ## Dauerhafte Speicherung
 
@@ -146,7 +146,7 @@ Sommerzeitwechsel. Große Exporte streamen; Abfrageumfang/Sortierung determinist
 ## HTTP-API
 
 FastAPI veröffentlicht OpenAPI unter `/openapi.json` und Swagger UI unter `/docs`.
-Alle Leseendpunkte arbeiten ausschließlich mit SQLite; kein Refresh löst Modbus aus.
+Leseendpunkte verwenden SQLite, Katalog und Prozessstatus; kein Refresh löst Modbus aus.
 
 | Route | Vertrag |
 |---|---|
@@ -176,3 +176,72 @@ Die API-Konfiguration ändert ausschließlich die Anzeigezeitzone. Modbus-Ziel,
 Port, Unit, Profil und Datenpfad bleiben Deployment-Konfiguration und werden
 niemals per Verwaltungsroute geändert. Verwaltungsaktionen benötigen einen
 konfigurierten Collector; fehlt er, antwortet die Route mit HTTP 409.
+
+### Diagnose-HTTP-API (Issue #35)
+
+`backend/diagnostics_api.py` wird vor dem Frontend-Mount eingebunden. Alle neuen
+Bodymodelle verbieten Zusatzfelder; OpenAPI beschreibt auch die bereinigten
+Antwortmodelle. Quelle stammt ausschließlich aus `DIAGNOSTICS_SOURCE`, Ziel
+aus privaten Settings. Kein Browserfeld für Host, Port, Unit, Funktion, Anzahl,
+Budget oder freie Adresse. Steuerentwürfe dürfen dagegen unverifizierte
+Funktions-/Wertangaben dokumentieren, niemals ausführen.
+
+| Methode/Pfad unter `/api/diagnostics` | Eingabe / Ergebnis |
+|---|---|
+| `GET /catalog` | `catalog_sha256`, `source`, `blockade`, alle 199 `entries`, getrennte `control_candidates` |
+| `POST /runs` | `register_ids`, nichtleerer `purpose` mit höchstens 2000 Zeichen; **201** mit unveränderlichem Plan und Status |
+| `GET /runs` | `{total, limit, offset, items}`; Standard 50, maximal 100, Offset nichtnegativ |
+| `GET /runs/{id}` | Bereinigter Plan, Zustand, Budget, nächste Schritt-ID, Warte-/Restlaufzeit, Antworten/Bewertungen |
+| `POST /runs/{id}/start` | Zwingend `{other_readers_stopped:true}`; Übergabe ohne Geräteanfrage |
+| `POST /runs/{id}/read` | `{step_index}`; genau ein expliziter reservierter Versuch |
+| `POST /runs/{id}/review` | `{step_index, verdict, observation}`; `continue`/`finish`/`anomaly`, Beobachtung Text oder `null` |
+| `POST /runs/{id}/stop` | Kein Body oder `{}`; Stop-Event vor Warten auf den Moduslock |
+| `POST /runs/{id}/acknowledge` | `{resolution}` mit nichtleerem Ursachentext; weder alter Lauf noch Monitoring wird gestartet |
+| `GET /runs/{id}/export` | Derselbe vollständige bereinigte Lauf als privater JSON-Download |
+| `GET /control-plans` | `{items}` mit jeweils neuesten Revisionen |
+| `POST /control-plans` | `ControlPlanDraft`; gespeichertes Dokument mit formaler Bewertung |
+| `GET /control-plans/{id}` | Aktuelle gespeicherte Revision mit Quellenstatus und Bewertung |
+| `PUT /control-plans/{id}` | `{expected_revision, draft}`; neue unveränderliche Revision oder Konflikt |
+| `GET /control-plans/{id}/export` | Privater bewerteter Änderungsplan, immer `execution_enabled:false` |
+
+Außer Diagnoseplananlage liefern erfolgreiche Aktionen/GETs **200**.
+`RunDocument` enthält `run_id`, `state`, `plan`, `requests_reserved`, `requests`,
+`next_step_index`, `wait_remaining_seconds`, `duration_remaining_seconds`,
+`source`, `target_changed` sowie UTC-Anlage-/Änderungs-/Start-/End-/Quittierzeiten
+und `resolution_note`. Eine nächste Schritt-ID ist keine Leseerlaubnis:
+Zustand, Zeit, Budget und Bindung werden beim expliziten Read erneut geprüft.
+Restzeiten sind nur im aktiven eigenen Lauf aussagekräftig; sonst 0.
+
+Inventareinträge tragen `register_id`, `csv_label`, `offset_zero_based`,
+`sl_code_hex`, Import-/Belegstatus, bekannte Einheit und Decoderbeschreibung,
+`read_support`, `write_support:"unknown"` und `decoded_value:null`.
+`latest_diagnostic` ist der letzte gespeicherte Antwortbeleg des Blocks, nicht
+der zuletzt angelegte Plan: `run_id`, `completed_at`, `source`,
+`target_changed` und `request`. Beide Worte eines Kernblocks erhalten denselben
+Beleg. `target_changed` zeigt abweichendes Ziel/Port/Unit/Quelltyp ohne
+Fingerprintwert. Quellwechsel macht einen Simulatorbeleg nicht zum Gerätebeleg.
+`blockade` enthält einen sicheren Fachcode oder `null`.
+
+Antwortbelege bewahren `raw_words`, `received_bytes`, Erfassungszeit und
+separate Betreiberbewertung. Nur bestätigte Kernblöcke enthalten
+`decoded_signals` und `interpretation_status:"confirmed_core"`; übrige
+Rohbelege bleiben `raw_only`, auch nach erfolgreichem Lesen. Keine Übernahme
+in Minutenbeobachtungen. Der öffentliche Plan ersetzt den privaten
+Zielsnapshot durch `target_alias`; Schema, Kataloghash, IDs, aufgelöste Blöcke,
+Zweck, Quelle, feste Grenzen und Stopbedingungen bleiben erhalten.
+
+Neue Fachfehler liefern `detail:{code,message}` mit festen deutschen Meldungen:
+404 `not_found`; 422 `invalid_selection` bzw. `invalid_request`; 409
+`target_not_configured`, `target_changed`, `catalog_changed`, `run_conflict`,
+`read_not_due`, `collector_blocked`, `diagnostic_stop_unacknowledged`,
+`revision_conflict`; 503 `catalog_unavailable` oder `storage_unavailable`.
+Validierungsantworten spiegeln keine übermittelten Inhalte oder Exceptiondetails.
+Die bestehende CSRF-Abweisung bleibt 403 und gilt für sämtliche Mutationen,
+auch Simulatoraktionen und Offlineentwürfe.
+
+GETs/Refresh/Downloads sind mutierungsfrei und senden keine Geräteanfrage.
+Diagnoseantworten verwenden `Cache-Control: private, no-store`. Bereinigte
+Downloads bleiben privat: Rohbelege und Freitexte sind keine öffentlichen
+Berichte. Vertrauenswürdiges LAN/Tailscale plus CSRF ist **keine**
+Authentisierung, Benutzeridentität oder Geräte-Schreibfreigabe.
+Keine neue Benutzerverwaltung oder `/execute`-Route.

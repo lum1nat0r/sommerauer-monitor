@@ -163,3 +163,30 @@ wartet der nächste Collectorlauf mindestens 60 s, auch im Recoverypfad;
 ohne Diagnosehistorie bleibt sein bisheriger Zeitplan unverändert.
 Monitoring bleibt nach jedem Diagnoseende angehalten. Bewusstes Fortsetzen
 verwendet die bestehende Sammleraktion; keine automatische Wiederaufnahme.
+
+### HTTP und Lifespan (Issue #35)
+
+Die Lifespan erzeugt Store, optionalen Collector und Runner. Erst die gesperrte
+Diagnose-Recovery, danach ein möglicher Kernstart. Fremder OS-Besitz liefert
+`run_conflict`, Recovery-/Speicherfehler `storage_unavailable`: kein Start,
+keine Reparatur fremder Lauf- oder Collectorzustände, aber weiterhin lesende
+Status-/Historien-/Diagnose-API. Ein persistenter Diagnosestopp blockiert den
+Kernstart, ohne die App zu beenden oder den Stopp zu quittieren.
+
+Alle HTTP-Collectoraktionen verwenden denselben `runner.mode_lock` und beachten
+auch eine lokale Recoveryblockade. Synchrone Aktionen laufen im Workerthread;
+Start/Read/Review verwenden ausschließlich den vorhandenen Runner. Insbesondere
+hält die HTTP-Stoproute keinen äußeren Moduslock: `runner.stop()` kann sein Event
+vor dem Warten auf eine laufende Anfrage setzen. Kein Eventloop-blockierendes
+Warten, kein HTTP-Retry oder eigener Reservierungs-/Besitzpfad.
+
+Start verlangt unabhängig von internem Gerätebesitz die explizite Betreiberangabe
+`other_readers_stopped:true`; sie ist keine technische Erkennung fremder Leser.
+Bei Shutdown zuerst `runner.close()` einschließlich Watchdog-Join, danach
+kontrollierter Stopp des eigenen Collectors. Eine fremde Instanz wird weder
+beim Start noch beim Shutdown durch Statuspersistierung verändert.
+
+Diagnoseende und Quittierung starten niemals das Monitoring. Ein neuer Plan
+umgeht keine Sperre; quittierte alte IDs bleiben terminal. Bewusstes Fortsetzen
+über bestehende Collectoraktionen bleibt an dessen Zustandsprüfung und die
+konservative erste 60-s-Schranke bei vorhandenen Diagnoseversuchen gebunden.

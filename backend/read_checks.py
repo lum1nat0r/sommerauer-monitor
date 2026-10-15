@@ -31,6 +31,15 @@ class ReadCheckError(RuntimeError):
         super().__init__(code)
 
 
+def target_fingerprint(settings: Settings, catalog_sha256: str) -> str:
+    """Private Planbindung; niemals als öffentliche Identität verwenden."""
+    return hashlib.sha256(json.dumps({
+        "host": (settings.modbus_host or "").casefold(), "port": settings.modbus_port,
+        "unit_id": settings.modbus_unit_id, "source": settings.diagnostics_source,
+        "catalog_sha256": catalog_sha256,
+    }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
 class ReadCheckRunner:
     def __init__(self, *, settings: Settings, store: SQLiteStore,
                  collector: Collector | None, client: ModbusTcpClient | None = None,
@@ -101,11 +110,7 @@ class ReadCheckRunner:
         except (CatalogUnavailable, CatalogSelectionError):
             raise ReadCheckError("catalog_unavailable") from None
         plan = run["plan"]
-        fingerprint = hashlib.sha256(json.dumps({
-            "host": settings.modbus_host.casefold(), "port": settings.modbus_port,
-            "unit_id": 255, "source": settings.diagnostics_source,
-            "catalog_sha256": catalog.sha256,
-        }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        fingerprint = target_fingerprint(settings, catalog.sha256)
         if (plan["target_fingerprint"] != fingerprint
                 or plan["catalog_sha256"] != catalog.sha256
                 or plan["source"] != settings.diagnostics_source
@@ -356,17 +361,52 @@ class ReadCheckRunner:
             if worker is not threading.current_thread():
                 worker.join()
 
+    def access_blocker(self) -> str | None:
+        """Lesender gemeinsamer Zugriffsschutz, auch nach fehlgeschlagener Recovery."""
+        with self.mode_lock:
+            if self._storage_failed:
+                return "storage_unavailable"
+            if self._closed or self._recovery_conflict:
+                return "run_conflict"
+            blocking_id = self.store.diagnostic_access_blocker()
+            if blocking_id is None:
+                return None
+            run = self.store.get_diagnostic_run(blocking_id)
+            if run is not None and run["state"] in {"running", "awaiting_review"}:
+                return "run_conflict"
+            return "diagnostic_stop_unacknowledged"
+
+    def status(self, run_id: str) -> dict:
+        """Reine Statusprojektion; keine Recovery, Bindungsprüfung oder Geräteaktion."""
+        with self.mode_lock:
+            run = self._get(run_id)
+            active = self._run_id == run_id
+            remaining = max(0.0, self._deadline - self.monotonic()) if active else 0.0
+            next_step = (
+                run["requests_reserved"] if run["state"] in {"planned", "running"}
+                and run["requests_reserved"] < run["plan"]["request_budget"] else None
+            )
+            return {
+                **self._public(run),
+                "next_step_index": next_step,
+                "wait_remaining_seconds": max(0.0, self._due - self.monotonic()) if active else 0.0,
+                "duration_remaining_seconds": remaining,
+            }
+
+    @staticmethod
+    def request_evidence(request: dict) -> dict:
+        """Öffentlicher Antwortbeleg; Betreiberbewertung bleibt separat."""
+        item = {key: request[key] for key in (
+            "step_index", "outcome", "started_at", "completed_at", "raw_words",
+            "error_class", "received_bytes", "review",
+        )}
+        item["decoded_signals"] = request["decoded"] or []
+        item["interpretation_status"] = "confirmed_core" if request["decoded"] is not None else "raw_only"
+        return item
+
     @staticmethod
     def _public(run: dict) -> dict:
-        requests = []
-        for request in run["requests"]:
-            item = {key: request[key] for key in (
-                "step_index", "outcome", "started_at", "completed_at", "raw_words",
-                "error_class", "received_bytes", "review",
-            )}
-            item["decoded_signals"] = request["decoded"] or []
-            item["interpretation_status"] = "confirmed_core" if request["decoded"] is not None else "raw_only"
-            requests.append(item)
         return {"run_id": run["run_id"], "state": run["state"],
-                "requests_reserved": run["requests_reserved"], "requests": requests,
+                "requests_reserved": run["requests_reserved"],
+                "requests": [ReadCheckRunner.request_evidence(item) for item in run["requests"]],
                 "source": run["plan"]["source"]}

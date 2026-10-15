@@ -27,14 +27,23 @@ wie Kernreads und den expliziten synthetischen Simulator-Katalogmodus
 (`--catalog`). Issue #33 ergänzt den endlichen manuellen `ReadCheckRunner` mit
 gemeinsamem Gerätebesitz, persistenten Stopps und gesperrter Recovery:
 höchstens drei explizite Reads, 60 s Abstand einschließlich Speicherung,
-600 s Laufzeit; keine zusätzlichen Kernmessungen. Diagnose-API/Lifespan und
-Oberfläche folgen getrennt in #35/#36; keine Live-Abnahme.
+600 s Laufzeit; keine zusätzlichen Kernmessungen. Issue #35 bindet Diagnose-API,
+Recovery und Lifespan sicher an; die Oberfläche folgt getrennt in #36.
+Keine zusätzliche Live-Abnahme.
 
 Issue #34 ergänzt rein offline bewertete Steuerentwürfe mit atomaren,
 unveränderlichen SQLite-Revisionen und privater Exportprojektion. Auch vollständig
 ausgefüllte Pläne bleiben nicht ausführbar; Sensorblocker und ungeklärter
 autonomer START-/SOLL-Rückfall bleiben sichtbar.
 [Vertrag](docs/DATENMODELL.md#steuerentwürfe-und-revisionen-issue-34).
+
+Die Diagnose-API unter `/api/diagnostics` liefert bereinigtes Inventar, endliche
+Prüfpläne und private JSON-Belege sowie revisionierte Offline-Steuerentwürfe.
+GETs lösen keine Geräteanfrage aus; Start verlangt ausdrücklich
+`other_readers_stopped:true` und sendet ebenfalls nichts. Nur ein zulässiger,
+expliziter `/read` führt genau einen FC03-Versuch aus. Monitoring startet nach
+Diagnoseende oder Quittierung nicht automatisch erneut.
+[HTTP-Vertrag und Vertrauensgrenze](docs/DATENMODELL.md#diagnose-http-api-issue-35).
 
 ## Hier mit der Arbeit beginnen
 
@@ -88,7 +97,9 @@ Beispiele, Logs oder CI übernehmen.
 `/api/config` enthält weder Hostwert noch lokalen Datenpfad. Der Host wird nur als
 gesetzt/nicht gesetzt ausgewiesen. Der enge FC03-Client und Offline-Simulator sind
 unter `backend/modbus.py` und `backend/modbus_simulator.py` verfügbar; der
-Anwendungsstart startet weder Sammler noch Simulator und führt keine Gerätezugriffe aus.
+Standardstart ohne aktivierte Erfassung führt keine Gerätezugriffe aus und startet
+keinen Simulator. Ein konfigurierter aktivierter Sammler startet erst nach
+erfolgreicher Diagnose-Recovery und Besitzprüfung.
 Den Simulator lokal mit `uv run python -m backend.modbus_simulator` starten
 (Standardbindung `127.0.0.1:1502`); Faults sind per `--fault` wählbar.
 

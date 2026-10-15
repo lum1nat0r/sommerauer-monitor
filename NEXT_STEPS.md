@@ -14,7 +14,7 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
-## Register-Prüfwerkzeug: Übergabe nach #33
+## Register-Prüfwerkzeug: Übergabe nach #35
 
 Die kanonische Ressource liegt ausschließlich unter
 [`backend/resources/register_catalog.json`](backend/resources/register_catalog.json).
@@ -41,25 +41,37 @@ Reservierung; 60 s vor dem ersten Read und ab abgeschlossener Speicherung,
 600 s Gesamtfrist, kein Retry. Diagnosefehler sperren auch alle Kernstartpfade.
 Der frühere ungesperrte Direktleser ist entfernt.
 
-Für #35: zuerst `runner.recover_interrupted()` unter gemeinsamer OS-Sperre,
-erst danach möglicher Collectorstart. `DeviceOwnershipError`/Recoveryfehler
-verbieten den Start, ohne lesende APIs zu sperren oder fremden Zustand zu
-reparieren. Sammleraktionen verwenden `runner.mode_lock`; Shutdown zuerst
-`runner.close()`, dann Collector. Kein automatischer Monitoring-Neustart nach
-Diagnoseende/Quittierung. Live-Start braucht zusätzlich die ausdrückliche
-Betreiberangabe `{other_readers_stopped: true}`; der interne Dienst ersetzt
-diese spätere API-Prüfung nicht und erkennt keine Leser auf fremden Volumes.
+Paket #35 erzeugt den Runner in der Lifespan und führt zuerst
+`runner.recover_interrupted()` unter gemeinsamer OS-Sperre aus, erst danach
+einen möglichen Collectorstart. Fremder Gerätebesitz/Recoveryfehler sperrt
+Geräteaktionen, nicht lesende APIs; fremder Zustand bleibt unverändert.
+Sammleraktionen teilen `runner.mode_lock`; Shutdown beendet zuerst
+`runner.close()`, danach den eigenen Collector. Kein automatischer Neustart
+nach Diagnoseende oder Quittierung. HTTP-Start verlangt zusätzlich die
+ausdrückliche Betreiberangabe `{other_readers_stopped: true}`. Die App erkennt
+keine Leser auf fremden Volumes oder anderen Geräten.
 
 Paket #34 ergänzt formale Steuerplanbewertung und unveränderliche Revisionen
 über `save_control_plan`/`get_control_plan`/`list_control_plans`. Gemeinsames
 Dokument enthält Entwurf, Quellenstatus, Bewertung und `execution_enabled:false`.
 Die Liste liefert ausschließlich neueste Revisionen; veraltete Updates werfen
-`RevisionConflict` mit Code `revision_conflict`. API-/Lifespan-Anbindung bleibt
-#35, UI #36. Details: [Steuerplanvertrag](docs/DATENMODELL.md#steuerentwürfe-und-revisionen-issue-34).
-Private Speicherdicts dürfen nicht als API ausgegeben werden; der Runner liefert
-nur bereinigte Status-/Ergebnisdicts ohne Ziel/Fingerprint. Wheel-Laufzeitnachweis
-außerhalb des Checkouts bleibt #39 vorbehalten.
+`RevisionConflict` mit Code `revision_conflict`. API-/Lifespan-Anbindung ist
+mit #35 umgesetzt, UI bleibt #36.
+Details: [Steuerplanvertrag](docs/DATENMODELL.md#steuerentwürfe-und-revisionen-issue-34).
+Private Speicherdicts werden nicht als API ausgegeben; explizite Projektionen
+erhalten Quelle/Rohbelege, aber keine Ziele/Pfade/Fingerprintwerte.
+Wheel-Laufzeitnachweis außerhalb des Checkouts bleibt #39 vorbehalten.
 Offline-Nachweise: [Ergebnisse](reports/RESULTS.md); keine zusätzlichen Live-Belege.
+
+Für #36: verbindliche OpenAPI-Modelle in `backend/diagnostics_api.py` und
+[HTTP-Vertrag](docs/DATENMODELL.md#diagnose-http-api-issue-35) verwenden.
+Inventar: `entries`, getrennte `control_candidates`, `blockade`;
+je Eintrag `latest_diagnostic` mit `completed_at`, `source`, `target_changed`.
+Laufstatus: `plan`, `requests_reserved`, `next_step_index`,
+`wait_remaining_seconds`, `duration_remaining_seconds`, `requests`.
+HTTP 409 `read_not_due` darf weder warten noch automatisch erneut anfragen.
+Jede Antwort muss ausdrücklich bewertet werden; Freitexte und Exporte bleiben
+privat. LAN/Tailscale und CSRF sind keine Authentisierung oder Schreibfreigabe.
 
 
 ## Begrenzter Full-Stack-Test am Gerät
