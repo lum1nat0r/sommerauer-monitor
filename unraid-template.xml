@@ -23,5 +23,6 @@
   <Config Name="COLLECTOR_ENABLED" Target="COLLECTOR_ENABLED" Default="false" Mode="" Description="false beim Erststart; nur nach lokaler Prüfung ausdrücklich aktivieren." Type="Variable" Display="always" Required="true" Mask="false">false</Config>
   <Config Name="COLLECTOR_MAX_REQUESTS" Target="COLLECTOR_MAX_REQUESTS" Default="" Mode="" Description="Optionales Anfragebudget für einen endlichen Lauf; bei Transportfehlern erfolgt keine Wiederaufnahme." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="DISPLAY_TIMEZONE" Target="DISPLAY_TIMEZONE" Default="Europe/Vienna" Mode="" Description="IANA-Zeitzone für die Dashboardanzeige." Type="Variable" Display="advanced" Required="true" Mask="false">Europe/Vienna</Config>
+  <Config Name="PUBLIC_ORIGIN" Target="PUBLIC_ORIGIN" Default="" Mode="" Description="Optionaler Browser-Origin hinter einem Reverse-Proxy, z. B. https://monitor.example.invalid; ohne Pfad. Direkter Zugriff bleibt möglich. Keine CORS-Wildcards." Type="Variable" Display="always" Required="false" Mask="false"></Config>
   <User>99:100</User>
 </Container>

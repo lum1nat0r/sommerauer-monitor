@@ -118,9 +118,14 @@ async def protect_mutations(request: Request, call_next):
         origin = request.headers.get("origin")
         fetch_site = request.headers.get("sec-fetch-site")
         requested_with = request.headers.get("x-requested-with")
+        public_origin = get_settings().public_origin
+        allowed_origins = {str(request.base_url).rstrip("/")}
+        if public_origin is not None:
+            # Explizite Deploymentfreigabe statt ungeprüfter Forwarded-Header.
+            allowed_origins.add(str(public_origin).rstrip("/"))
         if (
             not origin
-            or origin.rstrip("/") != str(request.base_url).rstrip("/")
+            or origin.rstrip("/") not in allowed_origins
             or fetch_site == "cross-site"
             or requested_with != "SommerauerMonitor"
         ):

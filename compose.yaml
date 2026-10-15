@@ -22,6 +22,7 @@ services:
       COLLECTOR_MAX_REQUESTS: ${COLLECTOR_MAX_REQUESTS:-}
       DATA_DIR: /data
       DISPLAY_TIMEZONE: ${DISPLAY_TIMEZONE:-Europe/Vienna}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
     volumes:
       - "${DATA_PATH:-./data}:/data"
     restart: unless-stopped

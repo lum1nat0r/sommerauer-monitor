@@ -77,6 +77,43 @@ Für Sicherungen mit diesem Stack
 `docker compose -f compose.unraid.yaml exec monitor …` verwenden; die Hinweise
 zu Backup/Restore und persistenten Stopps unten gelten unverändert.
 
+## Domain und HTTPS-Reverse-Proxy
+
+Dashboard und `/api` müssen unter derselben Browser-Domain erreichbar sein.
+Bei TLS-Terminierung am Proxy sieht das Backend unter Umständen nur dessen
+interne HTTP-Adresse. Dann scheitern Aktionen mit HTTP 403
+`Same-origin request required`, obwohl GETs und der direkte IP-Zugriff funktionieren.
+Das ist die Origin-/CSRF-Prüfung, keine fehlende allgemeine CORS-Freigabe.
+
+Mit einem Image, das die `PUBLIC_ORIGIN`-Korrektur enthält, in der privaten
+Compose-`.env` beziehungsweise als Unraid-Containervariable setzen:
+
+```dotenv
+PUBLIC_ORIGIN=https://monitor.example.invalid
+```
+
+Durch die tatsächliche Browser-Origin ersetzen: Schema, Host und gegebenenfalls
+nicht standardmäßiger Port, kein URL-Pfad, keine Zugangsdaten oder Wildcards.
+Beide Compose-Dateien reichen den Wert weiter; das Unraid-Template enthält
+ein entsprechendes Feld. Container anschließend mit unverändertem `/data` und
+unveränderten Erfassungseinstellungen neu erstellen; ein bloßer Prozessneustart
+übernimmt geänderte Containervariablen nicht. Der bereits veröffentlichte
+Image-Tag wird durch diese Quellcodekorrektur nicht nachträglich aktualisiert;
+eine passende neue Veröffentlichung oder ein lokaler Build ist erforderlich.
+
+Die konfigurierte Origin wird zusätzlich zur direkt erkannten Request-Origin
+zugelassen. `X-Requested-With: SommerauerMonitor` bleibt Pflicht; `cross-site`
+bleibt verboten. Ungeprüfte `X-Forwarded-Host`-/`X-Forwarded-Proto`-Header werden
+von der App nicht zur Freigabe verwendet. Keine CORS-Wildcard und kein pauschales
+Vertrauen in alle Proxy-Absender einschalten. Die Domain bleibt private
+Deploymentkonfiguration und wird nicht von `/api/config` ausgegeben.
+
+Nach dem Update zuerst eine reine App-Aktion über die Domain prüfen, etwa die
+Anzeigezeitzone speichern, und den Collectorstatus unverändert kontrollieren.
+Keinen Diagnose-Read oder Erfassungsstart als Proxytest verwenden. Domainzugang
+ersetzt keine Authentisierung: weiterhin nur vertrauenswürdiges LAN/Tailscale,
+keine öffentliche Freigabe der ungeschützten Verwaltungs-API.
+
 ## Lokalen Entwicklungsstand bauen
 
 Compose lokal bauen/starten:

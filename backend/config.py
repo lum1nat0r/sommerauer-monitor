@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AnyHttpUrl, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +27,23 @@ class Settings(BaseSettings):
 
     data_dir: Path = Field(default=Path("/data"), alias="DATA_DIR")
     display_timezone: str = Field(default="Europe/Vienna", alias="DISPLAY_TIMEZONE")
+    public_origin: AnyHttpUrl | None = Field(default=None, alias="PUBLIC_ORIGIN")
+
+    @field_validator("public_origin", mode="before")
+    @classmethod
+    def normalize_public_origin(cls, value: object) -> object:
+        return None if value == "" else value
+
+    @field_validator("public_origin")
+    @classmethod
+    def validate_public_origin(cls, value: AnyHttpUrl | None) -> AnyHttpUrl | None:
+        if value is not None and (
+            value.username is not None or value.password is not None
+            or value.path not in (None, "/") or value.query is not None
+            or value.fragment is not None or "*" in value.host
+        ):
+            raise ValueError("PUBLIC_ORIGIN requires an HTTP(S) origin without credentials or path")
+        return value
 
     @field_validator("collector_max_requests", mode="before")
     @classmethod
