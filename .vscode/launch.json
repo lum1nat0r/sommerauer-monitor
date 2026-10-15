@@ -1,0 +1,59 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Sommerauer Monitor: API + Simulator",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "python": "${command:python.interpreterPath}",
+      "args": [
+        "backend.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "MODBUS_HOST": "127.0.0.1",
+        "MODBUS_PORT": "1502",
+        "MODBUS_UNIT_ID": "255",
+        "REGISTER_PROFILE": "core",
+        "COLLECTOR_ENABLED": "true",
+        "DATA_DIR": "${workspaceFolder}/data/vscode-simulator"
+      },
+      "preLaunchTask": "Start loopback Modbus simulator",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Sommerauer Monitor: Dashboard (Vite)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "autoAttachChildProcesses": true,
+      "serverReadyAction": {
+        "pattern": "Local: +http://127\\.0\\.0\\.1:([0-9]+)/",
+        "uriFormat": "http://127.0.0.1:%s",
+        "action": "openExternally"
+      }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Sommerauer Monitor: Offline-Gesamttest",
+      "configurations": [
+        "Sommerauer Monitor: API + Simulator",
+        "Sommerauer Monitor: Dashboard (Vite)"
+      ],
+      "stopAll": true
+    }
+  ]
+}

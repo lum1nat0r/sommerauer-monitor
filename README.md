@@ -5,8 +5,8 @@ dauerhafte Minutenhistorie und Web-Dashboard auf Unraid.
 
 **Stand 15.10.2026: Projektgrundlage, bestätigtes Kernprofil/Decoder, strikter FC03-Lesetransport,
 Loopback-Simulator, SQLite-Speicherung, zentraler Sammler, begrenzte Wiederaufnahme,
-lesende API und deutsches Dashboard umgesetzt.**
-Offen: vollständige Offline-Ende-zu-Ende-Abnahme, Deployment und Geräteprüfung.
+lesende API, Dashboard und Offline-Ende-zu-Ende-Abnahme (#12) umgesetzt.**
+Offen: Unraid-Deployment und Geräteprüfung.
 
 ## Hier mit der Arbeit beginnen
 
@@ -42,6 +42,18 @@ Die API startet lokal mit `uv run uvicorn backend.main:app --host 127.0.0.1 --po
 Für die UI in einem zweiten Terminal `npm run dev` ausführen; Vite liefert die Oberfläche
 auf `http://127.0.0.1:5173` und leitet `/api` an die API weiter. Der Erststart hat keinen
 Modbus-Host und `COLLECTOR_ENABLED=false`; die App führt keine Gerätezugriffe aus.
+
+### Gesamttest in VS Code (nur Simulator)
+
+Abhängigkeiten einmal mit `uv sync --locked` und `npm ci` installieren. In Run and
+Debug `Sommerauer Monitor: Offline-Gesamttest` auswählen und starten. VS Code wartet,
+bis der Loopback-Simulator auf `127.0.0.1:1502` bereit ist, startet dann API und
+Vite-Dashboard und öffnet die von Vite gemeldete URL (standardmäßig `http://127.0.0.1:5173`;
+falls belegt, den nächsten freien Port). Die Launch-Konfiguration erzwingt den Simulator
+als Ziel, aktiviert den Sammler und speichert Testdaten getrennt unter
+`data/vscode-simulator/`; dort sichtbare Werte sind synthetisch. Ports 1502 und 8000
+müssen frei sein. Nach Debug-Stopp den weiterlaufenden Simulator im zugehörigen
+Task-Terminal mit Ctrl+C beenden.
 Lokale Einstellungen stehen in `.env`, niemals echte Hostnamen oder Zugangsdaten in
 Beispiele, Logs oder CI übernehmen.
 
