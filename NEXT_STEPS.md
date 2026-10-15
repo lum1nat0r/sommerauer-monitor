@@ -14,7 +14,7 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
-## Register-Prüfwerkzeug: Übergabe nach #37
+## Register-Prüfwerkzeug: Übergabe nach #38
 
 Die kanonische Ressource liegt ausschließlich unter
 [`backend/resources/register_catalog.json`](backend/resources/register_catalog.json).
@@ -101,8 +101,18 @@ Fehler am ersten/zweiten Versuch und echte Steuerrevisionen nach Restore.
 Die Runner-Tests isolieren auch geerbte Deploymentvariablen.
 Ein zusätzlicher realer Loopbacklauf mit drei manuellen Reads und echten
 60,050-s-Wartezeiten endete `completed`, ohne neue Kernbeobachtungen.
-Reproduzierbare Screenshot-/Request-/Persistenzabnahme #38 und anschließend
-Paket-/Wheel-Laufzeitabnahme #39 bleiben eigene Pflichtpakete.
+Die reproduzierbare Screenshot-/Request-/Persistenzabnahme #38 belegt zusätzlich
+den tatsächlich bedienten Vite-Browser bei Desktopbreite und 390 px,
+exakt drei bewusste Rohreads mit mindestens 60 s Abstand, echte JSON-Downloads
+mit SQLite-Abgleich, unveränderliche Steuerrevisionen/Revisionskonflikt sowie
+Neustartpersistenz und einen separaten harten Exception-Stopp ohne Retry.
+Bereinigte Screenshots und genaue Messwerte:
+[Abnahmebericht #38](reports/RESULTS.md#15102026--issue-38-reale-offline-browserabnahme).
+Keine Produktionsänderung erforderlich. Nächstes Pflichtpaket ist #39:
+Wheel außerhalb des Checkouts, gebaute Oberfläche und explizite Containergrenze.
+`npm audit` meldet eine bestehende hohe Vite-Sicherheitslücke; keine automatische
+Lockfileänderung im Abnahmeauftrag. Devserver ausschließlich auf Loopback betreiben;
+den Abhängigkeitsbefund vor nicht vertrauenswürdiger Bereitstellung beheben.
 Windows-Sperrnachweise ersetzen keinen Linux-/Unraid-Nachweis.
 Kein Deployment, Live-Test oder Heizungs-Schreibauftrag aus dieser Abnahme ableiten.
 

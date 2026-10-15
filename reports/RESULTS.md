@@ -1325,3 +1325,239 @@ Die Tabelle bezeichnet synthetische Verbraucherabnahmen, keine unabhängige
 Prüfung privater Originalquellen. Die zusätzliche reproduzierbare
 Browser-/Screenshotabnahme **#38** und Paket-/Wheel-Laufzeitabnahme **#39**
 bleiben offen. Windows-Prozesssperren belegen nicht den Linux-/Unraid-Pfad.
+
+## 15.10.2026 – Issue #38: reale Offline-Browserabnahme
+
+**Eigene synthetische Offline-Abnahme, keine Geräte- oder Herstellerprüfung.**
+Ausgangsstand: gemergtes #37, Commit `a62799c`. Keine private `.env` geändert
+oder als Testziel übernommen, kein bestehender Anlagen-Collector verwendet,
+keine echte Zieladresse und kein Schreibtelegramm. Keine Produktionsänderung nötig.
+
+### Umgebung und reproduzierbarer Aufbau
+
+- CPython **3.12.9**, uv **0.12.2**, Node **26.7.0**, npm **12.0.2**;
+  Abhängigkeiten aus `uv.lock` und `package-lock.json`.
+- Die bestehende `.venv` war unter Windows gesperrt. Der erste
+  `uv sync --locked --python 3.12.9` scheiterte mit Zugriff verweigert.
+  Anschließend derselbe gesperrte Satz über `UV_PROJECT_ENVIRONMENT` in einer
+  separaten temporären Umgebung erfolgreich installiert. Keine Nutzerprozesse beendet.
+  Die Standardumgebung anschließend mit `uv sync --locked` wieder synchronisiert.
+- API ausschließlich mit Prozess-Overrides: `MODBUS_HOST=127.0.0.1`,
+  `MODBUS_PORT=1502`, `MODBUS_UNIT_ID=255`, `REGISTER_PROFILE=core`,
+  `COLLECTOR_ENABLED=false`, leeres `COLLECTOR_MAX_REQUESTS`,
+  `DIAGNOSTICS_SOURCE=simulator` und eigenem temporären `DATA_DIR`.
+  Dieser Datenpfad blieb bei sämtlichen API-Neustarts identisch.
+- Uvicorn auf Loopback-Port 8000; `npm run dev -- --host 127.0.0.1`
+  meldete tatsächlich `http://127.0.0.1:5173/`. Genau diese URL wurde bedient.
+  Chromium **155.0.0.0**, Desktopviewport 1440 px und Mobilviewport 390 × 844 px.
+- Der vorhandene `ModbusSimulator(catalog=True, port=1502)` lief als
+  Loopback-Server in der temporären Prüfsitzung. Seine vorhandene
+  `received_requests`-Momentaufnahme lieferte den Transportnachweis.
+  Das ist dieselbe Serverimplementierung wie die CLI, keine neue Diagnose-/Log-API.
+  Faultwechsel durch kontrolliertes Beenden und neue Instanz mit `fault="exception"`.
+- Für kontrollierte spätere API-Neustarts wurde nur temporär ein Uvicorn-Wrapper
+  mit `server.should_exit` über lokale Standardeingabe verwendet.
+  Keine Zeitgrenze, Uhr, Produktionskonfiguration oder App-Route verändert.
+
+### Tatsächlich bediente Oberfläche
+
+Übersicht/Diagnose, Kopf und Erfassungsstatus bleiben erreichbar. Alle **199**
+Register über vier Seiten mit **50/50/50/49** unterschiedlichen Auswahlen erreicht.
+`Aussen_Ist`, `33408` und `8280` ergeben denselben Eintrag. Bestätigt-Filter
+zeigt fünf Kernworte; ein absichtlich fehlender Suchbegriff zeigt null Treffer.
+Unbekannte Interpretation bleibt „Einheit ungeklärt“, `write_support: unknown`.
+START/SOLL getrennt geöffnet, ohne FC03-Auswahl oder bestätigten Stellweg.
+
+Bei 390 px sind `innerWidth` und Dokumentbreite beide **390 px**; die
+Katalogtabelle hat lokal **342 px** Platz bei **690 px** Scrollinhalt.
+Detail/Formular stehen darunter; Buttons und Eingaben bleiben bedienbar.
+Tab vom Suchfeld erreicht den Filter mit sichtbarem grünem **3-px-Fokusring**.
+Die bestehende mobile Übersicht zeigt vier leere Kernkarten, keine Diagnosewerte
+als Kernmessungen.
+
+Bereinigte Screenshots der tatsächlich laufenden Oberfläche:
+
+| Beleg | Screenshot |
+|---|---|
+| Desktopinventar und Suche | [Desktopinventar](issue38/desktop-inventar.png) |
+| Mobiles Inventar, lokal scrollbare Tabelle | [390-px-Inventar](issue38/mobil-inventar.png) |
+| Mobiles vollständiges synthetisches Formular | [390-px-Formular](issue38/mobil-formular.png) |
+| Gespeichertes Rohwort, Alter und Bewertung | [390-px-Rohbeleg](issue38/mobil-rohbeleg.png) |
+| Zweites/drittes Rohwort, keine physikalische Interpretation | [Desktopresultat](issue38/desktop-ergebnis.png) |
+| Zweiter Tab, sichtbarer Revisionskonflikt | [Konflikt](issue38/desktop-konflikt.png) |
+| Bewusster Stopp ohne Read | [Manueller Abbruch](issue38/desktop-abbruch.png) |
+| Recovery nach tatsächlichem Prozessabbruch | [Unterbrechung](issue38/desktop-unterbrochen.png) |
+| Harter Fehler mit deutscher Meldung | [390-px-Protokollstopp](issue38/mobil-protokollstopp.png) |
+| Fehlerbeleg mit Byteanzahl und Fehlercode | [Protokollbeleg](issue38/desktop-protokollfehler.png) |
+| Reale Gesamtfrist bei geschlossenen Browser-Tabs | [600-s-Watchdog](issue38/desktop-watchdog.png) |
+
+### Dreierplan, echte Wartezeiten und Persistenz
+
+Exakt `register:4098`, `register:4099`, `register:33408` gewählt.
+Vor Start zeigt der gespeicherte Serverplan **4098/1, 4099/1, 33408/1**,
+drei Anfragen, FC03/255, 3-s-Deadline, 60-s-Abstände und 600-s-Gesamtfrist.
+Refresh vor Start erhält den Plan: null Requests. Start mit ausdrücklicher
+Leserbestätigung öffnet nur den Prüfmodus: weiterhin null Requests.
+Countdown und gesperrten Read vor Freigabe tatsächlich beobachtet.
+
+| Gemessene UTC-Differenz aus SQLite | Sekunden |
+|---|---:|
+| Laufstart bis erste Reservierung | 63,400817 |
+| Erster Antwortabschluss einschließlich Speicherung bis zweite Reservierung | 62,952306 |
+| Zweiter Antwortabschluss einschließlich Speicherung bis dritte Reservierung | 61,155190 |
+
+Transportmomentaufnahme exakt, keine weiteren Requests durch Mount, Refresh,
+Bereichswechsel, GET, Export oder Neustart:
+
+```text
+(255, 3, 4098, 1)
+(255, 3, 4099, 1)
+(255, 3, 33408, 1)
+```
+
+Manuell ausgelöste Antworten **[0] / 0x0000**, **[173] / 0x00AD**,
+**[65526] / 0xFFF6**, Budgets **1/3 → 2/3 → 3/3**. Jeweils `raw_only`,
+„Simulator, synthetisch“, kein Außentemperaturwert. Vor der Bewertung fehlt
+die nächste Readaktion; jede Antwort ausdrücklich mit „Geprüft, weiter“
+bewertet. Zwischen Schritten und nach Abschluss Seite aktualisiert.
+Letzte Bewertung ergibt `completed`; Monitoring bleibt deaktiviert.
+
+Echte Browserdownloads `diagnostic-run.json` und `control-plan.json` erzeugt.
+Jede Schritt-ID, jedes Rohwort, jeder UTC-Beginn/-Abschluss und jede Bewertung
+des Laufdownloads wurden feldweise mit `diagnostic_requests` verglichen.
+Steuerdownload stimmt vollständig mit der gespeicherten Revision überein.
+Öffentliche Planprojektion enthält Alias `Simulator`, keinen Host, Datenpfad
+oder Ziel-Fingerprint. **Null Zeilen in `observations`**, keine neuen Pollingsignale.
+SQLite-Integritätsprüfung: **ok**.
+
+Zusätzlich zuerst einen harten API-Prozessabbruch bei bereits abgeschlossenem
+Lauf geprüft; danach kontrollierter Lifespan-Shutdown mit Exitcode **0**
+und Neustart mit demselben Volume/Overrides. Abgeschlossener Export unverändert,
+Budget **3/3**, Steuerrevision **3** wieder ladbar, null zusätzliche Requests.
+Alter und synthetische Herkunft bleiben sichtbar, kein neuer Live-Prüfstatus.
+
+### Steuerentwurf und Sicherheitszustände
+
+START-Revision **1** nur mit Kandidat/Zweck angelegt: Quellen, Rückstellwert
+und übrige Voraussetzungen konkret als fehlend sichtbar. Alle **20** Felder
+anschließend mit ausdrücklich synthetischen Betreiberangaben ausgefüllt,
+einschließlich Vor-/Test-/Rückstellwert, Dauer/Anfragebudget, Stop-/Prüf-/
+Rückstellschritten und Ausfallverhalten. Revision **2** formal
+`ready_for_review`, danach weitere Revision **3** gespeichert.
+Frühere Revisionen **1/2/3** bleiben in SQLite erhalten.
+
+Zweiter Tab übernimmt Revision 2, während erster Tab Revision 3 speichert:
+veralteter Speicherversuch zeigt echten HTTP-409-`revision_conflict` statt
+Überschreiben; Konflikteingabe bleibt vollständig erhalten.
+Wiederladen verlangt ausdrückliche Übernahme des Serverstands.
+UI/Download stets `execution_enabled:false`, Betreiberquelle nicht unabhängig
+verifiziert, autonome START-/SOLL-Rückfalllücke auch bei vollständigen Feldern
+sichtbar. Keine aktivierbare Schreibaktion oder vermeintliche Gerätefreigabe.
+
+Zusätzlicher manueller Lauf ohne Read bewusst beendet: `cancelled`, **0/1**.
+Weiterer geöffneter Lauf ohne Read durch tatsächliches Beenden des eigenen
+API-Prozesses unterbrochen: nach Neustart sichtbar `interrupted`, **0/1**,
+Ursachenquittierung startet nichts. Beide ohne zusätzliche Simulatoranfrage.
+
+Weiterer Lauf ausschließlich geöffnet, beide eigenen Browser-Tabs geschlossen
+und **601 reale Sekunden ab beobachtetem Start** ohne Read abgewartet:
+Watchdog beendet ihn selbstständig mit `expired`, **0/1**, danach echte UI
+wieder geöffnet und deutsche Ablaufmeldung gesehen. Keine Uhrinjektion,
+keine vorgezogene Deadline, kein Browserpolling und null Simulatoranfragen.
+Die gespeicherten UTC-Zeiten liegen 599,989267 s auseinander; dies ist die
+Wanduhrdifferenz, nicht die monotone Fristmessung.
+Laufende Anfrage/Stopprennen bleiben durch die zusätzlich erneut ausgeführte
+automatisierte Matrix belegt; dafür keinen weiteren Browserread erzeugt.
+
+**Zusätzlich injizierte Browserantwort, kein realer DB-Ausfall:** Ein GET des
+aktuellen Laufs erhielt temporär HTTP 503 mit `detail.code=storage_unavailable`.
+Die deutsche Meldung nennt den Code; der bereits gespeicherte Rohbeleg bleibt
+sichtbar. Die temporäre Interception wurde anschließend entfernt.
+Lade-/Leerzustände und während Mutationen gesperrte Buttons tatsächlich gesehen;
+zu frühe Folgeklicks wurden vom Browser als deaktiviert abgewiesen und nicht
+als zusätzliche Geräteversuche ausgeführt.
+
+### Separater echter Exception-Lauf
+
+Neuer Lauf, eigener Simulator im Exception-Modus auf demselben Loopback-Port.
+Nach realer erster 60-s-Schranke genau einmal manuell gelesen:
+**HTTP 200** mit terminalem Laufdokument **`stopped_protocol`**,
+Fehlerklasse **`protocol_error`**, **9 empfangene Bytes**, keine Rohersatzwerte,
+Budget **1/1**. UI: „Protokollfehler: sofort gestoppt, keine Wiederholung.
+Antwort und Ursache klären und quittieren.“
+
+Simulator exakt **`(255, 3, 4098, 1)`**, SQLite
+`state=stopped_protocol`, `requests_reserved=1`, zunächst keine Quittierung.
+Kontrollierter API-Shutdown/Neustart mit gleichem Volume erhält den Stopp,
+null zusätzliche Requests; lesende Oberfläche verfügbar.
+
+Explizite API-Konfliktprüfungen nach Neustart:
+
+| Aktion | HTTP / `detail.code` |
+|---|---|
+| Dieselbe ID erneut starten | 409 / `diagnostic_stop_unacknowledged` |
+| Dieselbe ID erneut lesen | 409 / `run_conflict` |
+| Neuen Plan erstellen | 409 / `diagnostic_stop_unacknowledged` |
+| Kernmonitoring fortsetzen | 409 / `diagnostic_stop_unacknowledged` |
+
+Nichtleere Ursachenklärung über echte UI gespeichert: alte ID bleibt
+`stopped_protocol`, weiterhin exakt ein Fehlerrequest, weder Collector noch neuer
+Lauf gestartet. Faultsimulator vor weiterem Lauf separat kontrolliert beendet.
+Insgesamt damit **vier** FC03-Anfragen: drei erfolgreich, eine Protokollexception.
+
+### Tatsächlich ausgeführte automatisierte Prüfungen
+
+In der isolierten CPython-3.12.9-Umgebung:
+
+```text
+python -m pytest tests/test_read_checks.py tests/test_diagnostics_api.py tests/test_control_plans.py
+374 passed, 1 warning in 35.04s
+python -m ruff check .
+All checks passed!
+npm run build
+33 modules transformed; built in 1.06s
+```
+
+Die zusätzlich vorgeschriebene Gesamtsuite aus #29/#37 wurde ebenfalls ausgeführt:
+
+```text
+python -m pytest tests/test_read_checks.py tests/test_diagnostics_api.py tests/test_modbus.py tests/test_collector.py tests/test_storage.py tests/test_registers.py tests/test_app.py tests/test_end_to_end.py
+644 passed, 1 warning in 82.06s
+```
+
+Erster Gesamtlauf: **2 failed, 642 passed, 1 warning in 83.87s**.
+Die beiden bestehenden E2E-Tests entfernten `MODBUS_HOST`, ließen aber
+`DIAGNOSTICS_SOURCE=simulator` geerbt und lasen mangels Isolation `.env` als
+Settings-Fallback. Das führte zur Settings-Validierungsablehnung vor einer
+Anlagenanfrage, nicht zu einem Gerätefehler. In `tests/test_end_to_end.py`
+deshalb das vorhandene Fixturemuster aus `test_app.py` übernommen:
+explizite isolierte Deploymentvariablen und `Settings(_env_file=None)`.
+Beide E2E-Verhaltenstests unverändert; kein Fehler unterdrückt oder Erwartungswert
+umgepinnt. Der obige grüne Gesamtlauf lief absichtlich erneut mit geerbter
+Simulator-Umgebung. Ruff nach dieser Korrektur ebenfalls erfolgreich.
+
+Starlette meldet wie zuvor das veraltete `anyio.abc.BlockingPortal`-Alias.
+`npm ci` erfolgreich, aber bestehendes blockiertes esbuild-Installationsskript
+und **eine hohe Vite-Sicherheitslücke** gemeldet. `npm audit --json` bestätigt
+den installierten direkten Vite-Stand **6.2.2**, unter anderem Windows-
+Dateizugriffslücken; angebotene Korrektur **6.4.4**. Kein automatisches Upgrade
+oder `audit fix --force` im Abnahmeauftrag. Devserver nur auf Loopback;
+Abhängigkeitskorrektur vor nicht vertrauenswürdiger Bereitstellung erforderlich.
+Siehe [Vite-Advisory](https://github.com/advisories/GHSA-fx2h-pf6j-xcff).
+
+Keine neuen permanenten Testfälle: bestehende Verhaltensmatrix wiederverwendet,
+nur die dabei tatsächlich gebrochene E2E-Umgebungsisolation korrigiert.
+Die zusätzliche Leistung dieses Issues ist echte Browser-/Zeit-/Transport-/
+Download-/Persistenzabnahme, nicht ein Test- oder Quelltextabgleich als
+Oberflächenersatz. Wheel/gebaute Auslieferungsoberfläche und Container bleiben
+#39; Linux/Unraid, Langzeitbetrieb und Geräteverträglichkeit sind hier nicht
+geprüft. Private Originalquellen nicht unabhängig eingesehen.
+
+Abschluss: fünf persistierte Läufe (`completed`, `cancelled`, quittiertes
+`interrupted`, quittiertes `stopped_protocol`, `expired`), insgesamt vier
+verbrauchte Reservierungen, null Kernbeobachtungen, SQLite `ok`, Collector
+`unconfigured` und deaktiviert. Eigene API mit Exitcode 0 und Simulator
+kontrolliert beendet. Der eigene npm-/Vite-Prozessbaum musste unter Windows
+nach erfolgloser normaler Beendigung gezielt beendet werden. Temporären
+Wrapper und lokale synthetische Testdateien entfernt; nur bereinigte
+Oberflächenscreenshots bleiben im Repository.

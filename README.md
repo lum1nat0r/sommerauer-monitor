@@ -36,7 +36,10 @@ echter Zweitprozesssperren, gegateter Stop-/Reservierungs-/Joinrennen,
 unveränderter Backupquellen und nicht ausführbarer Steuerrevisionen.
 Vollständige Matrixzuordnung und tatsächlich ausgeführte Prüfungen:
 [Ergebnisse](reports/RESULTS.md#15102026--issue-37-automatisierte-diagnose-gesamtabnahme).
-Die zusätzliche Browserabnahme #38 und Paket-/Wheel-Laufzeitabnahme #39 bleiben offen.
+Die Browser-/Persistenzabnahme #38 ist mit echten Wartezeiten, bereinigten
+Screenshots, Download-/SQLite-Abgleich und hartem Exception-Stopp belegt:
+[Ergebnisse und Oberflächenbelege](reports/RESULTS.md#15102026--issue-38-reale-offline-browserabnahme).
+Paket-/Wheel-Laufzeitabnahme #39 bleibt offen.
 
 
 Issue #34 ergänzt rein offline bewertete Steuerentwürfe mit atomaren,
