@@ -1,6 +1,9 @@
 import { StrictMode, useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
+import { requestJson } from './api';
+import { ageLabel, formatDate } from './format';
+import Diagnostics from './Diagnostics';
 
 type CollectorStatus = {
   state: string;
@@ -109,31 +112,6 @@ function shiftLocal(date: Date, timeZone: string, unit: 'day' | 'week' | 'month'
   const input = `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}-${String(shifted.getUTCDate()).padStart(2, '0')}T${String(shifted.getUTCHours()).padStart(2, '0')}:${String(shifted.getUTCMinutes()).padStart(2, '0')}`;
   return localInputToUtc(input, timeZone, true);
 }
-function formatDate(value: string | Date, timeZone: string, options: Intl.DateTimeFormatOptions = {}) {
-  try {
-    return new Intl.DateTimeFormat('de-AT', {
-      timeZone, dateStyle: 'medium', timeStyle: 'short', ...options,
-    }).format(new Date(value));
-  } catch {
-    return 'Unbekannt';
-  }
-}
-
-
-function ageLabel(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds < 0) return 'Alter unbekannt';
-  if (seconds < 60) return `vor ${Math.floor(seconds)} s`;
-  if (seconds < 3600) return `vor ${Math.floor(seconds / 60)} min`;
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  return `vor ${hours} h ${minutes} min`;
-}
-
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json() as Promise<T>;
-}
 
 function Chart({ points, unit, timeZone }: { points: Point[]; unit: string; timeZone: string }) {
   const valid = points.filter((point) => point.value !== null && point.quality === 'ok');
@@ -178,6 +156,7 @@ function Chart({ points, unit, timeZone }: { points: Point[]; unit: string; time
 }
 
 function App() {
+  const [area, setArea] = useState<'overview' | 'diagnostics'>('overview');
   const [config, setConfig] = useState<Config | null>(null);
   const [collector, setCollector] = useState<CollectorStatus | null>(null);
   const [signals, setSignals] = useState<Signal[]>([]);
@@ -336,6 +315,12 @@ function App() {
       </div>
     </section>
     {notice && <p className="notice" role="status">{notice}</p>}
+    <nav className="diagnostics-navigation" aria-label="Dashboard-Bereich">
+      <button className={`button ${area === 'overview' ? 'primary' : 'secondary'}`} aria-pressed={area === 'overview'} onClick={() => setArea('overview')}>Übersicht</button>
+      <button className={`button ${area === 'diagnostics' ? 'primary' : 'secondary'}`} aria-pressed={area === 'diagnostics'} onClick={() => setArea('diagnostics')}>Diagnose</button>
+    </nav>
+    <div hidden={area !== 'diagnostics'}><Diagnostics timeZone={timeZone} onCollectorChange={refresh} /></div>
+    <div hidden={area !== 'overview'}>
 
     <section aria-labelledby="signals-title"><div className="section-heading"><div><p className="eyebrow">LETZTE BEKANNTE MESSWERTE</p><h2 id="signals-title">Anlagenübersicht</h2></div><p className="muted">Anzeigezeit: {timeZone}</p></div>
       <div className="signal-grid">
@@ -376,6 +361,7 @@ function App() {
         <form onSubmit={(event) => void saveTimezone(event)}><label>Anzeigezeitzone<select value={timezoneDraft} onChange={(event) => setTimezoneDraft(event.target.value)}><option value="Europe/Vienna">Europe/Vienna</option><option value="Europe/Berlin">Europe/Berlin</option><option value="UTC">UTC</option></select></label><button className="button secondary" type="submit" disabled={busy || timezoneDraft === timeZone}>Zeitzone speichern</button></form>
         <p className="muted">Das ändert nur die Darstellung. Zieladresse und Heizungsparameter werden hier nicht geändert.</p>
       </section>
+    </div>
     </div>
     <footer><span>Web-App-Status und Erfassungszustand sind getrennt.</span><span>{config?.host_configured ? 'Modbus-Ziel konfiguriert' : 'Kein Modbus-Ziel konfiguriert'} · {config?.collector_enabled ? 'Sammler beim Start aktiviert' : 'Sammler beim Start deaktiviert'}</span></footer>
   </main>;

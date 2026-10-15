@@ -28,7 +28,8 @@ wie Kernreads und den expliziten synthetischen Simulator-Katalogmodus
 gemeinsamem Gerätebesitz, persistenten Stopps und gesperrter Recovery:
 höchstens drei explizite Reads, 60 s Abstand einschließlich Speicherung,
 600 s Laufzeit; keine zusätzlichen Kernmessungen. Issue #35 bindet Diagnose-API,
-Recovery und Lifespan sicher an; die Oberfläche folgt getrennt in #36.
+Recovery und Lifespan sicher an. Issue #36 ergänzt die Bedienung im Dashboard:
+Katalog/Details, manuelle Prüfläufe und nicht ausführbare Steuerentwürfe.
 Keine zusätzliche Live-Abnahme.
 
 Issue #34 ergänzt rein offline bewertete Steuerentwürfe mit atomaren,
@@ -44,6 +45,22 @@ GETs lösen keine Geräteanfrage aus; Start verlangt ausdrücklich
 expliziter `/read` führt genau einen FC03-Versuch aus. Monitoring startet nach
 Diagnoseende oder Quittierung nicht automatisch erneut.
 [HTTP-Vertrag und Vertrauensgrenze](docs/DATENMODELL.md#diagnose-http-api-issue-35).
+
+Im Dashboard zwischen **Übersicht** und **Diagnose** wechseln. Kopf und
+Erfassungsstatus bleiben sichtbar; der Bereichswechsel erhält geladene Belege
+und Formulareingaben. Die Diagnose bietet 50er-Katalogseiten, Suche nach Name,
+Dezimaloffset oder Hexcode und getrennte START-/SOLL-Kandidaten ohne Leseauswahl.
+Ein Prüfplan zeigt vor dem Start die tatsächlich aufgelösten Serverblöcke.
+Nur „Nächste Anfrage lesen“ sendet nach der serverseitigen Wartefrist eine
+einzelne Anfrage; jede Antwort benötigt eine ausdrückliche Bewertung.
+Countdown, Refresh und JSON-Export starten nichts. Fehlerquittierung und
+Diagnoseende setzen das Monitoring nicht fort.
+
+Steuerpläne speichern ausschließlich Offline-Entwürfe mit Revisionsprüfung.
+Bei einem Konflikt bleiben Eingaben erhalten; der neue Serverstand muss
+ausdrücklich übernommen werden. „Formal bereit zur fachlichen Prüfung“ ist
+keine Freigabe. Auch vollständige Exporte bleiben `execution_enabled:false`.
+JSON-Belege und Betreiberfreitexte sind privat, nicht für öffentliche Issues.
 
 ## Hier mit der Arbeit beginnen
 

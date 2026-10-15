@@ -14,7 +14,7 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
-## Register-Prüfwerkzeug: Übergabe nach #35
+## Register-Prüfwerkzeug: Übergabe nach #36
 
 Die kanonische Ressource liegt ausschließlich unter
 [`backend/resources/register_catalog.json`](backend/resources/register_catalog.json).
@@ -56,15 +56,17 @@ Paket #34 ergänzt formale Steuerplanbewertung und unveränderliche Revisionen
 Dokument enthält Entwurf, Quellenstatus, Bewertung und `execution_enabled:false`.
 Die Liste liefert ausschließlich neueste Revisionen; veraltete Updates werfen
 `RevisionConflict` mit Code `revision_conflict`. API-/Lifespan-Anbindung ist
-mit #35 umgesetzt, UI bleibt #36.
+mit #35 umgesetzt; die Bedienung im bestehenden Dashboard ist mit #36 umgesetzt.
 Details: [Steuerplanvertrag](docs/DATENMODELL.md#steuerentwürfe-und-revisionen-issue-34).
 Private Speicherdicts werden nicht als API ausgegeben; explizite Projektionen
 erhalten Quelle/Rohbelege, aber keine Ziele/Pfade/Fingerprintwerte.
 Wheel-Laufzeitnachweis außerhalb des Checkouts bleibt #39 vorbehalten.
 Offline-Nachweise: [Ergebnisse](reports/RESULTS.md); keine zusätzlichen Live-Belege.
 
-Für #36: verbindliche OpenAPI-Modelle in `backend/diagnostics_api.py` und
-[HTTP-Vertrag](docs/DATENMODELL.md#diagnose-http-api-issue-35) verwenden.
+Für #37/#38: verbindliche OpenAPI-Modelle in `backend/diagnostics_api.py`,
+die Oberfläche `frontend/src/Diagnostics.tsx` mit `ReadRuns.tsx` und
+`ControlPlans.tsx` sowie den [HTTP-Vertrag](docs/DATENMODELL.md#diagnose-http-api-issue-35)
+verwenden.
 Inventar: `entries`, getrennte `control_candidates`, `blockade`;
 je Eintrag `latest_diagnostic` mit `completed_at`, `source`, `target_changed`.
 Laufstatus: `plan`, `requests_reserved`, `next_step_index`,
@@ -72,6 +74,28 @@ Laufstatus: `plan`, `requests_reserved`, `next_step_index`,
 HTTP 409 `read_not_due` darf weder warten noch automatisch erneut anfragen.
 Jede Antwort muss ausdrücklich bewertet werden; Freitexte und Exporte bleiben
 privat. LAN/Tailscale und CSRF sind keine Authentisierung oder Schreibfreigabe.
+
+Paket #36 bietet 50er-Katalogseiten, drei Suchformen, Belegfilter, Details und
+getrennte START-/SOLL-Kandidaten. `api.ts` und `format.ts` sind die einzigen
+gemeinsamen Fetch-/Anzeigehelfer; `ApiError.message` bleibt `HTTP <Status>`.
+Serverpläne, Leserbestätigung, manuelle Reads/Reviews, sicherer Stopp und
+Ursachenquittierung sind angebunden, ohne automatischen Diagnose-POST oder
+Diagnosepolling. Bereichswechsel erhält den gemounteten Zustand.
+Alle Steuerplanfelder, Nullwerte, unveränderliche Blocker, Revisionen und
+Konfliktübernahme sind bedienbar; Export lädt die aktuelle Serverrevision.
+Der Vite-Proxy erhält mit `changeOrigin:false` den Browser-Hostheader, damit
+der bestehende Same-Origin-Vertrag auch bei lokaler Entwicklung gilt.
+
+Eigene Browserprüfung gegen echte Loopback-API/Katalogsimulator mit temporärem
+DATA_DIR bestanden: drei manuelle Rohreads, reale 60-s-Schranken,
+Pflichtbewertungen, Refresh/Downloads, Neustart/Recovery, Revisionenkonflikt,
+Exception-Stopp und Desktop/390 px. Speicher-/Netzfehleranzeigen zusätzlich
+mit synthetischen Browserantworten geprüft, nicht als echte DB-Ausfälle.
+Details und Grenzen: [Ergebnisse](reports/RESULTS.md).
+Zusätzliche automatisierte Verbraucherprüfung #37 und reproduzierbare
+Screenshot-/Request-/Persistenzabnahme #38 bleiben eigene Pflichtpakete;
+anschließend Paket-/Wheel-Laufzeitabnahme #39. Kein Deployment, Live-Test
+oder Heizungs-Schreibauftrag aus der UI-Abnahme ableiten.
 
 
 ## Begrenzter Full-Stack-Test am Gerät
