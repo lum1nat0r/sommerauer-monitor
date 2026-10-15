@@ -506,11 +506,14 @@ Tatsächlich geprüft:
   temporärem Datenvolume ohne Modbus-Ziel/aktivierte Erfassung. Der aus dem
   Workflow aufgerufene Smokecheck prüfte `/api/health` (`ok`), `/api/version`
   (`pr-local`/`offline-smoke`) und Collectorstatus `unconfigured` erfolgreich.
+- PR #27: GitHub Actions `pull-request-build` baute und startete das Image
+  erfolgreich (38 s); die Python- und Frontend-Jobs der Offline-CI bestanden
+  ebenfalls. Der Release-Job wurde beim PR erwartungsgemäß übersprungen.
 
 Grenzen: Podman-OCI-Build meldete erneut, dass der Dockerfile-`HEALTHCHECK`
 im OCI-Format nicht übernommen wird; die API-Healthroute wurde geprüft.
 `npm ci` meldete eine bekannte High-Severity-Dependency-Warnung und für
 `esbuild` unter npm 12 ein blockiertes Installationsskript; der Frontend-Build
-war erfolgreich. Kein GitHub-Runner-Lauf, kein Registry-Push und kein
-Hardware-/Unraid-Test. GitHub-Rulesets für Branch/Tags sind noch nicht
+war erfolgreich. Kein Release-Tag oder Registry-Push, kein Release-Job-Lauf und
+kein Hardware-/Unraid-Test. GitHub-Rulesets für Branch/Tags sind noch nicht
 konfiguriert; dies bleibt Voraussetzung vor dem ersten Release.
