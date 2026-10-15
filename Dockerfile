@@ -44,6 +44,6 @@ COPY --from=frontend-build /src/dist ./static
 USER ${APP_UID}:${APP_GID}
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD python -c "import json,sys,urllib.request; response=urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=2); sys.exit(0 if json.load(response).get('status') == 'ok' else 1)"
+  CMD ["python", "-m", "backend.healthcheck"]
 STOPSIGNAL SIGTERM
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "15"]
