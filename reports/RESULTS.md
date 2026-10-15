@@ -702,3 +702,42 @@ Der Betreiber hat MIT für eigenen App-Code ausdrücklich akzeptiert.
 Checklisten führen die Lizenzentscheidung nicht mehr als offen.
 Herstellerdateien, rekonstruierter Herstellercode und Rechte an Abhängigkeiten
 sind davon nicht erfasst. Kein Release-Tag, Registry-Push oder Deployment ausgelöst.
+
+## 15.10.2026 – Unraid-Compose für das erste Release 0.1.0
+
+Nutzerauftrag: eigenständige Compose-Datei für Unraid mit öffentlichem
+Repository-Image vorbereiten; dieser Stand soll später den ersten Versionstag
+erhalten. `compose.unraid.yaml` referenziert fest
+`ghcr.io/lum1nat0r/sommerauer-monitor:0.1.0`, ohne Build-Schritt.
+Der vorhandene Veröffentlichungsworkflow verlangt dafür den Git-Tag `v0.1.0`.
+Die lokale Build-Datei `compose.yaml` bleibt unverändert.
+
+Offline tatsächlich geprüft:
+
+- Docker Compose 5.1.3 löst die Konfiguration erfolgreich auf; ohne `DATA_PATH`
+  scheitert sie mit dem vorgesehenen Konfigurationsfehler. Der Bind-Mount legt
+  fehlende Hostverzeichnisse nicht automatisch an. Leeres Modbus-Ziel und
+  `COLLECTOR_ENABLED=false` bleiben die Erststartwerte.
+- Aktuellen Projektstand mit Podman für Linux/amd64 lokal gebaut und den Stack
+  über dessen Docker-Compose-Provider gestartet. Ein temporärer Override ersetzte
+  ausschließlich die GHCR-Imagereferenz durch das lokale Prüfimage; eigener
+  Linux-Datenpfad und Loopback-Webport, keine private Projekt-`.env`.
+- `/api/health`: App/SQLite `ok`; `/api/version`: `0.1.0` mit Prüf-Revision
+  `unraid-compose-smoke`; `/api/collector/status`: `unconfigured`.
+  Dashboard-HTML wurde mit HTTP 200 ausgeliefert, keine neue visuelle UI-Abnahme.
+- Tatsächlicher Benutzer `99:100`, schreibgeschütztes Root-Dateisystem und
+  beschreibbarer `/data`-Bind-Mount geprüft. Der in Compose definierte Healthcheck
+  wurde erfolgreich ausgeführt. Podmans OCI-Build übernimmt den Dockerfile-
+  Healthcheck nicht; die Compose-Definition wurde im gestarteten Stack verwendet.
+- Container über Compose ersetzt: zuvor geschriebener synthetischer
+  Persistenzmarker blieb erhalten, SQLite-Integrität davor/danach `ok`,
+  API weiterhin gesund und Erfassung weiterhin `unconfigured`.
+- Prüfcontainer, Prüfnetzwerk, lokaler Prüfimage-Tag, temporäre Konfiguration
+  und ausschließlich das selbst angelegte Linux-Prüfverzeichnis entfernt.
+  Bestehende Messdaten und private Konfiguration unverändert.
+
+Grenzen: Docker-Desktop-Engine hier nicht verfügbar; Laufzeitnachweis daher über
+Podman/Linux, nicht auf Unraid. Kein Gerätezugriff, Registry-Push oder Git-Tag.
+Öffentliche GHCR-Sichtbarkeit und anonymer Pull müssen nach dem erfolgreichen
+Release geprüft werden; Unraid-Mount-/Betriebsabnahme bleibt beim Betreiber.
+Einrichtung und Start sind in `docs/UNRAID.md` dokumentiert.

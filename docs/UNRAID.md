@@ -2,10 +2,12 @@
 
 Zielplattform: `linux/amd64` (Unraid x86_64). Ein nicht privilegierter Container
 liefert Frontend und FastAPI über Port 8000 und nutzt lokales persistentes `/data`.
-`Dockerfile`, `compose.yaml` und `unraid-template.xml` enthalten den Paketentwurf.
-Das Template erwartet `ghcr.io/lum1nat0r/sommerauer-monitor:0.1.0`; dieses Image
-ist noch nicht veröffentlicht. Es gibt keinen Release-Tag. Ein Betreiber muss den
-Image-Tag vor Installation auf eine tatsächlich veröffentlichte Version setzen.
+`compose.yaml` baut lokal; `compose.unraid.yaml` ist ein eigenständiger Stack
+ohne Build-Schritt und lädt `ghcr.io/lum1nat0r/sommerauer-monitor:0.1.0`.
+Das alternative `unraid-template.xml` verwendet denselben Image-Tag.
+Für das erste Release ist der Git-Tag **`v0.1.0`** vorgesehen; der Image-Tag
+lautet **`0.1.0`**. Vor erfolgreicher Veröffentlichung und öffentlicher
+GHCR-Freigabe ist das Image nicht anonym abrufbar.
 
 Der Container läuft als UID 99/GID 100 (`nobody:users`), ohne Docker-Socket,
 Privilegien oder Host-Netzwerk. Das Datenverzeichnis auf dem Host muss für diese
@@ -17,6 +19,65 @@ Erststart: `COLLECTOR_ENABLED=false`, `MODBUS_HOST` leer. Das Image startet
 keine Gerätezugriffe, sofern der Betreiber nicht lokal sowohl eine Zieladresse
 setzt als auch die Erfassung ausdrücklich einschaltet. Keine Zieladresse in
 Repository, Image-Buildargumente, Logs oder öffentliche Dokumentation eintragen.
+
+## Unraid: veröffentlichtes Image verwenden
+
+Voraussetzung: Docker Compose auf Unraid, erfolgreich veröffentlichte Version
+`0.1.0` und öffentliche Sichtbarkeit des GHCR-Pakets. Nur
+`compose.unraid.yaml` auf den Server kopieren; kein Quellcode und kein lokaler
+Image-Build nötig. Im selben Stackverzeichnis eine private `.env` anlegen:
+
+```dotenv
+# Beispielpfad: durch den tatsächlichen lokalen Unraid-Datenpfad ersetzen.
+DATA_PATH=/mnt/user/appdata/sommerauer-monitor
+WEB_PORT=8000
+PUID=99
+PGID=100
+MODBUS_HOST=
+COLLECTOR_ENABLED=false
+DISPLAY_TIMEZONE=Europe/Vienna
+```
+
+`DATA_PATH` muss ausdrücklich gesetzt sein. Vorher das ausgewählte Verzeichnis
+anlegen und UID 99/GID 100 Schreibrechte geben; bei anderem `PUID`/`PGID` die
+Rechte entsprechend anpassen. Compose legt fehlende Mountquellen absichtlich
+nicht automatisch an. Keine SMB-/NFS-Freigabe für SQLite verwenden.
+Die `.env` enthält private Deploymentwerte und wird nicht veröffentlicht.
+
+Im Stackverzeichnis ausführen:
+
+```sh
+chmod 600 .env
+docker compose -f compose.unraid.yaml config --quiet
+docker compose -f compose.unraid.yaml pull
+docker compose -f compose.unraid.yaml up -d --no-build
+docker compose -f compose.unraid.yaml ps
+docker compose -f compose.unraid.yaml logs --tail=50 monitor
+```
+
+Das Dashboard ist unter `http://<Unraid-Host>:8000` erreichbar, bei geändertem
+`WEB_PORT` entsprechend. Nur im Heimnetz/Tailscale bereitstellen, keine
+Router-Portfreigabe. `/api/health`, `/api/version` (Version `0.1.0` samt Revision)
+und `/api/collector/status` prüfen; ohne Ziel bleibt die Erfassung `unconfigured`.
+Healthcheck und Container-Neustart aktivieren keine Messung.
+
+Diese Datei **allein** verwenden, nicht als Override mit `compose.yaml`
+kombinieren und nicht zusätzlich zum Unraid-Template starten: nur eine Instanz.
+Bei einem Compose-Manager entweder diese Datei auswählen oder ihren Inhalt als
+eigenständigen Stack hinterlegen und die Variablen im Stack konfigurieren.
+`APP_VERSION` und `BUILD_REVISION` werden nicht zur Laufzeit gesetzt; sie stammen
+aus dem veröffentlichten Image. Der Image-Tag bleibt fest auf `0.1.0`.
+
+Erst nach den Unraid-Prüfungen und gemäß
+[Inbetriebnahmeplan](INBETRIEBNAHME.md#betriebsplan-nach-der-begrenzten-abnahme)
+ein privates Modbus-Ziel und das vereinbarte endliche Anfragebudget setzen,
+`COLLECTOR_ENABLED=true` bewusst aktivieren und den Dienst mit demselben
+`up -d --no-build` neu erstellen. Hierdurch wird keine Erfassung aktiviert.
+Für Sicherungen mit diesem Stack
+`docker compose -f compose.unraid.yaml exec monitor …` verwenden; die Hinweise
+zu Backup/Restore und persistenten Stopps unten gelten unverändert.
+
+## Lokalen Entwicklungsstand bauen
 
 Compose lokal bauen/starten:
 
@@ -37,10 +98,12 @@ Ohne Wert bleibt der reguläre Betrieb unverändert. Bei benutzerdefiniertem
 beschreibbar machen. Der Daten-Bind-Mount bleibt beim Containerersatz erhalten.
 Compose-`.env` und Unraid-Container-Variablen liegen außerhalb von `/data` und müssen
 separat geschützt gesichert werden.
-`PUID`/`PGID` steuern den Build- und Laufzeitbenutzer (Standard `99`/`100`);
-bei Änderungen müssen Image und Volume-Berechtigungen zusammenpassen. `WEB_PORT`
-setzt den Hostport, intern bleibt Port 8000. `APP_VERSION` und `BUILD_REVISION`
-liefern Image-Label und `/api/version`-Metadaten; `unknown` ist kein Release-Nachweis.
+`PUID`/`PGID` steuern beim lokalen Build den Build- und Laufzeitbenutzer
+(Standard `99`/`100`); beim Unraid-Image nur den Laufzeitbenutzer. Das gemountete
+Verzeichnis muss zu den gewählten IDs passen. `WEB_PORT` setzt den Hostport,
+intern bleibt Port 8000. Beim lokalen Build liefern `APP_VERSION` und
+`BUILD_REVISION` Image-Label und `/api/version`-Metadaten;
+`unknown` ist kein Release-Nachweis.
 Der Compose-Dienst bindet an `linux/amd64`, Bridge-Netzwerk, schreibgeschütztes
 Root-Dateisystem und 20 Sekunden Shutdown-Frist.
 
@@ -118,8 +181,9 @@ Commit-Zugehörigkeit und Issue-Status technisch; ein geschlossenes Issue
 ersetzt **nicht** die fachliche Abnahme von #13 oder die Tag-Berechtigungen.
 GHCR-Pakete sind bei Erstveröffentlichung
 standardmäßig privat; die Sichtbarkeit erst nach Lizenz- und Releasefreigabe
-bewusst auf öffentlich setzen und einen anonymen Pull prüfen. Bis dahin bleibt
-der Imageverweis im Unraid-Template ein Platzhalter. Das Betreiber-Deployment
+bewusst auf öffentlich setzen und einen anonymen Pull prüfen. Bis dahin bleiben
+die Imageverweise in `compose.unraid.yaml` und im Unraid-Template vorbereitete
+Releaseziele, kein Nachweis eines verfügbaren Images. Das Betreiber-Deployment
 erfolgt weiterhin manuell mit gesichertem `/data` und lokaler Konfiguration.
 
 Quellen: [GitHub-Workflow-Syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax),

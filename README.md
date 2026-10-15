@@ -69,17 +69,23 @@ Den Simulator lokal mit `uv run python -m backend.modbus_simulator` starten
 
 ## Docker und Unraid
 
-Das lokale Containerpaket und die Anleitung stehen in [docs/UNRAID.md](docs/UNRAID.md).
-Mit `cp .env.example .env` lokale Defaults anlegen, dort einen beschreibbaren
-`DATA_PATH` setzen und mit `docker compose up --build -d` lokal bauen. Der Container
-läuft als UID 99/GID 100, bindet Port 8000, persistiert ausschließlich in `/data`
-und startet ohne Hostadresse oder aktivierte Erfassung. `/api/version` meldet
-Buildversion und Revision. Pull Requests prüfen jetzt einen `linux/amd64`-Image-Build
-ohne Push; ausschließlich freigegebene Versionstags können nach Offline-Prüfungen
-ein GHCR-Image veröffentlichen ([Strategie und Sperren](docs/UNRAID.md#github-image-build-und-veröffentlichungsgrenze)).
-Der Unraid-Template-Imageverweis ist weiterhin ein erwarteter Registrypfad,
-kein veröffentlichtes Image; es gibt noch keinen Release-Tag. Lokale
-Docker-Prüfungen belegen keine Installation auf Unraid oder Gerätefunktion.
+Für Unraid steht [compose.unraid.yaml](compose.unraid.yaml) als eigenständiger
+Stack mit **`ghcr.io/lum1nat0r/sommerauer-monitor:0.1.0`** bereit, ohne lokalen
+Build. Einrichtung von `.env`, persistentem Datenpfad und Start:
+[Unraid-Anleitung](docs/UNRAID.md#unraid-veröffentlichtes-image-verwenden).
+Der Container läuft standardmäßig als UID 99/GID 100, bindet Port 8000,
+persistiert in `/data` und startet ohne Hostadresse oder aktivierte Erfassung.
+
+Die bisherige `compose.yaml` bleibt für lokale Builds:
+`cp .env.example .env`, beschreibbaren `DATA_PATH` setzen und
+`docker compose up --build -d` ausführen. `/api/version` meldet Buildversion
+und Revision. Pull Requests prüfen einen `linux/amd64`-Image-Build ohne Push.
+Der erste Release-Git-Tag muss **`v0.1.0`** heißen; der Workflow veröffentlicht
+nach seinen Offline-Prüfungen das Image mit Tag **`0.1.0`**
+([Strategie und Sperren](docs/UNRAID.md#github-image-build-und-veröffentlichungsgrenze)).
+Bis zur erfolgreichen Veröffentlichung, öffentlicher GHCR-Freigabe und anonymem
+Pull ist dessen Verfügbarkeit nicht belegt. Lokale Docker-Prüfungen belegen
+keine Installation auf Unraid oder Gerätefunktion.
 
 Lizenz: eigener App-Code unter [MIT](LICENSE), vom Betreiber am 15.10.2026 bestätigt.
 

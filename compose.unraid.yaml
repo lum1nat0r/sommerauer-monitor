@@ -1,0 +1,44 @@
+# Eigenständiger Unraid-Stack; nicht mit compose.yaml kombinieren.
+# Nach Veröffentlichung von v0.1.0 und öffentlicher GHCR-Freigabe verwenden.
+services:
+  monitor:
+    image: ghcr.io/lum1nat0r/sommerauer-monitor:0.1.0
+    platform: linux/amd64
+    user: "${PUID:-99}:${PGID:-100}"
+    init: true
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    environment:
+      MODBUS_HOST: ${MODBUS_HOST:-}
+      MODBUS_PORT: ${MODBUS_PORT:-502}
+      MODBUS_UNIT_ID: ${MODBUS_UNIT_ID:-255}
+      REGISTER_PROFILE: ${REGISTER_PROFILE:-core}
+      COLLECTOR_ENABLED: ${COLLECTOR_ENABLED:-false}
+      COLLECTOR_MAX_REQUESTS: ${COLLECTOR_MAX_REQUESTS:-}
+      DATA_DIR: /data
+      DISPLAY_TIMEZONE: ${DISPLAY_TIMEZONE:-Europe/Vienna}
+    volumes:
+      - type: bind
+        source: ${DATA_PATH:?DATA_PATH auf ein vorhandenes lokales Unraid-Datenverzeichnis setzen}
+        target: /data
+        bind:
+          create_host_path: false
+    restart: unless-stopped
+    stop_grace_period: 20s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -m
+        - backend.healthcheck
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
