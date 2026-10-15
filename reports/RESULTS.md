@@ -1765,3 +1765,35 @@ Bekannter Vite-Sicherheitsbefund, Linux-/Unraid-Deployment, Langzeitbetrieb,
 neue Registerinterpretationen sowie Stellweg und autonomer Rückfall (#18)
 bleiben außerhalb dieses Abschlusses. Keine Gerätefreigabe, kein Release,
 kein Deployment und kein Dauerbetrieb aus dem Epicabschluss ableiten.
+
+## 15.10.2026 – Version 0.2.0 vorbereitet
+
+Nutzerauftrag: aktuellen `main`-Stand als Version 0.2.0 vorbereiten.
+Ausgangspunkt: `b769952`, lokal und auf `origin/main` identisch, sauberer
+Arbeitsbaum. Umsetzung auf `release/0.2.0`, keine Funktionsänderungen.
+Python-/npm-Paket und Lockdateien, FastAPI-Metadaten, Docker-Buildvorgabe,
+Compose-Dateien, Unraid-Template und öffentliche Deploymentanleitung auf
+0.2.0 angehoben. Historische Abnahmeversionen und synthetische Testdaten
+bleiben unverändert.
+
+Tatsächlich ausgeführte Offline-Prüfungen:
+
+- `uv sync --locked`: erfolgreich, installiertes Paket 0.2.0.
+- `uv run ruff check .`: erfolgreich.
+- `uv run pytest`: **707 bestanden**, eine DeprecationWarning aus
+  Starlette/AnyIO; CPython **3.12.13**.
+- `npm run build`: erfolgreich, 33 Module.
+- `uv build --wheel --python 3.12.9`: erfolgreich,
+  `sommerauer_monitor-0.2.0-py3-none-any.whl`.
+- Separater In-process-Laufzeit-Smoke mit vor Backendimport explizit leerem
+  `MODBUS_HOST`, deaktiviertem Collector, `DIAGNOSTICS_SOURCE=device` und
+  temporärem Datenverzeichnis: installiertes Paket, OpenAPI und
+  `/api/version` melden 0.2.0; `/api/health` HTTP 200,
+  Collector `unconfigured`. Keine private Konfiguration geändert.
+
+Repositoryvorgaben: kein Merge durch den Assistenten, kein neuer Tag und kein
+GitHub-Release. Nach Betreiber-Merge ist `v0.2.0` auf dem zusammengeführten
+Main-Commit der vorgesehene Auslöser für die vorhandene Image-Pipeline.
+Kein neuer Container-, Unraid-, Browser- oder Live-Nachweis; keine Erfassung
+oder Geräteänderung aktiviert. Der dokumentierte Vite-Sicherheitsbefund
+bleibt unverändert.

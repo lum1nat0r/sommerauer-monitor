@@ -19,7 +19,7 @@ COPY backend ./backend
 RUN uv sync --locked --no-dev --no-editable
 
 FROM python:3.12.9-slim-bookworm AS runtime
-ARG APP_VERSION=0.1.0
+ARG APP_VERSION=0.2.0
 ARG BUILD_REVISION=unknown
 ARG APP_UID=99
 ARG APP_GID=100

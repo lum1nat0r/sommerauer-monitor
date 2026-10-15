@@ -77,7 +77,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
                 await run_in_threadpool(collector.stop)
 
 
-app = FastAPI(title="Sommerauer Monitor", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Sommerauer Monitor", version="0.2.0", lifespan=lifespan)
 
 install_error_handlers(app)
 app.include_router(diagnostics_router)
