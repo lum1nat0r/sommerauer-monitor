@@ -239,3 +239,44 @@ UI-Prüfung. Der Schreibzugriff auf Konfiguration umfasst absichtlich nur
 `display_timezone`; Ziel-/Verbindungsparameter bleiben Deployment-Konfiguration.
 Commit: `a1af16d` (`Implement local API for #8`). Pull Request:
 https://github.com/lum1nat0r/sommerauer-monitor/pull/20 (Basis `main`, nach dem Merge von #7). GitHub Actions waren bei Übergabe noch ausstehend; ein früherer Lauf hatte beide Jobs bestanden.
+
+## 15.10.2026 – Issue #9: Dashboard mit Live-Übersicht, Verläufen und Fehleranzeige
+
+`frontend/src/main.tsx` zeigt die vier bestätigten Kernsignale mit Einheit,
+Messzeit, Datenalter und Frischequalität. Getrennte App-/Datenbank- und
+Sammlerzustände enthalten Ersteinrichtung, Pause, Wiederaufnahme und harte
+Fehlerstopps. Pause/Fortsetzen/Quittieren und Anzeigezeitzone verwenden die
+geschützten Issue-#8-Endpunkte; Zieladresse und Heizungsparameter sind nicht
+einstellbar. Verläufe bieten 1 h, 24 h, Woche, Monat und freien Zeitraum,
+Signalwahl und CSV-Download. Das Diagramm zeichnet keine Verbindung über
+erkannte Lücken von mehr als drei Minuten; Ereignisse und lokale Auswahl von
+Signal/Zeitraum ergänzen die Ansicht. CSS passt sich schmalen Displays an und
+enthält sichtbare Tastaturfokusse.
+
+Tatsächlich geprüft:
+
+- `uv run pytest -q` – 62 bestanden; ein vorhandenes Starlette/AnyIO-
+  DeprecationWarning.
+- `uv run ruff check .` – bestanden.
+- `npm run build` – TypeScript-Prüfung und Vite-Produktionsbuild bestanden.
+- Vite im Chromium-Browser mit ausschließlich synthetischen API-Fixtures:
+  Ersteinrichtung, laufende Erfassung, veraltete Werte, Wiederaufnahmefehler,
+  leerer Verlauf, erkannte Messlücke, Fehlerquittierung und Pause/Fortsetzen
+  sichtbar bzw. bedienbar. Die drei Sammleraktionen sendeten jeweils genau den
+  erwarteten POST-Endpunkt.
+- Europe/Vienna-Fallback am 25.10.2026 mit freiem Zeitraum geprüft:
+  02:30/02:45 Ortszeit wurden deterministisch auf 00:30/00:45 UTC abgebildet.
+  Der Verlauf zeigt für eine synthetische sechstminütige Lücke keinen Linienzug
+  und kennzeichnet die Lücke zugänglich.
+- Bei 375 px Viewportbreite: vier Signal-Karten zweispaltig; Dokumentbreite
+  blieb 375 px ohne horizontales Überlaufen. Tastatur-Space aktivierte
+  „Freier Zeitraum“; Fokusindikatoren sind definiert. Ungültige gespeicherte
+  Signal-/Zeitraumwerte fallen auf sichere Defaults zurück. Die nicht existente
+  Ortszeit 29.03.2026 02:30 (Europe/Vienna) wird als ungültiger Zeitraum zurückgewiesen.
+
+Die Browser-Fixtures sind synthetisch und belegen keine echte Messung,
+Anlagenverträglichkeit oder Live-API-/Deployment-Funktion.
+
+Grenzen: keine Gerätezugriffe; Zusatzregister bleiben inaktiv. Ein Browser-/
+Gerätetest mit realen Messdaten und Deployment ist nicht Teil dieser Offline-
+Implementierung. Keine unabhängige Geräte-/Herstellerprüfung.

@@ -1,7 +1,8 @@
 # Signal-, Speicher- und API-Vertrag
 
-Signaldecodierung, SQLite-Speicherung, Erfassung, persistente Sammlerzustände und
-lesende Messwert-/Verlaufs-/Ereignis-API sowie geschützte Sammleraktionen sind umgesetzt.
+Signaldecodierung, SQLite-Speicherung, Erfassung, persistente Sammlerzustände,
+lesende Messwert-/Verlaufs-/Ereignis-API, geschützte Sammleraktionen und das
+responsive Dashboard sind umgesetzt. Die UI liest ausschließlich die API.
 
 ## Signale und Messungen
 
