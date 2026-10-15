@@ -4,6 +4,7 @@ from pydantic import ValidationError
 
 from backend.config import Settings, get_settings
 from backend.main import app
+from backend.storage import StorageError
 
 
 @pytest.fixture(autouse=True)
@@ -53,3 +54,46 @@ def test_health_endpoint_does_not_require_device_configuration() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_collector_status_reports_saved_runtime_state_without_configuration_fingerprint() -> None:
+    with TestClient(app) as client:
+        app.state.storage.save_collector_state(
+            {
+                "state": "reconnect_wait",
+                "error": "synthetic connection error",
+                "reconnect_attempts": 2,
+                "retry_at": "2026-10-14T00:02:00+00:00",
+                "next_action": "Retry same core block",
+                "profile_id": "core",
+                "configuration_id": "private fingerprint",
+            },
+            "2026-10-14T00:00:00+00:00",
+        )
+        response = client.get("/api/collector/status")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "state": "reconnect_wait",
+        "reason": "Verbindungsfehler; begrenzte Wiederaufnahme geplant",
+        "reconnect_attempts": 2,
+        "reconnect_attempt_limit": 5,
+        "next_action_at": "2026-10-14T00:02:00+00:00",
+        "next_action": "Retry same core block",
+        "profile_id": "core",
+    }
+    assert "private fingerprint" not in response.text
+
+
+def test_collector_status_survives_unreadable_state_without_exposing_storage_details() -> None:
+    with TestClient(app) as client:
+        def unreadable_state():
+            raise StorageError("private database path")
+
+        app.state.storage.get_collector_state = unreadable_state
+        response = client.get("/api/collector/status")
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "stopped_storage"
+    assert response.json()["reason"] == "Speicher- oder Zustandsfehler; Erfassung angehalten"
+    assert "private database path" not in response.text

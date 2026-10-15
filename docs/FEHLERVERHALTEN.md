@@ -23,6 +23,22 @@ Nutzer-Stopp oder Anlagenauffälligkeit überstimmt alles. Fehlerstopp kann nur 
 Klärung der Ursache bewusst quittiert werden; ein Neustart ist keine Quittierung.
 Web-API/Diagramme bleiben unabhängig vom Messzustand erreichbar.
 
+Die SQLite-Zustandszeile speichert Fehlerstatus, Ursache, Wiederaufnahmezähler,
+Zyklusfortschritt, nächsten Block und Retry-Deadline. Jede Wiederaufnahme wird vor
+dem Socketzugriff reserviert. Die Konfiguration wird nur als SHA-256-Fingerprint
+aus Ziel, Port, Unit und Profil gespeichert; eine abweichende Konfiguration liest
+nicht automatisch weiter. Laufzeitfristen verwenden eine monotone Uhr. Nach Prozessneustart
+wird die volle aktuelle Wartezeit erneut angesetzt, damit Vorwärts-/Rückwärtssprünge
+der Systemuhr den Schutz nicht verkürzen. Ein unterbrochener, vorab reservierter
+Socketversuch zählt gegen das Wiederaufnahmebudget. Ein alter Zustand `running` wird
+konservativ zu `reconnect_wait`; ein gespeicherter Nutzerstopp bleibt pausiert.
+
+`GET /api/collector/status` und das Dashboard zeigen Zustand, Fehlerkategorie,
+verbrauchte Versuche, nächste Aktion und geplanten Retry. Der Endpunkt gibt keine
+rohen Transport-/Speicherfehler oder Konfigurations-Fingerprints zurück. Ein explizites
+`acknowledge_and_start` setzt harte Stopps erst nach Ursachenklärung zurück;
+Prozessstart quittiert sie nicht.
+
 ## Reine Verbindungsfehler
 
 TCP-Verbindungsfehler oder Timeout ohne empfangene Antwortbytes dürfen in
@@ -58,9 +74,10 @@ widersprüchlicher Zähler -> Datenstopp. Keine Null einsetzen, nicht korrigiere
 kein automatischer Folgeversuch. Rohworte und Fehler speichern, soweit Speicher
 funktioniert. DB voll/nicht beschreibbar/Migrationsfehler -> Speicherstopp.
 
-## Unverzichtbare Offline-Prüfungen
+## Offline-Prüfungen
 
-Kein Timeout-Retry nach Teilantwort; korrekt zusammengesetzte fragmentierte Antwort;
-Wartezeiten/Versuchsanzahl; Flattern der Verbindung; Crash vor/nach Anfrage;
-Neustart in Wartezustand und hartem Stopp; drei gute Zyklen; Scheduler-Verzögerung;
-Uhrsprung; DB-Ausfall; konkurrierender Sammler; Stop während wartender Anfrage.
+Die synthetischen Tests prüfen Retry-Abstand und denselben Block, Systemuhrsprung
+ohne verkürzte monotone Wartezeit, genau fünf Wiederaufnahmeversuche, Protokoll-/
+Teilantwortstopp ohne Folge-Read, Crash-Recovery, drei vollständige gute Zyklen,
+Zielwechsel und pausierten Neustart. Weitere Störungsprüfungen bleiben für den Ausbau:
+Flattern, DB-Ausfall, konkurrierender Sammler und Stop während wartender Anfrage.
