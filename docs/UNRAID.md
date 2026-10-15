@@ -109,7 +109,8 @@ Workflow gibt den Registry-Digest im Job-Ergebnis aus; für ein festes
 Deployment kann `ghcr.io/lum1nat0r/sommerauer-monitor@sha256:…` verwendet
 werden. PR-Builds haben nur Leserechte.
 
-Vor dem ersten Versionstag: Lizenzentscheidung dokumentieren, #13 einschließlich
+MIT für eigenen App-Code ist am 15.10.2026 bestätigt (`LICENSE`).
+Vor dem ersten Versionstag: #13 einschließlich
 der noch offenen Geräte-/Unraid-Nachweise auswerten, die Releasefreigabe im Rahmen
 von #14 festhalten und Branch-/Tag-Rulesets so einrichten, dass ausschließlich
 `main`-Commits getaggt werden. Der Workflow prüft Lizenzdatei, Version,
@@ -139,6 +140,17 @@ Quellen: [GitHub-Workflow-Syntax](https://docs.github.com/en/actions/reference/w
 Release-Prüfungen: nicht-root starten, Volume-Rechte, Neustart/Persistenz, Offline-
 Start, gesperrte Erfassung, Backup/Restore, Versionsanzeige, Image-Reproduzierbarkeit.
 Hardware- oder Unraid-Prüfung nur als bestanden melden, wenn tatsächlich ausgeführt.
+
+Stand nach Geräteabnahme #13 am 15.10.2026: Der Betreiber hat den Monitor noch
+nicht auf Unraid installiert. Erfolgreiche endliche Windows-FC03-Läufe,
+lokales SQLite-Backup/Restore und frühere Podman-Smokes sind **kein**
+bestandener Unraid-Betriebs-/Persistenzcheck. Vor dauerhaftem Betrieb muss
+der Betreiber Image/Revision, tatsächlichen lokalen Mount und UID/GID-Rechte,
+endliche Erfassung, Containerersatz/Neustart sowie externes Backup/Restore
+auf seiner Installation protokollieren. Der
+[Betriebsplan](INBETRIEBNAHME.md#betriebsplan-nach-der-begrenzten-abnahme)
+aktiviert weder Deployment noch Erfassung.
+
 
 Quellen: [Unraid Container](https://docs.unraid.net/unraid-os/using-unraid-to/run-docker-containers/managing-and-customizing-containers/),
 [SQLite WAL](https://www.sqlite.org/wal.html), [SQLite Backup](https://www.sqlite.org/backup.html).

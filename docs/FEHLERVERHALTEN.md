@@ -1,9 +1,13 @@
 # Erfassung, Fehler und Wiederaufnahme
 
 Ein Client, eine Anfrage; Kernblöcke jeweils mindestens 60 s auseinander.
-Maximal zwei Register, 3 s Gesamtdeadline einschließlich Verbindungsaufbau/
-Antwort. Kein Nachholen in Bursts. Zusatzgruppen zunächst 300 s, genaue
-Reihenfolge nach Prüfung/Kapazitätsrechnung.
+Der Sammler zählt konservativ ab Abschluss der vorherigen Verarbeitung desselben
+Blocks mit einer hochauflösenden monotonen Uhr (`time.perf_counter`), nicht ab
+einer vorgelagerten Speicherreservierung. Speicher-/Antwortlaufzeiten kommen
+zum Mindestintervall hinzu; das 60-s-Ziel ist kein exakt phasenstarres Raster.
+Maximal zwei Register, 3 s Transport-Gesamtdeadline einschließlich Verbindungsaufbau/
+Antwort. Kein Nachholen in Bursts. Zusatzgruppen bleiben bis zur gesonderten
+fachlichen Prüfung und Kapazitätsplanung deaktiviert.
 
 ## Zustände und Übergänge
 
@@ -22,6 +26,8 @@ Reihenfolge nach Prüfung/Kapazitätsrechnung.
 Nutzer-Stopp oder Anlagenauffälligkeit überstimmt alles. Fehlerstopp kann nur nach
 Klärung der Ursache bewusst quittiert werden; ein Neustart ist keine Quittierung.
 Web-API/Diagramme bleiben unabhängig vom Messzustand erreichbar.
+Ein gespeicherter Zustand `completed` bleibt auch bei deaktiviertem Sammler
+über die lesende API „Erfassung abgeschlossen“, nicht `stopped_storage`.
 
 Die SQLite-Zustandszeile speichert Fehlerstatus, Ursache, Wiederaufnahmezähler,
 Zyklusfortschritt, nächsten Block und Retry-Deadline. Jede Wiederaufnahme wird vor

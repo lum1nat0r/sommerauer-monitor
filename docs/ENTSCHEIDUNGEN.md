@@ -24,8 +24,9 @@ Stand 14.10.2026; Herkunft jeweils angegeben.
 | Erststart ohne Host, Erfassung standardmäßig deaktiviert; Host in API-Ausgabe redigiert | Offline-sichere Projektkonfiguration; keine Gerätezugriffe implementiert |
 | CI nur mit synthetischen/in-process Tests und Frontend-Build | GitHub Actions workflow `.github/workflows/ci.yml`; keine Anlagenzugriffe/Secrets |
 | Image-Build/Registry: PR-Build ohne Push, kein `main`-Image, Release nur aus `vX.Y.Z` nach Offline-Prüfungen | Arbeitsentscheidung für Issue #14; Release selbst bleibt bis Lizenz-/Abnahmefreigabe aus |
+| Lizenz für eigenen App-Code: MIT, siehe `LICENSE`; Herstellerdateien und Abhängigkeiten nicht umlizenziert | Explizite Betreiberbestätigung am 15.10.2026 |
 
-Noch offen: Lizenz (MIT vorgeschlagen), Wahl einer Modbus-Bibliothek vs. kleinem
+Noch offen: Wahl einer Modbus-Bibliothek vs. kleinem
 eigenem Lesetransport, Zugriffsschutz der lokalen Verwaltungsfunktionen,
 Unraid-Poolpfad/UID/GID, geprüfte Einheiten und Grenzen der Zusatzregister.
 Die Foundation-Abhängigkeiten sind in `pyproject.toml` und `package.json` exakt

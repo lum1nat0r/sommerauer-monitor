@@ -6,8 +6,10 @@ dauerhafte Minutenhistorie und Web-Dashboard auf Unraid.
 **Stand 15.10.2026: Projektgrundlage, bestätigtes Kernprofil/Decoder, strikter FC03-Lesetransport,
 Loopback-Simulator, SQLite-Speicherung, zentraler Sammler, begrenzte Wiederaufnahme,
 lesende API, Dashboard und Offline-Ende-zu-Ende-Abnahme (#12) umgesetzt.**
-Offen: Unraid-Deployment, Dauerbetrieb und Displayabgleich; ein einzelner begrenzter
-Live-Kernzyklus wurde geprüft.
+Die gestufte lokale Kernregister-Abnahme (#13) ist mit endlichen FC03-Läufen
+und vom Betreiber bestätigtem Displayabgleich belegt
+([Ergebnisse](reports/RESULTS.md), [Betriebsplan](docs/INBETRIEBNAHME.md)).
+Offen: tatsächliches Unraid-Deployment und Langzeitbetrieb. Kein Dauerbetrieb aktiviert.
 
 ## Hier mit der Arbeit beginnen
 
@@ -79,8 +81,7 @@ Der Unraid-Template-Imageverweis ist weiterhin ein erwarteter Registrypfad,
 kein veröffentlichtes Image; es gibt noch keinen Release-Tag. Lokale
 Docker-Prüfungen belegen keine Installation auf Unraid oder Gerätefunktion.
 
-Lizenz: noch nicht festgelegt. Vor einem Software-Release muss der Betreiber entscheiden;
-der MIT-Vorschlag ist keine erteilte Lizenz.
+Lizenz: eigener App-Code unter [MIT](LICENSE), vom Betreiber am 15.10.2026 bestätigt.
 
 ## Dokumentation
 
@@ -104,6 +105,6 @@ universeller Sommerauer-Registerplan. Beispiele unter `examples/` sind synthetis
 
 ## Lizenz
 
-Eine Lizenz ist noch nicht festgelegt. MIT ist der bisherige Vorschlag für eigenen
-App-Code; vor dem ersten Software-Release entscheiden und dokumentieren.
-Öffentliche Sichtbarkeit allein ist keine zusätzliche Lizenz für Herstellerdateien.
+Eigener App-Code steht unter der [MIT-Lizenz](LICENSE).
+Herstellerdateien und rekonstruierter Herstellercode sind davon nicht erfasst;
+Abhängigkeiten behalten ihre jeweiligen Lizenzen.

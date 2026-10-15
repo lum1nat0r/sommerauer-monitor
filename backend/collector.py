@@ -102,7 +102,7 @@ class Collector:
         store: SQLiteStore,
         data_dir: Path,
         client: Any | None = None,
-        monotonic: Callable[[], float] = time.monotonic,
+        monotonic: Callable[[], float] = time.perf_counter,
         wait: Callable[[threading.Event, float], bool] | None = None,
         now: Callable[[], datetime] | None = None,
         max_duration_seconds: float | None = None,
@@ -128,7 +128,7 @@ class Collector:
         self._thread: threading.Thread | None = None
         self._started_at: float | None = None
         self._request_count = 0
-        self._last_started: dict[int, float] = {}
+        self._last_completed: dict[int, float] = {}
         self._last_counter: tuple[int, datetime] | None = None
         self._endpoint_id = self._configuration_id(host, port)
         self._next_offset = CORE_PROFILE[0].offset
@@ -429,7 +429,7 @@ class Collector:
 
     def _due_at(self, block) -> float:
         due = self._started_at if self._started_at is not None else self.monotonic()
-        previous = self._last_started.get(block.offset)
+        previous = self._last_completed.get(block.offset)
         if previous is not None:
             due = max(due, previous + MIN_BLOCK_INTERVAL_SECONDS)
         return due
@@ -446,8 +446,6 @@ class Collector:
 
     def _read_one(self, block, *, recovery: bool = False) -> None:
         started = self.now()
-        started_mono = self.monotonic()
-        self._last_started[block.offset] = started_mono
         self._request_count += 1
         self._retry_block_offset = block.offset
         self.state = "running"
@@ -561,6 +559,8 @@ class Collector:
                 {"state": self.state, "error_class": type(exc).__name__},
             )
         finally:
+            # Reserve the next interval only after variable disk/network latency has elapsed.
+            self._last_completed[block.offset] = self.monotonic()
             self._request_in_flight = False
             if self._paused.is_set() and self.state in {"running", "reconnect_wait"}:
                 self.state = "paused"

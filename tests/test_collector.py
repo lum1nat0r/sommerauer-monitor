@@ -92,6 +92,23 @@ def test_scheduler_preserves_minimum_per_block_interval_without_request_gap(tmp_
     assert repeated_start - first_start >= 60.0
 
 
+def test_variable_reservation_latency_preserves_actual_read_interval(tmp_path, monkeypatch):
+    collector, client, clock = make_collector(tmp_path, limit=4)
+    save_state = collector.store.save_collector_state
+
+    def delayed_first_reservation(state, updated_at):
+        if state.get("request_in_flight") and state["request_count"] == 1:
+            clock.elapsed += 0.5
+        save_state(state, updated_at)
+
+    monkeypatch.setattr(collector.store, "save_collector_state", delayed_first_reservation)
+    collector.run()
+
+    assert collector.state == "completed"
+    assert [offset for offset, _ in client.starts] == [4102, 28688, 36864, 4102]
+    assert client.starts[3][1] - client.starts[0][1] >= 60.0
+
+
 def test_duration_limit_stops_before_next_request(tmp_path):
     collector, client, _ = make_collector(tmp_path, limit=None, duration=15.0, delay=8.0)
     collector.run()
