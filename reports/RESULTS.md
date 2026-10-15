@@ -1844,3 +1844,32 @@ Unraid- oder Heizungsnachweis und keine Geräteanfrage für diese Korrektur.
 Kein Tag/Release erstellt. Ein Image mit der Korrektur und die private
 Originvariable müssen vor dem Einsatz auf Unraid bereitgestellt werden;
 der bestehende Image-Tag wird nicht stillschweigend ersetzt.
+
+## 15.10.2026 – Releasevorbereitung v0.2.1
+
+Nutzerauftrag: Release mit dem aktuellen Stand v0.2.1. Basis ist `7cc1b40`
+mit der zusammengeführten Reverse-Proxy-Origin-Korrektur aus PR #52.
+Auf Branch `release/0.2.1` sind Paket-/Lockversionen, FastAPI-Metadaten,
+Docker-/Compose-Vorgaben, Unraid-Template und Deploymentdokumentation auf
+0.2.1 angehoben. Keine zusätzliche Funktionsänderung; historische Belege und
+die VS-Code-Konfigurationsschemaversion bleiben unverändert.
+
+Tatsächlich ausgeführte Offline-Prüfungen:
+
+- `uv sync --locked` und `uv run ruff check .`: erfolgreich.
+- `uv run pytest`: **727 bestanden**, eine Starlette-/AnyIO-DeprecationWarning;
+  Testlauf auf CPython 3.12.13.
+- `npm run build`: TypeScript und Vite erfolgreich.
+- `uv build --wheel --python 3.12.9`: Wheel
+  `sommerauer_monitor-0.2.1-py3-none-any.whl` erstellt.
+- Separater In-process-Laufzeit-Smoke mit leerem Gerätehost, deaktivierter
+  Erfassung und temporärem Datenverzeichnis: `/api/health` HTTP 200,
+  Paketversion, OpenAPI und `/api/version` jeweils 0.2.1;
+  Collectorstatus `unconfigured`. Keine Geräteanfragen.
+
+Die Repositoryvorgaben untersagen dem Assistenten Merge und Tag-/Release-Erstellung.
+Nach Betreiber-Merge des Release-PRs muss `v0.2.1` auf dem Main-Commit erstellt
+und gepusht werden; erst dieser Tag startet die geprüfte GHCR-Pipeline für
+`ghcr.io/lum1nat0r/sommerauer-monitor:0.2.1`.
+Kein Image veröffentlicht oder dessen Abrufbarkeit behauptet. Kein neuer
+Container-, Unraid-, Browser- oder Live-Nachweis; keine Deploymentänderung.
