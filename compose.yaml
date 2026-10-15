@@ -36,8 +36,8 @@ services:
       test:
         - CMD
         - python
-        - -c
-        - "import json,sys,urllib.request; response=urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=2); sys.exit(0 if json.load(response).get('status') == 'ok' else 1)"
+        - -m
+        - backend.healthcheck
       interval: 30s
       timeout: 3s
       start_period: 10s

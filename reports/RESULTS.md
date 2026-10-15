@@ -317,3 +317,34 @@ Containerersatz/Persistenz, Healthcheck, Container-Shutdown, harte Stopps im
 Container und Start ohne Hostkonfiguration nicht verifiziert. `docker compose
 config` und synthetische Python-Tests ersetzen diese Containerprüfungen nicht.
 Keine Unraid-7.3.2-Installation, keine Gerätezugriffe und kein Release-Tag.
+
+## 15.10.2026 – Podman-Nachprüfung zu Issue #10
+
+Nach Verfügbarkeit des lokalen Podman-5.8.1-Engines wurde das Image auf
+`linux/amd64` gebaut. `podman compose --env-file .podman-smoke.env up -d --build`
+baute den Stack und startete ihn; `/api/health` und die UI waren erreichbar.
+Die Compose-Healthcheck-Argumente wurden dafür auf das Modul
+`backend.healthcheck` umgestellt. Manueller Healthcheck lieferte `healthy`.
+
+Tatsächlich geprüft:
+
+- Compose-Container mit UID 99/GID 100: UI-HTML, JS-Bundle, Health, Konfiguration
+  und Sammlerstatus erreichbar. Ohne Hostkonfiguration: `host_configured=false`,
+  `collector_enabled=false`, Zustand `unconfigured`.
+- Persistenter Compose-Bind-Mount: SQLite wurde beschreibbar angelegt und blieb
+  über Containerersatz erhalten; zuvor gespeicherte Anzeigezeitzone `UTC` blieb
+  erhalten.
+- Geteilter Loopback-Netzwerk-Namespace mit ausschließlich dem Projektsimulator:
+  Collector speicherte synthetisch `boiler.temperature=42`.
+- Simulator-Fault `exception`: Collector ging zu `stopped_protocol`, blieb nach
+  Containerersatz gestoppt; Wiederaufnahmezähler blieb 0.
+- Geordnetes Stoppen der Collector-Container endete mit Exitcode 0. Der Compose-
+  Healthcheck meldete nach Neustart `healthy`.
+- `uv run --locked pytest -q` – 63 bestanden; ein vorhandenes
+  Starlette/AnyIO-DeprecationWarning. `uv run --locked ruff check .` – bestanden.
+- `npm audit` meldete eine hohe Vite-Schwachstelle in der gepinnten Version 6.2.2;
+  verfügbarer Fix laut Audit: 6.4.4. Vite ist Build-/Entwicklungsabhängigkeit und
+  wird nicht in die Runtime-Stufe kopiert; die Sperrdateien blieben unverändert.
+
+Grenzen: Podman-/Container-Smokes sind keine Unraid-7.3.2-Prüfung. Keine
+Gerätezugriffe. Eine tatsächliche Release-Veröffentlichung erfolgte nicht.
