@@ -431,3 +431,54 @@ Ersatzvolume-Test belegt nur den leeren, nicht vortäuschenden Neustart. Der
 Podman-OCI-Build meldete, dass OCI-Images `HEALTHCHECK` nicht unterstützen;
 die API-Healthroute wurde geprüft, nicht ein Container-Healthcheck. Keine
 GitHub-Actions- oder Hardwareprüfung.
+
+## 15.10.2026 – Endliche Full-Stack-Laufgrenze vorbereiten
+
+`COLLECTOR_MAX_REQUESTS` begrenzt den App-Sammler über die lokale
+Deployment-Konfiguration. Ein App-Lauf mit diesem Budget stoppt bei
+Transportfehlern ohne automatische Wiederaufnahme; unbeschränkter Betrieb
+behält das bestehende Wiederaufnahmeverhalten. Der pytest-Fixture deaktiviert
+den Collector explizit, damit eine private `.env` mit aktivierter Erfassung
+keine echten Gerätezugriffe aus Standardtests auslöst.
+
+Tatsächlich geprüft:
+
+- `uv run pytest` – 68 bestanden; ein vorhandenes Starlette/AnyIO-
+  DeprecationWarning. `uv run ruff check .` bestanden.
+- App, Collector, SQLite und Vite-Dashboard lokal mit Loopback-Simulator
+  gestartet; Budget 1 führte zu Collectorstatus `completed`, einer
+  SQLite/API-Beobachtung mit synthetischem Wert 42 sowie HTTP 200 für
+  Dashboard und Healthroute.
+
+Grenzen: Dieser Lauf war ausschließlich Simulatorbetrieb; es gab für diesen
+Smoke keinen visuellen Dashboardabgleich. Kein Heizungszugriff, keine
+Geräteantwort oder Displayprüfung. Der separate Live-Zyklus ist unten dokumentiert.
+
+## 15.10.2026 – Begrenzter Full-Stack-Live-Zyklus
+
+Nach Betreiberbestätigung, dass andere Modbus-Leser beendet waren, lief die App
+mit dem ausschließlich lokal konfigurierten Ziel und einem temporären
+Prozesslimit von drei Anfragen. Das Profil blieb `core`: FC03, Unit 255,
+4102/1, 28688/2 und 36864/2. Die private Zieladresse und Rohmesswerte werden
+hier nicht abgelegt.
+
+Tatsächlich geprüft:
+
+- Genau drei erfolgreiche Anfragen, je eine pro bestätigtem Block; keine
+  Wiederaufnahmeversuche. SQLite enthält vier erfolgreiche Beobachtungen
+  (je ein Kernsignal), API meldet Datenbank gesund und alle vier Werte bei
+  der Abfrage mit Qualität `ok`.
+- Vite-Proxy und Dashboard lieferten HTTP 200. Chromium zeigte die vier
+  gespeicherten Kernwerte und den Zustand „Erfassung abgeschlossen“; nach
+  Überschreiten der 120-s-Frischegrenze markierte die UI die Werte korrekt
+  als veraltet. Ein Neustart zur Dashboardprüfung erzeugte keine weitere
+  Anfrage; gespeichertes Budget blieb 3/3.
+- App und Dashboard-Devserver wurden beendet. Der Prozesslimitwert war ein
+  Start-Override; `.env` wurde nicht verändert.
+- Nach der UI-/Endzustandskorrektur: `uv run pytest` – 69 bestanden, ein
+  bestehendes Starlette/AnyIO-DeprecationWarning; `uv run ruff check .` und
+  `npm run build` bestanden.
+
+Grenzen: kein Displayabgleich, keine längere Betriebs-/Verträglichkeitsprüfung
+und kein Unraid-Test. Der Browser zeigte die gespeicherten Messwerte; daraus
+folgt keine unabhängige Bestätigung durch das Heizungsdisplay oder den Hersteller.

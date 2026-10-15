@@ -12,8 +12,9 @@ Reihenfolge nach Prüfung/Kapazitätsrechnung.
 | `unconfigured` | Kein Ziel/Profil, keine Verbindung; konfigurieren -> `paused` |
 | `paused` | Nutzerpause oder Erstinstallation; expliziter App-Start -> `running` |
 | `running` | Geplante Reads; erfolgreicher Zyklus bleibt running |
+| `completed` | Endliches Anfrage-/Zeitlimit erreicht; keine weiteren Reads bis zu bewusstem `acknowledge_and_start` |
 | `reconnect_wait` | Normale Folge pausiert; genau ein Versuch nach Ablauf der Wartezeit |
-| `stopped_transport` | Budget ausgeschöpft; Ursache prüfen, manuell fortsetzen |
+| `stopped_transport` | Wiederaufnahmebudget ausgeschöpft oder endlicher Lauf nach Transportfehler; Ursache prüfen, bewusst quittieren |
 | `stopped_protocol` | Protokollfehler/Exception; keine automatischen Reads |
 | `stopped_data` | Ungültige/widersprüchliche Daten; keine automatischen Reads |
 | `stopped_storage` | Speicherung/Zustand nicht sicher möglich; keine neuen Reads |

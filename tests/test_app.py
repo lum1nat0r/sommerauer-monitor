@@ -1,17 +1,21 @@
+import time
+
 from fastapi.testclient import TestClient
 import pytest
 from pydantic import ValidationError
 
 from backend.config import Settings, get_settings
 from backend.main import app
+from backend.modbus import RegisterRead
 from backend.storage import StorageError
-
 
 @pytest.fixture(autouse=True)
 def isolated_database(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("COLLECTOR_ENABLED", "false")
     get_settings.cache_clear()
     yield
+    get_settings.cache_clear()
 
 def test_fresh_configuration_is_disabled_without_host() -> None:
     settings = Settings(_env_file=None)
@@ -24,6 +28,47 @@ def test_fresh_configuration_is_disabled_without_host() -> None:
 def test_collector_cannot_be_enabled_without_host() -> None:
     with pytest.raises(ValidationError, match="MODBUS_HOST is required"):
         Settings(_env_file=None, COLLECTOR_ENABLED=True)
+
+def test_finite_collector_limit_is_configurable() -> None:
+    settings = Settings(
+        _env_file=None,
+        COLLECTOR_ENABLED=True,
+        MODBUS_HOST="heater.invalid",
+        COLLECTOR_MAX_REQUESTS=3,
+    )
+
+    assert settings.collector_max_requests == 3
+
+
+def test_app_stops_after_configured_request_limit_and_stores_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MODBUS_HOST", "heater.invalid")
+    monkeypatch.setenv("COLLECTOR_ENABLED", "true")
+    monkeypatch.setenv("COLLECTOR_MAX_REQUESTS", "1")
+    reads = []
+
+    class FakeClient:
+        def __init__(self, host, port):
+            pass
+
+        def read(self, block):
+            reads.append(block.offset)
+            return RegisterRead(block.offset, (42,))
+
+    monkeypatch.setattr("backend.collector.ModbusTcpClient", FakeClient)
+    get_settings.cache_clear()
+    with TestClient(app) as client:
+        deadline = time.monotonic() + 2
+        while client.get("/api/collector/status").json()["state"] != "completed":
+            if time.monotonic() >= deadline:
+                pytest.fail("finite collector did not complete")
+            time.sleep(0.01)
+        history = client.get("/api/history/boiler.temperature").json()
+
+    assert reads == [4102]
+    assert history["total"] == 1
+    assert history["items"][0]["value"] == 42
 
 
 def test_configuration_rejects_unimplemented_register_profiles() -> None:

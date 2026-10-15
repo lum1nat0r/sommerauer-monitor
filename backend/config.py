@@ -20,8 +20,15 @@ class Settings(BaseSettings):
     modbus_unit_id: int = Field(default=255, alias="MODBUS_UNIT_ID", ge=0, le=255)
     register_profile: Literal["core"] = Field(default="core", alias="REGISTER_PROFILE")
     collector_enabled: bool = Field(default=False, alias="COLLECTOR_ENABLED")
+    collector_max_requests: int | None = Field(default=None, alias="COLLECTOR_MAX_REQUESTS", ge=1)
+
     data_dir: Path = Field(default=Path("/data"), alias="DATA_DIR")
     display_timezone: str = Field(default="Europe/Vienna", alias="DISPLAY_TIMEZONE")
+
+    @field_validator("collector_max_requests", mode="before")
+    @classmethod
+    def normalize_request_limit(cls, value: object) -> object:
+        return None if value == "" else value
 
     @field_validator("modbus_host", mode="before")
     @classmethod

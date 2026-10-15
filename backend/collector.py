@@ -107,6 +107,7 @@ class Collector:
         now: Callable[[], datetime] | None = None,
         max_duration_seconds: float | None = None,
         max_requests: int | None = None,
+        retry_on_transport_error: bool = True,
     ) -> None:
         if max_duration_seconds is not None and max_duration_seconds <= 0:
             raise ValueError("max_duration_seconds must be positive")
@@ -119,6 +120,7 @@ class Collector:
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.max_duration_seconds = max_duration_seconds
         self.max_requests = max_requests
+        self.retry_on_transport_error = retry_on_transport_error
         self._lock = _ProcessLock(data_dir / "collector.lock")
         self._stop = threading.Event()
         self._paused = threading.Event()
@@ -162,6 +164,8 @@ class Collector:
             "stopped_storage": "Speicher- oder Zustandsfehler; Erfassung angehalten",
             "paused": "Erfassung pausiert",
         }
+        if self.state == "stopped_transport" and not self.retry_on_transport_error:
+            reasons["stopped_transport"] = "Endlicher Lauf wegen Transportfehler beendet"
         next_action_at = self._retry_at
         if self.state == "reconnect_wait" and self._retry_monotonic_deadline is not None:
             remaining = max(0.0, self._retry_monotonic_deadline - self.monotonic())
@@ -528,17 +532,24 @@ class Collector:
                 self.state = "stopped_protocol"
                 self._last_action = "Acknowledge after protocol cause is resolved"
             elif isinstance(exc, ModbusConnectionError):
-                self._retry_block_offset = block.offset
-                if self._reconnect_attempts >= MAX_RECONNECT_ATTEMPTS:
+                if not self.retry_on_transport_error:
                     self.state = "stopped_transport"
                     self._retry_at = None
-                    self._last_action = "Reconnect budget exhausted; acknowledge after cause is resolved"
+                    self._retry_delay_seconds = None
+                    self._retry_monotonic_deadline = None
+                    self._last_action = "Finite collection stopped after transport error"
                 else:
-                    self.state = "reconnect_wait"
-                    delay = RECONNECT_DELAYS_SECONDS[self._reconnect_attempts]
-                    self._retry_delay_seconds = delay
-                    self._retry_at = completed + timedelta(seconds=delay)
-                    self._retry_monotonic_deadline = self.monotonic() + delay
+                    self._retry_block_offset = block.offset
+                    if self._reconnect_attempts >= MAX_RECONNECT_ATTEMPTS:
+                        self.state = "stopped_transport"
+                        self._retry_at = None
+                        self._last_action = "Reconnect budget exhausted; acknowledge after cause is resolved"
+                    else:
+                        self.state = "reconnect_wait"
+                        delay = RECONNECT_DELAYS_SECONDS[self._reconnect_attempts]
+                        self._retry_delay_seconds = delay
+                        self._retry_at = completed + timedelta(seconds=delay)
+                        self._retry_monotonic_deadline = self.monotonic() + delay
             else:
                 self.state = "stopped_data"
                 self._last_action = "Acknowledge after data cause is resolved"

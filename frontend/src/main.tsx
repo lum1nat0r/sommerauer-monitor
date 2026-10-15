@@ -46,8 +46,9 @@ const stateLabels: Record<string, string> = {
   unconfigured: 'Ersteinrichtung – noch nicht konfiguriert',
   paused: 'Pausiert',
   running: 'Erfassung läuft',
+  completed: 'Erfassung abgeschlossen',
   reconnect_wait: 'Verbindungsfehler – Wiederaufnahme geplant',
-  stopped_transport: 'Gestoppt – Wiederaufnahmebudget ausgeschöpft',
+  stopped_transport: 'Gestoppt – Verbindungsfehler',
   stopped_protocol: 'Gestoppt – Protokollfehler',
   stopped_data: 'Gestoppt – Datenfehler',
   stopped_storage: 'Gestoppt – Speicherfehler',
@@ -323,7 +324,7 @@ function App() {
 
     <section className="collector-panel" aria-labelledby="collector-title">
       <div className="collector-copy"><p className="eyebrow">ERFASSUNGSSTATUS</p><h2 id="collector-title">{collector ? stateLabels[collector.state] || 'Unbekannter Zustand' : 'Status wird geladen'}</h2>
-        <p>{collector?.reason || (collector?.state === 'unconfigured' ? 'Die Installation ist noch nicht für die Erfassung eingerichtet.' : 'Keine aktive Fehlermeldung.')}</p>
+        <p>{collector?.reason || (collector?.state === 'unconfigured' ? 'Die Installation ist noch nicht für die Erfassung eingerichtet.' : collector?.state === 'completed' ? 'Der endliche Erfassungslauf ist beendet.' : 'Keine aktive Fehlermeldung.')}</p>
         <p className="status-meta">Letzte erfolgreiche Messung: <strong>{lastSuccessfulAt ? formatDate(lastSuccessfulAt, timeZone) : 'Noch keine erfolgreiche Messung'}</strong>
           {collector?.state === 'reconnect_wait' && collector.next_action_at && <> · Nächster Versuch: <strong>{formatDate(collector.next_action_at, timeZone)}</strong></>}</p>
         {collector?.state === 'reconnect_wait' && <p className="status-meta">Wiederaufnahmeversuche: {collector.reconnect_attempts} / {collector.reconnect_attempt_limit}. {collector.next_action}</p>}

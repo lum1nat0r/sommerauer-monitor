@@ -30,10 +30,13 @@ docker compose logs --tail=50 monitor
 ```
 
 Vorher in `.env` `DATA_PATH` auf ein lokales beschreibbares Verzeichnis setzen.
-Bei benutzerdefiniertem `DATA_PATH` das Verzeichnis vor dem Start anlegen und
-für die konfigurierte UID/GID beschreibbar machen. Der Daten-Bind-Mount bleibt
-beim Containerersatz erhalten. Compose-`.env` und Unraid-Umgebungsvariablen
-liegen außerhalb von `/data` und müssen separat geschützt gesichert werden.
+Für einen begrenzten Lauf kann `COLLECTOR_MAX_REQUESTS` eine Gesamtzahl festlegen;
+bei einem solchen endlichen Lauf führen Transportfehler nicht zu Wiederaufnahmen.
+Ohne Wert bleibt der reguläre Betrieb unverändert. Bei benutzerdefiniertem
+`DATA_PATH` das Verzeichnis vor dem Start anlegen und für die konfigurierte UID/GID
+beschreibbar machen. Der Daten-Bind-Mount bleibt beim Containerersatz erhalten.
+Compose-`.env` und Unraid-Container-Variablen liegen außerhalb von `/data` und müssen
+separat geschützt gesichert werden.
 `PUID`/`PGID` steuern den Build- und Laufzeitbenutzer (Standard `99`/`100`);
 bei Änderungen müssen Image und Volume-Berechtigungen zusammenpassen. `WEB_PORT`
 setzt den Hostport, intern bleibt Port 8000. `APP_VERSION` und `BUILD_REVISION`
