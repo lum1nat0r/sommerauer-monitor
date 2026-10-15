@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from backend.control_plans import ControlPlanDraft, build_control_plan_document
 from backend.registers import CORE_PROFILE
 
 
@@ -28,6 +29,15 @@ DIAGNOSTIC_STATES = DIAGNOSTIC_ACTIVE_STATES | DIAGNOSTIC_BLOCKING_STATES | {
 
 class StorageError(RuntimeError):
     """A database operation failed or the database schema is unsupported."""
+
+
+class RevisionConflict(StorageError):
+    """Die erwartete Steuerplanrevision ist nicht mehr aktuell."""
+
+    code = "revision_conflict"
+
+    def __init__(self):
+        super().__init__("Der Steuerplan wurde inzwischen geändert; aktuelle Revision neu laden")
 
 
 class SQLiteStore:
@@ -648,6 +658,84 @@ class SQLiteStore:
                 )
         except (sqlite3.Error, OSError) as exc:
             raise StorageError(f"Aktive Diagnosen konnten nicht unterbrochen werden: {exc}") from exc
+
+    def save_control_plan(
+        self, plan_id: str | None, expected_revision: int | None, draft: dict,
+    ) -> dict:
+        """Speichert ausschließlich eine neue, unveränderliche Offline-Revision."""
+        if plan_id is None:
+            if expected_revision is not None:
+                raise StorageError("Ein neuer Steuerplan darf keine erwartete Revision enthalten")
+        elif (
+            not isinstance(plan_id, str) or not plan_id.strip()
+            or type(expected_revision) is not int or expected_revision < 1
+        ):
+            raise StorageError("Steuerplan-ID und positive erwartete Revision sind erforderlich")
+        validated = ControlPlanDraft.model_validate(draft)
+        try:
+            with self._connection() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                if plan_id is None:
+                    plan_id, revision = str(uuid4()), 1
+                else:
+                    current = connection.execute(
+                        "SELECT MAX(revision) FROM control_plans WHERE plan_id = ?", (plan_id,),
+                    ).fetchone()[0]
+                    if current is None:
+                        raise StorageError("Steuerplan nicht gefunden")
+                    if current != expected_revision:
+                        raise RevisionConflict()
+                    revision = current + 1
+                document = build_control_plan_document(
+                    validated, plan_id=plan_id, revision=revision, created_at=utc_now(),
+                )
+                connection.execute(
+                    """INSERT INTO control_plans (plan_id, revision, created_at, document_json)
+                    VALUES (?, ?, ?, ?)""",
+                    (plan_id, revision, document["created_at"],
+                     json.dumps(document, ensure_ascii=False, sort_keys=True, allow_nan=False)),
+                )
+                return document
+        except (sqlite3.Error, OSError, TypeError, ValueError, OverflowError) as exc:
+            raise StorageError("Steuerplan konnte nicht gespeichert werden") from exc
+
+    def get_control_plan(self, plan_id: str, revision: int | None = None) -> dict | None:
+        """Lädt das gespeicherte Dokument, ohne alte Revisionen neu zu bewerten."""
+        if not isinstance(plan_id, str) or not plan_id.strip():
+            raise StorageError("Ungültige Steuerplan-ID")
+        if revision is not None and (type(revision) is not int or revision < 1):
+            raise StorageError("Ungültige Steuerplanrevision")
+        try:
+            with self._connection() as connection:
+                if revision is None:
+                    row = connection.execute(
+                        """SELECT document_json FROM control_plans WHERE plan_id = ?
+                        ORDER BY revision DESC LIMIT 1""", (plan_id,),
+                    ).fetchone()
+                else:
+                    row = connection.execute(
+                        """SELECT document_json FROM control_plans
+                        WHERE plan_id = ? AND revision = ?""", (plan_id, revision),
+                    ).fetchone()
+                return json.loads(row["document_json"]) if row else None
+        except (sqlite3.Error, OSError, TypeError, ValueError, OverflowError) as exc:
+            raise StorageError("Steuerplan konnte nicht gelesen werden") from exc
+
+    def list_control_plans(self) -> list[dict]:
+        """Listet nur die jeweils neueste Revision, stabil nach Zeit und ID."""
+        try:
+            with self._connection() as connection:
+                rows = connection.execute(
+                    """SELECT p.document_json FROM control_plans p
+                    WHERE p.revision = (
+                        SELECT MAX(latest.revision) FROM control_plans latest
+                        WHERE latest.plan_id = p.plan_id
+                    )
+                    ORDER BY p.created_at DESC, p.plan_id"""
+                ).fetchall()
+                return [json.loads(row["document_json"]) for row in rows]
+        except (sqlite3.Error, OSError, TypeError, ValueError) as exc:
+            raise StorageError("Steuerpläne konnten nicht gelesen werden") from exc
 
     def record_cycle(
         self,

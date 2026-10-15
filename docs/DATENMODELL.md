@@ -37,8 +37,8 @@ zeitgesteuerte Löschung und noch keine Aggregation.
 Schema 2 ergänzt `diagnostic_runs`, `diagnostic_requests` und `control_plans`,
 getrennt von Kernanfragen und `observations`. Migration 0→1→2 beziehungsweise
 1→2 erfolgt in einer Transaktion; bestehende Minutenzeilen, Signale und Profile
-bleiben unverändert. Steuerentwürfe erhalten lediglich ihre Revisionstabelle;
-Speicheroperationen dafür gehören zu #34.
+bleiben unverändert. Die dort angelegte Steuerrevisionstabelle wird durch #34
+mit den folgenden Offline-Operationen verwendet.
 
 Ein Lauf speichert einen unveränderlichen Plan (Schema 1): Kataloghash,
 ausgewählte IDs, aufgelöste Blockliste, Zweck, Quelle, privaten Host-/Port-Snapshot,
@@ -79,6 +79,56 @@ Volume. Nur das kopierte Ziel wird migriert; die Quelle bleibt schreibgeschützt
 Aktive Diagnosen werden unterbrochen, nicht neu gestartet; Budget, Antworten,
 Bewertungen, harte Stopps und sämtliche Steuerrevisionen bleiben erhalten.
 Ein Austausch des Betriebsvolumes erfolgt erst bei kontrolliert beendeten Lesern.
+
+### Steuerentwürfe und Revisionen (Issue #34)
+
+`backend/control_plans.py` definiert `ControlPlanDraft` mit exakt den 20 Feldern
+aus #34. ID und nichtleerer Zweck sind Pflicht; alle übrigen Voraussetzungen
+dürfen `null` bleiben und erscheinen dann namentlich unter `missing_fields`.
+Texte sind auf 4000 Zeichen begrenzt; reine Leerangaben werden zu `null`,
+tatsächliche Werte bleiben unverändert Text. Keine Umwandlung in Schreibwerte.
+Funktionscode strikt ganzzahlig 1..127, Anfragezahl strikt positiv ganzzahlig,
+Dauer positiv und endlich (auch Bruchteile von Sekunden). Keine Bool-/String-
+Konvertierung numerischer Angaben, Zusatzfelder oder unbekannten Kandidaten.
+
+`assess_control_plan()` liefert ausschließlich `status`, `missing_fields` und
+`blockers`. `ready_for_review` bedeutet nur formal vollständig, **nie**
+fachlich verifiziert, freigegeben oder ausführbar. Ständige Blockercodes:
+
+- `actuation_path_requires_source_evidence`
+- `encoding_requires_source_evidence`
+- `device_change_requires_separate_approval`
+- `execution_not_available`
+
+Bestätigte reale Temperaturkanäle tragen zusätzlich unveränderlich
+`sensor_value_must_not_be_overridden`; START und SOLL behalten
+`autonomous_fallback_on_host_or_network_loss_unverified`. Betreibertext und
+Python-Timer beseitigen diese Grenzen nicht. Katalog und separate
+`CONTROL_CANDIDATES` bleiben unverändert; „Soll“ ist kein Schreibbeleg.
+
+`SQLiteStore.save_control_plan(plan_id, expected_revision, draft)` validiert vor
+Speicherung. Neuanlage ausschließlich mit beiden Parametern `None`: UUID und
+UTC-Zeit entstehen serverseitig. Updates verlangen bestehende ID und positive
+erwartete Revision. Vergleich und ausschließlich neuer Insert laufen gemeinsam
+unter `BEGIN IMMEDIATE`; veraltete Revisionen liefern
+`RevisionConflict(StorageError)` mit `code="revision_conflict"`.
+Eine unbekannte Update-ID erzeugt keinen Plan. Speicherfehler erhalten bereinigte
+Meldungen, ohne rohe SQLite-/Pfaddetails.
+
+`get_control_plan(plan_id, revision=None)` liefert die neueste oder ausdrücklich
+gewählte gespeicherte Revision, bei fehlender ID/Revision `None`.
+`list_control_plans() -> list[dict]` liefert ausschließlich die neueste Revision
+je Plan, sortiert nach `created_at DESC, plan_id`, keine Historienliste und keine
+Pagination. Alte Entwürfe und Bewertungen werden beim Laden nicht neu berechnet.
+
+Die gemeinsame Dokument-/Exportprojektion aus `build_control_plan_document()`
+enthält `plan_id`, `revision`, `created_at`, `draft`, `assessment`,
+`source_status: {kind: "operator_provided", independently_verified: false}` und
+zwingend `execution_enabled: false`. Sie ist ein **privater** Download; Freitext
+kann private Betreiberangaben enthalten und gehört nicht in öffentliche Berichte.
+Keine Geräte-I/O beim Speichern, Laden, Listen oder Exportieren. HTTP-Routen und
+CSRF-Anbindung folgen in #35, Formular in #36. Kein Schreibadapter, Telegramm,
+Timer, Import oder Ausführungsendpunkt.
 
 ## Dauerhafte Speicherung
 
