@@ -284,8 +284,10 @@ Implementierung. Keine unabhängige Geräte-/Herstellerprüfung.
 
 ## 15.10.2026 – Issue #11: Zusatzregister ohne Primärbelege ungeklärt
 
-Geprüft wurden nur die vorhandene öffentliche Registerreferenz und
-`config/register_catalog.json`. Diese weisen 4098/1 (`Fehler_Min`), 4099/1
+Geprüft wurden nur die vorhandene öffentliche Registerreferenz und der Katalog
+am **damaligen** Ort `config/register_catalog.json` (seit #30 unverändert unter
+[`backend/resources/register_catalog.json`](../backend/resources/register_catalog.json)).
+Diese weisen 4098/1 (`Fehler_Min`), 4099/1
 (`Leistung_Ist`), 4104/1 (`Leistung_Soll`), 33408/1 (`Aussen_Ist`) und optional
 4354/1 (`Abgas_Sensor`) als statisch, ungefragt und ohne festgelegte Einheit
 oder Decoder aus. Für 4098/2 sind dies zwei Einzelregister; daraus wird kein
@@ -741,3 +743,50 @@ Podman/Linux, nicht auf Unraid. Kein Gerätezugriff, Registry-Push oder Git-Tag.
 Öffentliche GHCR-Sichtbarkeit und anonymer Pull müssen nach dem erfolgreichen
 Release geprüft werden; Unraid-Mount-/Betriebsabnahme bleibt beim Betreiber.
 Einrichtung und Start sind in `docs/UNRAID.md` dokumentiert.
+
+## 15.10.2026 – Issue #30: Katalogreferenz und isolierte Diagnoseauswahl
+
+Die bisherige JSON-Quelle wurde nach `backend/resources/register_catalog.json`
+verschoben, nicht kopiert. Alle 199 Einträge, Belegfelder, Top-Level-Metadaten
+und `known_read_blocks` bleiben erhalten. Vor und nach der Verschiebung:
+SHA-256 `a4f8b8c47ca99d496e8c2778286611a180c53f915a16438d41b794ff6ac43c09`
+über die Dateibytes. Kein neuer privater Originalquellenbefund.
+
+`backend/catalog.py` liefert lazy geladene, tief unveränderliche Prozesssnapshots,
+validiert den Katalog vollständig und sperrt defekte Ressourcen ausschließlich
+für Diagnosen mit `catalog_unavailable`. Nur Katalog-IDs werden auf 1–3 sortierte,
+deduplizierte Blöcke aufgelöst; exakte Kernblock-Erweiterung, unbekannte Worte
+einzeln. Die 194 Rohregister erhalten weder Semantik noch Pollingfreigabe.
+START/SOLL bleiben getrennte Kandidaten ohne Leseblock/Schreibfähigkeit.
+
+Tatsächlich offline geprüft mit CPython 3.12.9 und uv 0.12.2:
+
+- `uv sync --locked --python 3.12.9` in einer isolierten temporären Umgebung.
+  Der erste Versuch mit der vorhandenen `.venv` scheiterte an einer Windows-
+  Zugriffssperre; keine fremden Prozesse beendet.
+- `uv run pytest tests/test_registers.py`: **59 bestanden**. Enthält beschädigte/
+  fehlende Ressourcen, Kernabdeckung, Bool-/Bereichs-/Hex-/Wortanzahlfehler,
+  tiefe Unveränderlichkeit, Erfolg-/Fehlercache, fremdes Arbeitsverzeichnis,
+  alle Einzelwort-Auswahlen, enge Blockgrenzen und Socket-Sentinel.
+  Ein anfänglicher Escape-Fehler im neuen Subprozess-Test wurde korrigiert.
+- `uv run pytest`: **117 bestanden**, ein Starlette/AnyIO-DeprecationWarning.
+- `uv run ruff check .`: bestanden.
+- Separater Python-Lauf außerhalb des Projektarbeitsordners: unveränderten
+  Dateihash geprüft; 4098/4099/33408 ergeben drei Einzelblöcke, doppelte
+  Zählerauswahl nur 28688/2. Leere Auswahl, 4103, Steuer-ID und vier Blöcke
+  abgewiesen. Import ohne Ressourcenladen; nach Laden/mehrfacher Planung genau
+  ein Ressourcenabruf und **null Socketzugriffe**. Fehlende Ressource liefert
+  `catalog_unavailable`, Kerndecoder verarbeitet weiterhin 65 °C.
+- Tatsächlicher Uvicorn-Prozess auf explizitem Loopback mit leerem Host,
+  deaktiviertem Collector und temporärer Datenbank: trotz zuvor ausgelöstem
+  `catalog_unavailable` startet die App. `/api/health` meldet App/DB `ok`,
+  `/api/collector/status` meldet `unconfigured`. Prozess und temporäre Daten
+  danach entfernt. Die erste zu breite Ressourceninjektion störte auch
+  `tzdata`; nach Beschränkung auf das Backend war der Start erfolgreich.
+
+Grenzen: ausschließlich Offline-Bibliotheksabnahme; keine Anlagenzugriffe,
+neue HTTP-Routen, UI, Schreibausführung, Aktivierung oder neue Messungen.
+Hatch-Paketdefinition und Backend-COPY erfassen den neuen Ressourcenort ohne
+zusätzliche Konfiguration; ein gebautes Wheel außerhalb des Checkouts wurde
+hier nicht geprüft und bleibt Teil von #39. Als Nächstes #31, danach #32/#33;
+keine Folgepakete aus diesem Befund als implementiert ableiten.
