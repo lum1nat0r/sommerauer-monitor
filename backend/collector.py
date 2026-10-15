@@ -26,7 +26,6 @@ from backend.registers import (
 )
 from backend.storage import SQLiteStore, StorageError
 
-MIN_REQUEST_GAP_SECONDS = 10.0
 MIN_BLOCK_INTERVAL_SECONDS = 60.0
 RECONNECT_DELAYS_SECONDS = (60.0, 120.0, 300.0, 600.0, 900.0)
 MAX_RECONNECT_ATTEMPTS = len(RECONNECT_DELAYS_SECONDS)
@@ -127,7 +126,6 @@ class Collector:
         self._thread: threading.Thread | None = None
         self._started_at: float | None = None
         self._request_count = 0
-        self._last_request_end: float | None = None
         self._last_started: dict[int, float] = {}
         self._last_counter: tuple[int, datetime] | None = None
         self._endpoint_id = self._configuration_id(host, port)
@@ -430,8 +428,6 @@ class Collector:
         previous = self._last_started.get(block.offset)
         if previous is not None:
             due = max(due, previous + MIN_BLOCK_INTERVAL_SECONDS)
-        if self._last_request_end is not None:
-            due = max(due, self._last_request_end + MIN_REQUEST_GAP_SECONDS)
         return due
 
     def _wait_until(self, due: float) -> bool:
@@ -554,7 +550,6 @@ class Collector:
                 {"state": self.state, "error_class": type(exc).__name__},
             )
         finally:
-            self._last_request_end = self.monotonic()
             self._request_in_flight = False
             if self._paused.is_set() and self.state in {"running", "reconnect_wait"}:
                 self.state = "paused"

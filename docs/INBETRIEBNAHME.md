@@ -15,8 +15,7 @@ Vorhandene Originalprotokolle erhalten; neue private Logs in neue Dateien schrei
 ## Ablauf
 
 1. Endlichen lokalen Plan dokumentieren. Erster Durchgang höchstens drei Anfragen
-   an die bekannten Blöcke 4102/1, 28688/2, 36864/2 mit Unit255/FC03, 3s Deadline,
-   mindestens 10s Abstand. Keine automatischen Retries bei diesem Einzeltest.
+   an die bekannten Blöcke 4102/1, 28688/2, 36864/2 mit Unit255/FC03, 3s Deadline.
 2. Jede Antwort sofort auswerten. Bei Fehlern sofort stoppen. Die neue Verbindung
    und Plausibilität protokollieren; technisch nötigen Displayabgleich gezielt
    anfordern. Alte Messungen sind keine aktuellen Vergleichswerte.

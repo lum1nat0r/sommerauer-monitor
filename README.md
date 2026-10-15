@@ -26,7 +26,7 @@ Unraid 7.3.2, Zugang im Heimnetz/Tailscale. Deployment übernimmt der Betreiber.
 
 ## Lokale Entwicklung
 
-Voraussetzungen: CPython 3.12.9, `uv` 0.12.2, Node.js 22.14.0 und npm 10.9.2.
+Voraussetzungen (verbindlich): CPython 3.12.9, `uv` 0.12.2, Node.js 26.x und npm 12.x.
 Python- und Frontend-Abhängigkeiten sind in `uv.lock` bzw. `package-lock.json`
 festgehalten.
 

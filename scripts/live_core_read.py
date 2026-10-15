@@ -2,7 +2,6 @@
 
 import os
 import sys
-import time
 
 from backend.modbus import ModbusTcpClient
 from backend.registers import CORE_PROFILE, decode_register_block

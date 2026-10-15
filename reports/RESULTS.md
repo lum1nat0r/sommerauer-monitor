@@ -131,8 +131,9 @@ uncommitted, kein Commit/PR erstellt.
 
 `backend/collector.py` verbindet den bestehenden FC03-Client, `core`-Decoder und
 SQLite-Speicherung in einem sequenziellen Sammler. Je Block werden mindestens 60 s
-zwischen Starts eingehalten; nach Request-Ende folgen mindestens 10 s Pause. Der
-optionale Testlauf stoppt anhand von Höchstdauer und/oder Anfragebudget. Ein OS-
+zwischen Starts eingehalten. Der optionale Testlauf stoppt anhand von Höchstdauer
+und/oder Anfragebudget. Ein OS-Dateilock im gemeinsamen Datenverzeichnis lehnt
+konkurrierende Prozesse ab.
 Dateilock im gemeinsamen Datenverzeichnis lehnt konkurrierende Prozesse ab.
 Pause, Stop, geordneter Thread-Shutdown und Speicherfehler verhindern Folge-Reads.
 Die FastAPI-Lifespan startet den Sammler ausschließlich bei explizitem

@@ -75,12 +75,12 @@ Skalierung, gültigen Bereich, Fehlerwerte und Prüfstatus je Signal fest.
 Unbestätigte Einträge sind nicht automatisch zum Polling aktiviert.
 
 Ein zentraler Scheduler koordiniert alle Gruppen: genau ein Client/eine
-Anfrage gleichzeitig, FC03, maximal zwei Register pro Anfrage, 3 s
-Gesamtdeadline und mindestens 10 s Abstand nach Antwort/Fehler. Kernwerte
-zunächst einmal pro 60 s, Zusatzgruppen verteilt und langsamer. Werden
-mehr Gruppen aktiviert, muss der Zeitplan weiterhin in diese Kapazität
-passen; keine Verdrängung der Abstände durch angeblich gleichzeitig fällige
-Werte. Verspätungen werden als solche erfasst, nicht durch Bursts nachgeholt.
+Anfrage gleichzeitig, FC03, maximal zwei Register pro Anfrage und 3 s
+Gesamtdeadline. Kernwerte zunächst einmal pro 60 s, Zusatzgruppen verteilt
+und langsamer. Werden mehr Gruppen aktiviert, muss der Zeitplan weiterhin
+in diese Kapazität passen; keine Verdrängung der Intervalle durch angeblich
+gleichzeitig fällige Werte. Verspätungen werden als solche erfasst, nicht
+durch Bursts nachgeholt.
 
 Die drei Kernabfragen ergeben maximal 4.320 Anfragen pro 24 Stunden bei
 durchgehendem 60-s-Raster. Diese Rechengröße beschreibt den Vorschlag,

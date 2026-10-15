@@ -20,7 +20,7 @@ Stand 14.10.2026; Herkunft jeweils angegeben.
 | Projektgrundlage | Entscheidung / Herkunft |
 |---|---|
 | Python-Laufzeit CPython 3.12.9; Abhängigkeiten in `uv.lock` | Konservative unterstützte Laufzeit, eingefrorener reproduzierbarer Satz |
-| Node.js 22.14.0, npm 10.9.2; Frontend-Abhängigkeiten in `package-lock.json` | Node-22-LTS Buildbasis, feste Entwicklungs-/CI-Versionen |
+| Node.js 26.x und npm 12.x; Frontend-Abhängigkeiten in `package-lock.json` | Verbindliche Entwicklungs- und CI-Laufzeiten |
 | Erststart ohne Host, Erfassung standardmäßig deaktiviert; Host in API-Ausgabe redigiert | Offline-sichere Projektkonfiguration; keine Gerätezugriffe implementiert |
 | CI nur mit synthetischen/in-process Tests und Frontend-Build | GitHub Actions workflow `.github/workflows/ci.yml`; keine Anlagenzugriffe/Secrets |
 

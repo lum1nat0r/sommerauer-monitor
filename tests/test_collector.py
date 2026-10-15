@@ -77,21 +77,20 @@ def test_budgeted_run_records_core_observations_and_stops(tmp_path):
     assert collector.store.get_collector_state()["request_count"] == 3
 
 
-def test_scheduler_preserves_spacing_and_minimum_per_block_interval(tmp_path):
-    collector, client, _ = make_collector(tmp_path, limit=4, delay=12.0)
+def test_scheduler_preserves_minimum_per_block_interval_without_request_gap(tmp_path):
+    collector, client, _ = make_collector(tmp_path, limit=4, delay=0.0)
     collector.run()
 
     assert collector.state == "completed"
     assert len(client.starts) == 4
-    for previous_end, (_, next_start) in zip(client.ends, client.starts[1:], strict=False):
-        assert next_start - previous_end >= 10.0
+    assert client.starts[1][1] - client.ends[0] < 10.0
     first_start = client.starts[0][1]
     repeated_start = client.starts[3][1]
     assert repeated_start - first_start >= 60.0
 
 
 def test_duration_limit_stops_before_next_request(tmp_path):
-    collector, client, _ = make_collector(tmp_path, limit=None, duration=15.0)
+    collector, client, _ = make_collector(tmp_path, limit=None, duration=15.0, delay=8.0)
     collector.run()
 
     assert collector.state == "completed"
