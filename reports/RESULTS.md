@@ -790,3 +790,57 @@ Hatch-Paketdefinition und Backend-COPY erfassen den neuen Ressourcenort ohne
 zusätzliche Konfiguration; ein gebautes Wheel außerhalb des Checkouts wurde
 hier nicht geprüft und bleibt Teil von #39. Als Nächstes #31, danach #32/#33;
 keine Folgepakete aus diesem Befund als implementiert ableiten.
+
+## 15.10.2026 – Issue #31: Diagnosejournal, Reservierungen und Schema 2
+
+`backend/storage.py` ergänzt die drei getrennten Tabellen `diagnostic_runs`,
+`diagnostic_requests` und `control_plans` sowie den volumenweiten aktiven
+UNIQUE-Index. Migration 0→1→2 und 1→2 läuft atomar; Minutenhistorie,
+Signal-/Profildefinitionen und Kernsammler bleiben fachlich unverändert.
+Die elf Diagnoseoperationen speichern private unveränderliche Pläne,
+verbrauchte Reservierungen, tatsächliche Rohantworten und separate Bewertungen.
+Harte Stopps/Unterbrechungen verlangen eine ausdrückliche Ursachenquittierung;
+terminale IDs werden nicht reaktiviert. Keine Steuerrevisionsoperationen (#34).
+
+Tatsächlich ausschließlich offline ausgeführt, CPython 3.12.9 / uv 0.12.2:
+
+- `uv sync --locked` erfolgreich, verwendete jedoch die vorhandene Python-Version
+  3.12.13. Umstellung der vorhandenen `.venv` auf 3.12.9 scheiterte an einer
+  Windows-Zugriffssperre; keine fremden Prozesse beendet. Alle folgenden
+  Prüfungen deshalb mit `uv run --isolated --python 3.12.9 --locked`.
+- `pytest tests/test_storage.py`: **51 bestanden**, ausschließlich `tmp_path`-
+  Datenbanken. Vollständige historische Zeilen vor/nach v1-Migration verglichen,
+  atomarer Rollback bei Fehler in frischer und v1-Datenbank nachgewiesen.
+- Zwei unabhängige Store-Verbindungen konkurrierten um Starts und denselben
+  Schritt: höchstens ein aktiver Lauf, genau eine erfolgreiche Reservierung,
+  genau eine Budgeterhöhung. Neustart/Recovery erhält verbrauchte Versuche.
+- Alle Bewertungsvarianten einschließlich letztem Schritt, getrennte Bewertung,
+  unveränderte Pläne/Rohworte, `[110]` bei synthetischem Decoderfehler und null
+  zusätzliche Kernbeobachtungen geprüft. Interpretation unbestätigter Rohblöcke
+  abgewiesen. SQL-Triggerfehler auf beiden Diagnosetabellen lassen keine halbe
+  Reservierung, Antwort oder Bewertung zurück.
+- Stop/Ablauf und gleichzeitiger Fehlerabschluss schwächen harte Fehler nicht ab;
+  verspäteter Fehler nach bereits quittierter Unterbrechung verlangt neue
+  Quittierung. UTC-Normalisierung, Pagination und terminale IDs geprüft.
+- v1-/v2-Backuphash nach Restore unverändert; vollständige historische Zeilen,
+  Diagnosepläne, Antworten, Bewertungen und mehrere synthetische Steuerrevisionen
+  erhalten. Aktive Ziel-Läufe werden `interrupted`, Budget bleibt verbraucht.
+  Schema 0/zu neue Backups und vorhandenes Restoreziel abgewiesen.
+- Gesamtsuite mit explizit leerem `MODBUS_HOST` und
+  `COLLECTOR_ENABLED=false`: **159 bestanden**, eine bestehende
+  Starlette/AnyIO-DeprecationWarning. Ein vorheriger Lauf hatte zwei fehlgeschlagene
+  Konfigurationstests wegen einer geerbten Host-Umgebungsvariable; keine
+  Teständerung zur Unterdrückung, private Konfiguration unverändert.
+- `ruff check .`: bestanden. `uv build --python 3.12.9` in temporäres Verzeichnis:
+  Source-Distribution und Wheel erfolgreich; Buildartefakte anschließend entfernt.
+- Separater echter SQLite-Verbraucherlauf außerhalb von pytest: Plan erstellen,
+  Versuch reservieren, Rohwort 42 speichern, Bewertung `continue` bis `completed`,
+  Backup/Restore; Endzustand, Budget 1/1 und Rohwort erhalten,
+  **0 Kernbeobachtungen**. Temporäre Daten anschließend entfernt.
+
+Sicherheitsentscheidung: Restore verlangt ein neues Offline-Ziel statt bestehende
+Volumes zu überschreiben; Betriebsvolumen erst bei kontrolliert beendeten Lesern
+tauschen. Speicher-Dicts bleiben privat, keine HTTP-/Downloadprojektion hinzugefügt.
+Settings-Fingerprint, monotone Fristen, Gerätebesitz und Kernmonitoring-Umschaltung
+bleiben #33, Transport #32, bereinigte öffentliche Projektion #35.
+Keine Geräteverbindung, Scans, Schreibtelegramme oder neuen Live-Belege.
