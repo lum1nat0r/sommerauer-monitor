@@ -280,3 +280,30 @@ Anlagenverträglichkeit oder Live-API-/Deployment-Funktion.
 Grenzen: keine Gerätezugriffe; Zusatzregister bleiben inaktiv. Ein Browser-/
 Gerätetest mit realen Messdaten und Deployment ist nicht Teil dieser Offline-
 Implementierung. Keine unabhängige Geräte-/Herstellerprüfung.
+
+## 15.10.2026 – Issue #11: Zusatzregister ohne Primärbelege ungeklärt
+
+Geprüft wurden nur die vorhandene öffentliche Registerreferenz und
+`config/register_catalog.json`. Diese weisen 4098/1 (`Fehler_Min`), 4099/1
+(`Leistung_Ist`), 4104/1 (`Leistung_Soll`), 33408/1 (`Aussen_Ist`) und optional
+4354/1 (`Abgas_Sensor`) als statisch, ungefragt und ohne festgelegte Einheit
+oder Decoder aus. Für 4098/2 sind dies zwei Einzelregister; daraus wird kein
+Block-Decoder abgeleitet. Private Primärbelege oder aktuelle Benutzer-/Display-
+Abgleiche lagen für diese Arbeit nicht vor. Damit bleiben Vorzeichen,
+Skalierung, Fehlerwerte, gültige Bereiche und fachliche Bedeutung ungeklärt.
+
+Alle Kandidaten bleiben außerhalb des aktiven `core`-Profils und sind keine
+Messwerte. Der bestätigte Kernzeitplan ändert sich nicht; Zusatzintervalle
+wurden nicht festgelegt. Es gab keine Geräteanfrage, keinen Scan, Schreibtest,
+Import oder Zugriff auf private Rohdaten. Ein Live-Test bleibt offen, bis
+Primärbelege und ein privater endlicher Ziel-/Laufplan vorliegen und andere
+Leser ausgeschlossen sind.
+
+Tatsächlich geprüft:
+
+- `uv run pytest tests/test_registers.py` – 12 bestanden.
+- `uv run ruff check .` – bestanden.
+
+Grenzen: Keine Geräteantwort, kein Benutzer-/Displayabgleich und keine
+unabhängige Herstellerprüfung. Offline-Decoder oder aktive Pollingfreigaben für
+die Zusatzkandidaten wurden mangels belegter Semantik bewusst nicht ergänzt.
