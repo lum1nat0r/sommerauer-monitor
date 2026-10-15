@@ -376,6 +376,47 @@ class SQLiteStore:
         except (sqlite3.Error, OSError, TypeError, ValueError) as exc:
             raise StorageError(f"Diagnoseläufe konnten nicht gelesen werden: {exc}") from exc
 
+    def count_diagnostic_runs(self) -> int:
+        try:
+            with self._connection() as connection:
+                return connection.execute("SELECT COUNT(*) FROM diagnostic_runs").fetchone()[0]
+        except (sqlite3.Error, OSError) as exc:
+            raise StorageError("Diagnoseanzahl konnte nicht gelesen werden") from exc
+
+    def latest_diagnostic_results(self) -> list[dict]:
+        """Private letzte Antwort je Block, nicht bloß der zuletzt angelegte Plan."""
+        try:
+            with self._connection() as connection:
+                rows = connection.execute(
+                    """WITH ranked AS (
+                        SELECT q.*, r.plan_json,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY json_extract(
+                                    r.plan_json, '$.blocks[' || q.step_index || '].offset')
+                                ORDER BY q.completed_at DESC, q.rowid DESC
+                            ) AS position
+                        FROM diagnostic_requests q
+                        JOIN diagnostic_runs r ON r.run_id = q.run_id
+                        WHERE q.completed_at IS NOT NULL
+                    ) SELECT * FROM ranked WHERE position = 1"""
+                ).fetchall()
+                result = []
+                for row in rows:
+                    request = {key: row[key] for key in (
+                        "step_index", "outcome", "started_at", "completed_at",
+                        "error_class", "received_bytes",
+                    )}
+                    for field in ("raw_words", "decoded", "review"):
+                        encoded = row[f"{field}_json"]
+                        request[field] = json.loads(encoded) if encoded is not None else None
+                    result.append({
+                        "run_id": row["run_id"], "plan": json.loads(row["plan_json"]),
+                        "request": request,
+                    })
+                return result
+        except (sqlite3.Error, OSError, TypeError, ValueError) as exc:
+            raise StorageError("Letzte Diagnoseantworten konnten nicht gelesen werden") from exc
+
     def reserve_diagnostic_request(self, run_id: str, step_index: int, started_at: str) -> None:
         try:
             started_at = self._diagnostic_timestamp(started_at)

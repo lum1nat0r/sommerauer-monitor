@@ -1014,3 +1014,76 @@ System-`python` ist 3.14.7, die lokale Standard-uv-Umgebung 3.12.13; deshalb all
 Verhaltensprüfungen explizit isoliert unter der geforderten 3.12.9 ausgeführt.
 Private `.env` nicht als Testziel verwendet. Keine Geräteverbindung,
 Live-/Browser-/Unraid-Abnahme, neuen Primärbelege oder Schreibfreigaben.
+
+## 15.10.2026 – Issue #35: Diagnose-API und sichere Lifespan
+
+Alle 15 Diagnose-/Steuerentwurfsrouten sind vor dem Frontend-Mount erreichbar.
+Explizite OpenAPI-Projektionen erhalten Pläne, Quellenstatus und unveränderte
+Rohbelege, aber keine privaten Zielsnapshots, Pfade oder Fingerprintwerte.
+Plananlage liefert 201; gewöhnliche Aktionen/GETs 200. Strikte Bodies,
+bereinigte deutsche Fachfehler und bestehender CSRF-Schutz sind angebunden.
+Private JSON-Downloads verwenden `Cache-Control: private, no-store`.
+
+Lifespan-Recovery erfolgt vor möglichem Collectorstart unter gemeinsamer
+OS-Sperre. Fremder Besitz und Recoveryfehler verhindern Geräteaktionen, nicht
+lesende APIs; fremder Zustand bleibt erhalten. Collectoraktionen teilen
+`runner.mode_lock`; Stop setzt sein Event ohne äußeren Lock vor dem Warten.
+Shutdown beendet zuerst Runner/Watchdogs und danach den eigenen Collector.
+Keine automatische Monitoring-Fortsetzung nach Diagnoseende oder Quittierung.
+
+Tatsächlich ausschließlich offline geprüft, CPython 3.12.9 über
+`uv run --isolated --python 3.12.9 --locked`, uv 0.12.2:
+
+- Geforderte Suite `pytest tests/test_diagnostics_api.py tests/test_app.py
+  tests/test_read_checks.py tests/test_storage.py`: **376 bestanden**.
+- Vollständige `pytest`-Suite: **649 bestanden**. Jeweils eine bestehende
+  Starlette/AnyIO-DeprecationWarning, keine unterdrückten Fehler.
+- HTTP-Nachweise: 59,999/60-s-Grenze, Mindestabstand einschließlich Speicherung,
+  Reservierung über Frist ohne Socket, Doppel-/Altreads und parallele Browser,
+  abgebrochener HTTP-Verbraucher mit sicherem Reload, manuelle Bewertungen,
+  Stop/Ablauf während Read ohne Herabstufung harter Fehler.
+- Sichere 201/404/422/409/503/403-Verträge, CSRF sämtlicher neuer Mutationen,
+  Ziel-/Katalogwechsel, Rohbelege trotz Decoderfehler und Speicherstopps.
+  Ein defekter Diagnosekatalog sperrt den tatsächlich gestarteten synthetischen
+  Kernsammler nicht. Diagnose erzeugt keine zusätzlichen Minutenbeobachtungen.
+- Echter fremder OS-Besitzer in separatem Windows-Prozess: lesende API bleibt
+  erreichbar, aktive Reservierung und fremder Collectorzustand unverändert.
+  Recovery erhält Budget/Antworten und setzt `interrupted`; Quittierung
+  reaktiviert weder alte ID noch Monitoring. Shutdown gibt Gerätebesitz frei.
+- Konkurrierende Revisionsupdates erzeugen genau eine neue Revision; alte
+  Werte bleiben erhalten. Vollständige Entwürfe bleiben `ready_for_review`,
+  Exporte `execution_enabled:false`. Gespeicherte Entwürfe werden beim GET
+  auch bei inzwischen defektem Katalog nicht erneut validiert oder bewertet.
+- `ruff check .`: bestanden. Source-Distribution und Wheel mit
+  `uv build --python 3.12.9` in temporäres Ausgabeverzeichnis gebaut.
+- `uv sync --locked` und `npm ci`: erfolgreich. npm meldete wie bisher ein
+  blockiertes esbuild-Installationsskript; `npm run build` mit Node
+  26.7.0/npm 12.0.2 war dennoch erfolgreich (TypeScript und Vite).
+
+Erster Prüfdurchlauf: zwei redundante neue Testfälle enthielten eine falsche
+Leertextannahme zum bestehenden Steuerentwurfsvertrag; sie wurden entfernt,
+nicht neu festgeschrieben. Ein bestehender Settings-Test wurde durch geerbtes
+`COLLECTOR_ENABLED=true` beeinflusst. Abschließende Suiten verwenden deshalb
+explizit leeren Host, deaktivierten Collector, Quelle `device` und feste
+synthetische Port-/Unit-/Profilwerte. Eine zusätzliche Regression belegte vor
+der Korrektur die unerwünschte Katalog-Neuvalidierung gespeicherter Entwürfe;
+nach Umstellung auf die gespeicherte Antwortprojektion besteht sie.
+
+Separater Verbraucherlauf außerhalb pytest: echter Uvicorn-HTTP-Server und
+echter Loopback-Katalogsimulator auf dynamischen lokalen Ports, temporäre
+SQLite, explizite Settings ohne `.env`; ausschließlich die Uhr war virtuell.
+Planung, Start, GET, Review und Export erzeugten keine Zusatzanfrage. Genau
+vier explizite FC03/255-Anfragen: 4098/1, 4099/1, 33408/1 und 28688/2.
+Gespeicherte Rohworte `[0]`, `[173]`, `[65526]` und `[4,319]`; letzter Block
+dekodiert zu 6079 synthetischen Betriebsminuten. 0 Minutenbeobachtungen.
+Steuerrevision 2 und veraltetes Update 409 belegt, Export nicht ausführbar;
+gespeicherter Sensorentwurf bleibt nach simuliertem Katalogausfall abrufbar.
+Server und Watchdogs kontrolliert beendet, Wegwerfskript und temporäre
+Python-Buildartefakte entfernt. Keine reale 60-s-Zeitmessung aus diesem Lauf
+ableiten; die separate echte Zeitabnahme von #33 bleibt davon unberührt.
+
+LSP-Referenzen sind am verfügbaren Ruff-Server nicht unterstützt (Timeout;
+Capabilities ohne Referenzprovider). Kein Frontend geändert und keine
+Browser-/Linux-/Live-/Unraid-Abnahme in diesem Paket. Keine private `.env` als
+Testziel, keine neuen Gerätebelege, unabhängigen Primärquellenprüfungen,
+Schreibbefehle, Releases oder Deployments. Diagnoseoberfläche bleibt #36.
