@@ -17,6 +17,12 @@ Prozesssnapshot und Auswahl von 1–3 engen Leseblöcken. Noch kein Diagnose-Run
 keine Diagnose-API und keine Diagnoseoberfläche; Kernpolling bleibt unverändert.
 Vertrag und Grenzen: [Modbus/Katalog](docs/MODBUS.md#diagnoseauswahl-issue-30).
 
+Issue #31 ergänzt ein getrenntes SQLite-Diagnosejournal mit unveränderlichen
+Prüfplänen, dauerhaften Anfrage-Reservierungen, quittierungspflichtigen Stopps und
+Schema-v2-Migration/Restore. Keine Geräte-I/O; Steuerrevisionen erhalten nur ihre
+Tabelle. Interner Speichervertrag und Datenschutz:
+[Datenmodell](docs/DATENMODELL.md#diagnosejournal-issue-31).
+
 ## Hier mit der Arbeit beginnen
 
 1. [AGENTS.md](AGENTS.md): Arbeitsrahmen und Grenze für Geräteänderungen.

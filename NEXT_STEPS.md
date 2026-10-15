@@ -14,7 +14,7 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
-## Register-Prüfwerkzeug: Übergabe nach #30
+## Register-Prüfwerkzeug: Übergabe nach #31
 
 Die kanonische Ressource liegt ausschließlich unter
 [`backend/resources/register_catalog.json`](backend/resources/register_catalog.json).
@@ -24,10 +24,19 @@ Snapshot mit Dateibytes-Hash; `build_read_blocks()` löst nur Katalog-IDs in
 START/SOLL getrennte Steuerkandidaten ohne Leseblock oder Schreibfähigkeit.
 Kein neues Polling und keine Geräteabfrage durch Import, Laden oder Auswahl.
 
-Nächstes Paket des Epics #29 ist #31: Diagnosejournal, dauerhafte Reservierungen
-und Migration/Restore. Danach #32 Transport, dann #33 Runner; noch keine
-Diagnoserouten oder UI integrieren. Wheel-Laufzeitnachweis außerhalb des Checkouts
-bleibt #39 vorbehalten. Offline-Nachweise zu #30: [Ergebnisse](reports/RESULTS.md).
+Paket #31 ergänzt Schema 2, Diagnosejournal und transaktionale Reservierungen
+ohne Geräte-I/O. Aktive/unquittierte Fehlerläufe sperren Planung und Ausführung;
+eine Quittierung reaktiviert niemals eine alte ID. Restore übernimmt Budget,
+Antworten, Bewertungen und Steuerrevisionen in ein neues Offline-Ziel und
+unterbricht dort aktive Diagnosen. [Speichervertrag](docs/DATENMODELL.md#diagnosejournal-issue-31).
+
+Danach #32 Transport, dann #33 Runner: Settings-basierte Bindung einschließlich
+exaktem Fingerprint, monotone 60-s-/600-s-Grenzen, OS-Besitz und Aufruf der
+Diagnosesperre vor Kernmonitoring. Recovery nur unter eigener OS-Sperre.
+`control_plans` hat noch keine Revisionsoperationen (#34); private Speicherdicts
+dürfen nicht zur Diagnose-API (#35) werden. Noch keine Diagnoserouten oder UI
+integrieren. Wheel-Laufzeitnachweis außerhalb des Checkouts bleibt #39 vorbehalten.
+Offline-Nachweise: [Ergebnisse](reports/RESULTS.md); keine zusätzlichen Live-Belege.
 
 
 ## Begrenzter Full-Stack-Test am Gerät

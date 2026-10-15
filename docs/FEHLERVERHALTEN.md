@@ -87,3 +87,31 @@ ohne verkürzte monotone Wartezeit, genau fünf Wiederaufnahmeversuche, Protokol
 Teilantwortstopp ohne Folge-Read, Crash-Recovery, drei vollständige gute Zyklen,
 Zielwechsel und pausierten Neustart. Weitere Störungsprüfungen bleiben für den Ausbau:
 Flattern, DB-Ausfall, konkurrierender Sammler und Stop während wartender Anfrage.
+
+## Getrennter Diagnosezustand (Issue #31)
+
+Diagnose verwendet keine Wiederaufnahme des Kernsammlers. Zustände:
+`planned`, `running`, `awaiting_review`, `completed`, `cancelled`, `expired`,
+`interrupted`, `stopped_transport`, `stopped_protocol`, `stopped_data`,
+`stopped_storage`. Terminale IDs bleiben terminal; Quittierung startet nichts.
+
+Reservierung, Budgeterhöhung und Schrittprüfung erfolgen unter `BEGIN IMMEDIATE`.
+Ein volumenweiter UNIQUE-Index erlaubt höchstens einen Lauf in `running` oder
+`awaiting_review`. Eine reservierte Anfrage wird niemals zurückgezahlt, auch wenn
+noch kein Socket geöffnet wurde. Nach erfolgreicher Antwort ist vor dem nächsten
+Schritt eine explizite Betreiberbewertung erforderlich: `continue` setzt fort
+(nach letztem Block `completed`), `finish` beendet mit `cancelled`, `anomaly`
+stoppt mit `stopped_data`. Bewertungen überschreiben keine Geräteantwort.
+
+Aktive Läufe sowie nicht quittierte `interrupted`-/`stopped_*`-Läufe sperren
+neue Planung und Ausführung. Quittierung verlangt einen nichtleeren Ursachentext
+und speichert UTC-Zeit und Notiz, ohne Budget zurückzusetzen oder alte IDs zu
+reaktivieren. Stop/Ablauf schwächt keinen bereits festgestellten harten Fehler ab.
+Scheitert eine Antworttransaktion, bleiben Reservierung und vorheriger Zustand
+erhalten; es darf keine ungesicherte Folgeanfrage geben.
+
+Recovery unterbricht aktive Läufe und erhält verbrauchte Versuche, Antworten
+und Sperren. Der spätere Runner (#33) darf diese Operation erst nach erfolgreich
+erworbener OS-Besitzsperre aufrufen, niemals zur Reparatur eines fremden Besitzers.
+Restore unterbricht ausschließlich das neue Offline-Ziel. Sammler-Umschaltung,
+Zeitabstände, Zielprüfung und Gerätebesitz gehören weiterhin zum Runnerpaket.
