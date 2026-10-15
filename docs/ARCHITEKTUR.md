@@ -26,13 +26,16 @@ flowchart LR
   und Byteanzahl werden geprüft; Fehler enthalten empfangene Bytezahl.
 - Decoder: reine Funktionen, Signalherkunft und Gültigkeit. Kein I/O und keine
   stillschweigende Skalierung unbekannter Einträge.
-- Sammler: endlicher Testmodus und später Dauerbetrieb; jeweils ein Besitzer der
-  Geräteschnittstelle. Prozess-/Deployment-Sperre, kein Start pro Webworker.
+- Sammler (`backend/collector.py`): zentraler sequenzieller Kernprofil-Leser mit
+  mindestens 60 s je Block und 10 s nach jedem Request-Ende. Testläufe begrenzen
+  Dauer und/oder Anfragezahl; Pause, Stop und Shutdown sperren neue Reads.
+  Ein OS-Dateilock im Datenverzeichnis verhindert konkurrierende Prozesse mit
+  gemeinsamem Deployment-Volume. Die FastAPI-Lifespan startet ihn nur bei
+  `COLLECTOR_ENABLED=true`; HTTP-Aufrufe starten keine Reads.
 - Repository (`backend/storage.py`): versioniertes SQLite-Schema, atomare und
   idempotente Erfassungszyklen, Ereignis-/Zustands-/Konfigurationsspeicherung,
   begrenzte Chronologieabfragen, Online-Backup/Restore und Speicherfehler als
-  `StorageError`. Anwendungsstart öffnet `/data/monitor.sqlite3` und prüft Migrationen;
-  noch kein Sammler schreibt Daten.
+  `StorageError`. Anwendungsstart öffnet `/data/monitor.sqlite3` und prüft Migrationen.
 - API/UI: Lesen aus DB, kein Modbus beim HTTP-Refresh. Verwaltungsaktionen nur
   lokal in der App, validiert und zugriffsgeschützt.
 - Ausgabeadapter später: MQTT unabhängig von der Verfügbarkeit des Brokers;
@@ -57,9 +60,10 @@ und zusammen mit aktualisierten Locks.
 
 Der FC03-Transport ist eine synchrone Socket-Implementierung ohne Bibliotheks-Retry.
 Der Offline-Simulator (`python -m backend.modbus_simulator`) bindet ausschließlich an
-Loopback und bietet deterministische Antworten/Fehler. Weder Transport noch Simulator
-sind in den Sammler-/API-Leseablauf integriert; App-Start startet ausschließlich die
-lokale SQLite-Datenbank und löst keine Modbus-Kommunikation aus.
+Loopback und bietet deterministische Antworten/Fehler. Der Sammler verbindet nur die
+exakten Blöcke des `core`-Profils mit Decoder und SQLite. App-Start ohne
+`COLLECTOR_ENABLED=true` öffnet nur die lokale Datenbank; bei aktivierter Erfassung
+startet genau ein prozessweiter Sammler. API-/Browser-Refreshes lesen keine Modbus-Daten.
 
 SQLite liegt in `DATA_DIR/monitor.sqlite3` (Standard `/data`) auf lokalem persistentem
 Speicher. WAL, `synchronous=FULL`, versionierte Migration und SQLite-Online-Backup

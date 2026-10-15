@@ -126,3 +126,36 @@ vollgelaufener Datenträger und kein Unraid-/Docker-/Hardwaretest. DB-Speicherfe
 werden als `StorageError` nach oben gemeldet; der Sammler-Stopp folgt mit dessen Issue.
 Keine Modbus-Kommunikation. Issue und Kommentare nicht verändert; Änderungen bleiben
 uncommitted, kein Commit/PR erstellt.
+
+## 14.10.2026 – Issue #6: Zentraler Sammler und begrenzter Laufmodus
+
+`backend/collector.py` verbindet den bestehenden FC03-Client, `core`-Decoder und
+SQLite-Speicherung in einem sequenziellen Sammler. Je Block werden mindestens 60 s
+zwischen Starts eingehalten; nach Request-Ende folgen mindestens 10 s Pause. Der
+optionale Testlauf stoppt anhand von Höchstdauer und/oder Anfragebudget. Ein OS-
+Dateilock im gemeinsamen Datenverzeichnis lehnt konkurrierende Prozesse ab.
+Pause, Stop, geordneter Thread-Shutdown und Speicherfehler verhindern Folge-Reads.
+Die FastAPI-Lifespan startet den Sammler ausschließlich bei explizitem
+`COLLECTOR_ENABLED=true`; Browser-/HTTP-Refreshes rufen ihn nicht auf. Ausgeführt
+werden nur die bestätigten `core`-Blöcke; unbestätigte Zusatzgruppen bleiben
+inaktiv. Wiederverbindungen, Verwaltungsendpunkte und UI-Steuerung bleiben Issue #7/#8.
+
+Tatsächlich geprüft:
+
+- `uv run pytest tests/test_collector.py tests/test_app.py` – 13 bestanden.
+- `uv run pytest` – 48 bestanden; ein Starlette/AnyIO-DeprecationWarning.
+- `uv run ruff check .` – bestanden.
+- Offline-Smoke: Collector gegen `ModbusSimulator` auf Loopback gestartet; eine
+  synthetische Kesseltemperatur wurde empfangen, dekodiert und in SQLite gespeichert.
+- FastAPI-Lifespan-Smoke mit aktiviertem Sammler und ausschließlich Loopback-Simulator:
+  Sammler las headless ein Register; zwei `/api/health`-Abrufe erzeugten keine Zusatzreads.
+- Neue synthetische Tests prüfen Anfragebudget, persistierte Beobachtung, 10-s-
+  Requestabstand, 60-s-Blockintervall trotz 12-s-Requestdauer, Zeitlimit,
+  Zählerrückgang, Pause/Shutdown, konkurrierende Besitzer und Stopp bei Speicherfehler.
+
+Grenzen: keine Geräteanfragen, keine Live-/Unraid-/Docker-Verifikation. Das Lock
+gilt für Prozesse, die dasselbe lokale Deployment-Datenverzeichnis verwenden;
+unterschiedliche Datenverzeichnisse können keine gemeinsame Anlagenbesitzschaft
+garantieren. Zusatzgruppen sind mangels bestätigter Decoder/Transportfreigabe nicht
+aktiviert. API-Pause/Start und Dashboard folgen Issue #8/#9; Wiederverbindung Issue #7.
+Änderungen bleiben uncommitted; kein Commit/PR erstellt.

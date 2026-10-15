@@ -1,9 +1,9 @@
 # Nächste Schritte
 
 Stand 14.10.2026: Projektgrundlage, `core`-Profil/Decoder, strikter FC03-Lesetransport,
-Loopback-Simulator und versionierte SQLite-Speicherung mit Backup/Restore sind umgesetzt.
-Es gibt weiterhin keinen Sammler oder Gerätezugriff. Nächste Schritte gemäß Issue-Roadmap;
-keine Live-Prüfung im SQLite-Arbeitsschritt.
+Loopback-Simulator, versionierte SQLite-Speicherung mit Backup/Restore und ein zentraler
+Sammler mit begrenztem Offline-Laufmodus umgesetzt. Noch offen: Wiederverbindung,
+Erfassungs-API/UI, Deployment und Geräteprüfung; keine Live-Arbeit für Issue #6.
 
 Zuerst [AGENTS](AGENTS.md), [Plan](docs/PLAN.md), [Entscheidungen](docs/ENTSCHEIDUNGEN.md),
 [Registerwissen](docs/MODBUS.md) und [Fehlerverhalten](docs/FEHLERVERHALTEN.md) lesen.
