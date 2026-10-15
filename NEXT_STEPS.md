@@ -12,18 +12,22 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
-## Begrenzter Ersttest am Gerät
+## Begrenzter Full-Stack-Test am Gerät
 
-Einzeltestplan (noch nicht ausgeführt): Ziel ausschließlich aus der privaten
-Laufzeitkonfiguration `MODBUS_HOST`; Port 502, Unit 255, Modbus TCP/FC03.
-Zweck: neue Verbindung und die drei historisch bestätigten Kernblöcke prüfen:
-4102/1, 28688/2, 36864/2. Höchstens drei Anfragen insgesamt, je Anfrage
-maximal zwei Register und feste 3-s-Gesamtdeadline; seriell, ohne zusätzliche
-Wartezeit zwischen Antworten und keinerlei Retry. Nach erster Verbindung,
-Protokoll- oder Datenabweichung sofort stoppen; keine zusätzlichen Register.
-Voraussetzung: andere Modbus-Leser einschließlich Altlogger sind beendet.
-Ergebnisse sind pro Block zu prüfen; ein Einzeltest belegt weder Dauerbetrieb
-noch Hersteller-Verträglichkeit. Keine Displaywerte voraussetzen.
+Durchgeführt am 15.10.2026: Ziel aus privater `.env`; Port 502, Unit 255,
+Modbus TCP/FC03, Profil `core`. Der App-Sammler las einmal jeden bestätigten
+Block 4102/1, 28688/2 und 36864/2; Prozesslimit 3, feste 3-s-Gesamtdeadline,
+keine Wiederaufnahme im endlichen Lauf. Alle drei Antworten waren erfolgreich,
+SQLite speicherte vier Kernsignal-Beobachtungen mit Qualität `ok`; Collector
+beendete sich bei 3/3 Anfragen. API/Datenbank waren gesund. Das Dashboard
+zeigte alle vier Werte; nach Überschreiten der Frischegrenze markierte es sie
+als veraltet. `completed` wird explizit als „Erfassung abgeschlossen“
+dargestellt. Keine zusätzlichen Anfragen beim Neustart zur UI-Prüfung.
+
+Der Lauf war einmalig und belegt weder Displayübereinstimmung noch Dauerbetrieb
+oder Hersteller-Verträglichkeit. Keine Zusatzregister oder Schreibbefehle.
+Das Anfragebudget war ein Prozess-Override; `.env` blieb unverändert. Der
+App-Prozess und der Dashboard-Devserver wurden nach der Prüfung beendet.
 
 Lizenz (MIT weiterhin nur Vorschlag) und Zugriffsschutz bei den zugeordneten Issues
 festlegen. Foundation-Laufzeiten und -Bibliotheken sind festgepinnt; MQTT/

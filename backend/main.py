@@ -30,6 +30,8 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             port=settings.modbus_port,
             store=storage,
             data_dir=settings.data_dir,
+            max_requests=settings.collector_max_requests,
+            retry_on_transport_error=settings.collector_max_requests is None,
         )
         collector.start()
     application.state.collector = collector

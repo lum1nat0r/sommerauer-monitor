@@ -48,7 +48,9 @@ class FakeClient:
         return RegisterRead(block.offset, self.VALUES[block.offset])
 
 
-def make_collector(tmp_path, *, limit=3, duration=None, delay=0.0, store=None):
+def make_collector(
+    tmp_path, *, limit=3, duration=None, delay=0.0, store=None, retry_on_transport_error=True
+):
     clock = FakeClock()
     client = FakeClient(clock, delay)
     collector = Collector(
@@ -62,6 +64,7 @@ def make_collector(tmp_path, *, limit=3, duration=None, delay=0.0, store=None):
         now=clock.now,
         max_requests=limit,
         max_duration_seconds=duration,
+        retry_on_transport_error=retry_on_transport_error,
     )
     return collector, client, clock
 
@@ -96,6 +99,34 @@ def test_duration_limit_stops_before_next_request(tmp_path):
     assert collector.state == "completed"
     assert [offset for offset, _ in client.starts] == [4102, 28688]
 
+
+def test_finite_request_budget_stops_on_first_transport_error_without_retry(tmp_path):
+    collector, client, _ = make_collector(
+        tmp_path, limit=3, retry_on_transport_error=False
+    )
+    calls = []
+
+    def fail_once(block):
+        calls.append(block.offset)
+        raise ModbusConnectionError("synthetic disconnect")
+
+    client.read = fail_once
+    collector.run()
+
+    assert calls == [4102]
+    assert collector.state == "stopped_transport"
+    assert collector.status()["reason"] == "Endlicher Lauf wegen Transportfehler beendet"
+    assert collector.store.get_collector_state()["request_count"] == 1
+
+def test_completed_finite_run_does_not_resume_after_restart(tmp_path):
+    first, _, _ = make_collector(tmp_path, limit=1)
+    first.run()
+    restored, client, _ = make_collector(tmp_path, limit=None, store=first.store)
+
+    restored.start()
+
+    assert restored.state == "completed"
+    assert client.starts == []
 
 def test_second_owner_for_same_deployment_is_rejected(tmp_path):
     first = _ProcessLock(tmp_path / "collector.lock")

@@ -21,6 +21,7 @@
   <Config Name="MODBUS_UNIT_ID" Target="MODBUS_UNIT_ID" Default="255" Mode="" Description="Unit des dokumentierten FC03-Leseprofils." Type="Variable" Display="advanced" Required="true" Mask="false">255</Config>
   <Config Name="REGISTER_PROFILE" Target="REGISTER_PROFILE" Default="core" Mode="" Description="Einzig unterstütztes Leseregisterprofil." Type="Variable" Display="advanced" Required="true" Mask="false">core</Config>
   <Config Name="COLLECTOR_ENABLED" Target="COLLECTOR_ENABLED" Default="false" Mode="" Description="false beim Erststart; nur nach lokaler Prüfung ausdrücklich aktivieren." Type="Variable" Display="always" Required="true" Mask="false">false</Config>
+  <Config Name="COLLECTOR_MAX_REQUESTS" Target="COLLECTOR_MAX_REQUESTS" Default="" Mode="" Description="Optionales Anfragebudget für einen endlichen Lauf; bei Transportfehlern erfolgt keine Wiederaufnahme." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="DISPLAY_TIMEZONE" Target="DISPLAY_TIMEZONE" Default="Europe/Vienna" Mode="" Description="IANA-Zeitzone für die Dashboardanzeige." Type="Variable" Display="advanced" Required="true" Mask="false">Europe/Vienna</Config>
   <User>99:100</User>
 </Container>

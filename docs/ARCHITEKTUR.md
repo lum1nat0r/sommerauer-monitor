@@ -53,10 +53,12 @@ flowchart LR
 Die lokale Schnittstelle ist in `backend/config.py` umgesetzt; `.env.example` enthält
 nur sichere Standardwerte. Unterstützte Variablen: `MODBUS_HOST` (optional),
 `MODBUS_PORT`, `MODBUS_UNIT_ID`, `REGISTER_PROFILE`, `COLLECTOR_ENABLED`,
-`DATA_DIR` und `DISPLAY_TIMEZONE`. `COLLECTOR_ENABLED` ist standardmäßig `false`;
-bei aktivierter Erfassung ohne Host startet die Anwendung mit Konfigurationsfehler.
-`/api/config` gibt nur `host_configured` statt des Hostwerts zurück und veröffentlicht
-keinen privaten Datenpfad.
+`COLLECTOR_MAX_REQUESTS`, `DATA_DIR` und `DISPLAY_TIMEZONE`. `COLLECTOR_ENABLED` ist
+standardmäßig `false`; bei aktivierter Erfassung ohne Host startet die Anwendung mit
+Konfigurationsfehler. `COLLECTOR_MAX_REQUESTS` begrenzt die Gesamtzahl der Reads und
+deaktiviert automatische Wiederaufnahmen bei Transportfehlern für diesen endlichen
+Lauf. Ohne Wert bleibt der reguläre Sammlerbetrieb unverändert. `/api/config` gibt nur
+`host_configured` statt des Hostwerts zurück und veröffentlicht keinen privaten Datenpfad.
 
 `uv.lock` sperrt Python-Abhängigkeiten; `package-lock.json` sperrt Frontendpakete.
 Entwicklungsbasis: CPython 3.12.9, Node.js 22.14.0 und npm 10.9.2. Python 3.12
