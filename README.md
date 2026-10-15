@@ -39,7 +39,10 @@ Vollständige Matrixzuordnung und tatsächlich ausgeführte Prüfungen:
 Die Browser-/Persistenzabnahme #38 ist mit echten Wartezeiten, bereinigten
 Screenshots, Download-/SQLite-Abgleich und hartem Exception-Stopp belegt:
 [Ergebnisse und Oberflächenbelege](reports/RESULTS.md#15102026--issue-38-reale-offline-browserabnahme).
-Paket-/Wheel-Laufzeitabnahme #39 bleibt offen.
+Issue #39 belegt das installierte Wheel außerhalb des Checkouts (199 Einträge,
+identische Ressourcenbytes) und die tatsächlich bediente gebaute StaticFiles-UI.
+Containerlauf lokal ungeprüft: Docker nicht verfügbar.
+[Paketabnahme und Grenzen](reports/RESULTS.md#15102026--issue-39-wheel-und-gebaute-laufzeitoberfläche).
 
 
 Issue #34 ergänzt rein offline bewertete Steuerentwürfe mit atomaren,

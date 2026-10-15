@@ -14,7 +14,7 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
-## Register-Prüfwerkzeug: Übergabe nach #38
+## Register-Prüfwerkzeug: Übergabe nach #39
 
 Die kanonische Ressource liegt ausschließlich unter
 [`backend/resources/register_catalog.json`](backend/resources/register_catalog.json).
@@ -60,10 +60,11 @@ mit #35 umgesetzt; die Bedienung im bestehenden Dashboard ist mit #36 umgesetzt.
 Details: [Steuerplanvertrag](docs/DATENMODELL.md#steuerentwürfe-und-revisionen-issue-34).
 Private Speicherdicts werden nicht als API ausgegeben; explizite Projektionen
 erhalten Quelle/Rohbelege, aber keine Ziele/Pfade/Fingerprintwerte.
-Wheel-Laufzeitnachweis außerhalb des Checkouts bleibt #39 vorbehalten.
+Wheel-Laufzeitnachweis außerhalb des Checkouts und gebaute StaticFiles-UI mit #39
+bestanden: 199 Einträge, identischer Ressourcenhash, hostlose Planblockade.
 Offline-Nachweise: [Ergebnisse](reports/RESULTS.md); keine zusätzlichen Live-Belege.
 
-Für #38/#39: verbindliche OpenAPI-Modelle in `backend/diagnostics_api.py`,
+Für weitere Arbeit: verbindliche OpenAPI-Modelle in `backend/diagnostics_api.py`,
 die Oberfläche `frontend/src/Diagnostics.tsx` mit `ReadRuns.tsx` und
 `ControlPlans.tsx` sowie den [HTTP-Vertrag](docs/DATENMODELL.md#diagnose-http-api-issue-35)
 verwenden.
@@ -108,8 +109,17 @@ mit SQLite-Abgleich, unveränderliche Steuerrevisionen/Revisionskonflikt sowie
 Neustartpersistenz und einen separaten harten Exception-Stopp ohne Retry.
 Bereinigte Screenshots und genaue Messwerte:
 [Abnahmebericht #38](reports/RESULTS.md#15102026--issue-38-reale-offline-browserabnahme).
-Keine Produktionsänderung erforderlich. Nächstes Pflichtpaket ist #39:
-Wheel außerhalb des Checkouts, gebaute Oberfläche und explizite Containergrenze.
+Keine Produktionsänderung erforderlich. Paketabnahme #39 bestanden:
+Wheel in frischer CPython-3.12.9-Umgebung außerhalb des Checkouts importiert;
+gebaute Oberfläche über den bestehenden StaticFiles-Pfad tatsächlich bedient.
+Containerlauf lokal ungeprüft: Docker nicht verfügbar.
+CLI vorhanden, Linux-Engine nicht erreichbar; kein Containerbuild oder -lauf.
+[Konkrete Artefakt-/Browserbelege](reports/RESULTS.md#15102026--issue-39-wheel-und-gebaute-laufzeitoberfläche).
+Offen bleiben Linux-/Unraid-Deployment und Langzeitbetrieb. Vor späterer
+Live-Diagnose aktuelle private Konfiguration und Quellen prüfen, andere Leser
+anhalten und einen eigenen endlichen Aliasplan mit genau begründeten Blöcken,
+Budget, Intervall, Laufzeit und Stopbedingungen dokumentieren; keinen
+pauschalen 199-Register-Liveplan aus der Offline-Abnahme ableiten.
 `npm audit` meldet eine bestehende hohe Vite-Sicherheitslücke; keine automatische
 Lockfileänderung im Abnahmeauftrag. Devserver ausschließlich auf Loopback betreiben;
 den Abhängigkeitsbefund vor nicht vertrauenswürdiger Bereitstellung beheben.
