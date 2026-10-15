@@ -156,8 +156,11 @@ Auswahl ändert weder Belegstatus noch Pollingprofil.
 `read_block = None` und `write_support = "unknown"`, gehören nicht zu den
 199 FC03-Auswahlen. Keine Schreibkodierung oder Rückfallfähigkeit abgeleitet.
 Ein Name wie `Leistung_Soll` beweist ebenfalls keine Schreibbarkeit.
-Mit #32 existiert ein enger Transport für einzelne Diagnoseblöcke; noch kein
-ausführbarer Diagnoseablauf. Laufsteuerung, API und Dashboard folgen getrennt.
+Mit #32 existiert der enge Transport; #33 orchestriert den endlichen manuellen
+Prüflauf mit gemeinsamer OS-Sperre, Planbindung, Reservierung und Betreiberreview.
+Unbekannte Rohworte erhalten ausschließlich `raw_only`; nur exakte Kernblöcke
+liefern `confirmed_core`/`decoded_signals`. Auch diese Werte bleiben getrennte
+Diagnosebelege, keine neuen Minutenmessungen. API und Dashboard folgen getrennt.
 
 
 Nicht enthalten im importierten Profil: Zustandskanal 4097; START-Code 9040 hex

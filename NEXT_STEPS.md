@@ -14,7 +14,7 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
-## Register-Prüfwerkzeug: Übergabe nach #32
+## Register-Prüfwerkzeug: Übergabe nach #33
 
 Die kanonische Ressource liegt ausschließlich unter
 [`backend/resources/register_catalog.json`](backend/resources/register_catalog.json).
@@ -33,12 +33,28 @@ unterbricht dort aktive Diagnosen. [Speichervertrag](docs/DATENMODELL.md#diagnos
 Paket #32 ergänzt den gemeinsamen privaten FC03-Pfad, katalogvalidierte
 Einzelreads und den expliziten synthetischen Simulator-Katalogmodus. Standard-
 Kernreads bleiben katalogunabhängig; keine automatische Folgeanfrage.
-Danach #33 Runner: Settings-basierte Bindung einschließlich exaktem Fingerprint,
-monotone 60-s-/600-s-Grenzen, OS-Besitz und Aufruf der Diagnosesperre vor
-Kernmonitoring. Recovery nur unter eigener OS-Sperre.
-`control_plans` hat noch keine Revisionsoperationen (#34); private Speicherdicts
-dürfen nicht zur Diagnose-API (#35) werden. Noch keine Diagnoserouten oder UI
-integrieren. Wheel-Laufzeitnachweis außerhalb des Checkouts bleibt #39 vorbehalten.
+Paket #33 ergänzt `ReadCheckRunner`, `DeviceLock` und `DIAGNOSTICS_SOURCE`
+(Standard `device`; `simulator` nur exakt mit Loopback `127.0.0.1`). Start stoppt
+den sauberen Collector einschließlich Join, übernimmt denselben `collector.lock`
+und sendet noch keine Anfrage. Jede manuelle Anfrage braucht eine dauerhafte
+Reservierung; 60 s vor dem ersten Read und ab abgeschlossener Speicherung,
+600 s Gesamtfrist, kein Retry. Diagnosefehler sperren auch alle Kernstartpfade.
+Der frühere ungesperrte Direktleser ist entfernt.
+
+Für #35: zuerst `runner.recover_interrupted()` unter gemeinsamer OS-Sperre,
+erst danach möglicher Collectorstart. `DeviceOwnershipError`/Recoveryfehler
+verbieten den Start, ohne lesende APIs zu sperren oder fremden Zustand zu
+reparieren. Sammleraktionen verwenden `runner.mode_lock`; Shutdown zuerst
+`runner.close()`, dann Collector. Kein automatischer Monitoring-Neustart nach
+Diagnoseende/Quittierung. Live-Start braucht zusätzlich die ausdrückliche
+Betreiberangabe `{other_readers_stopped: true}`; der interne Dienst ersetzt
+diese spätere API-Prüfung nicht und erkennt keine Leser auf fremden Volumes.
+
+Danach #34 Steuerplanbewertung; `control_plans` hat noch keine
+Revisionsoperationen. API-/Lifespan-Anbindung bleibt #35, UI #36.
+Private Speicherdicts dürfen nicht als API ausgegeben werden; der Runner liefert
+nur bereinigte Status-/Ergebnisdicts ohne Ziel/Fingerprint. Wheel-Laufzeitnachweis
+außerhalb des Checkouts bleibt #39 vorbehalten.
 Offline-Nachweise: [Ergebnisse](reports/RESULTS.md); keine zusätzlichen Live-Belege.
 
 

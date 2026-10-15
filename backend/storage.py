@@ -614,6 +614,26 @@ class SQLiteStore:
         except (sqlite3.Error, OSError) as exc:
             raise StorageError(f"Diagnosehistorie konnte nicht gelesen werden: {exc}") from exc
 
+    def last_diagnostic_counter(self, target_fingerprint: str) -> dict | None:
+        """Letzter erfolgreich interpretierter Zählerbeleg desselben privaten Ziels."""
+        try:
+            with self._connection() as connection:
+                rows = connection.execute(
+                    """SELECT q.completed_at, q.decoded_json FROM diagnostic_requests q
+                    JOIN diagnostic_runs r ON r.run_id = q.run_id
+                    WHERE json_extract(r.plan_json, '$.target_fingerprint') = ?
+                      AND json_extract(r.plan_json, '$.blocks[' || q.step_index || '].offset') = 28688
+                      AND q.decoded_json IS NOT NULL AND q.error_class IS NULL
+                    ORDER BY q.completed_at DESC, q.rowid DESC LIMIT 1""",
+                    (target_fingerprint,),
+                ).fetchone()
+                if rows is None:
+                    return None
+                signals = json.loads(rows["decoded_json"])
+                return {"value": signals[0]["value"], "completed_at": rows["completed_at"]}
+        except (sqlite3.Error, OSError, ValueError, KeyError, IndexError, TypeError) as exc:
+            raise StorageError("Diagnosezähler konnte nicht gelesen werden") from exc
+
     def interrupt_active_diagnostic_runs(self) -> None:
         """Nur der Laufzeitbesitzer unter OS-Sperre darf die Wiederherstellung aufrufen."""
         try:

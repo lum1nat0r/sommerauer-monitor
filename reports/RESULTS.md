@@ -894,3 +894,76 @@ Die LSP-Referenzabfrage am vorhandenen Ruff-Server lief in einen Timeout;
 die im Issue vorgegebene exakte Symbolsuche erfasste Backend, Tests und Scripts.
 Runner mit Besitz, Budget, Zielbindung, Fristen und Reviews bleibt #33;
 API/UI und spätere Gesamtintegration bleiben getrennte Arbeitspakete.
+
+## 15.10.2026 – Issue #33: Exklusive manuelle Prüfläufe und sichere Recovery
+
+`ReadCheckRunner` implementiert den endlichen manuellen Diagnosevertrag:
+unveränderliche Ziel-/Quell-/Katalogbindung, gemeinsamer Modus-RLock,
+Collector-Stop/Join vor Übernahme derselben OS-Sperre, dauerhafte Reservierung
+vor jedem Socket und Betreiberbewertung vor Fortschaltung. Start selbst liest
+nichts. Feste Grenzen: höchstens drei geplante Anfragen, 3 s Gesamtdeadline,
+60 s vor erster Anfrage und ab abgeschlossener Speicherung, 600 s Laufzeit.
+Watchdog und Shutdown senden niemals Geräteanfragen; Monitoring bleibt angehalten.
+
+`DeviceLock`/`DeviceOwnershipError` liegen ausschließlich in
+`backend/device_lock.py`; alle bisherigen Nutzer sind migriert, keine alten
+Aliase/Re-Exports. Der ungesperrte Direktleser wurde nach Prüfung seiner leeren
+Repository-Aufrufermenge entfernt. LSP-Referenzen waren am Ruff-Server erneut
+nicht verfügbar (Timeout); die exakte Symbolsuche wurde verwendet.
+
+`DIAGNOSTICS_SOURCE` ist standardmäßig `device`; `simulator` verlangt exakt
+`127.0.0.1`. Host/Port kommen nur aus Settings, private Plansnapshots/Fingerprints
+bleiben im Speicher. Nur exakte Kernblöcke erhalten Interpretation; unbekannte
+Rohworte bleiben unverändert und ohne Einheit. Zählerbelege werden über Läufe
+hinweg nur bei identischem Zielfingerprint auf plausiblen Fortschritt geprüft.
+Diagnose erzeugt keine zusätzlichen Kernbeobachtungen.
+
+Tatsächlich ausschließlich offline geprüft, uv 0.12.2, CPython 3.12.9 über
+`uv run --isolated --python 3.12.9 --locked`; private `.env` nicht als Testziel
+verwendet. Für die Gesamtsuite Host explizit leer, Collector deaktiviert und
+Diagnosequelle `device` gesetzt:
+
+- Erste gezielte Runner-/Collector-Abnahme: **119 bestanden**; danach zusätzliche
+  echte Übergabe-/Prozessabbruch- und Shutdown-Fälle ergänzt.
+- Abschließende vollständige `pytest`-Suite: **342 bestanden**, eine bestehende
+  Starlette/AnyIO-DeprecationWarning; keine unterdrückten Fehler.
+- Exakte 59,999-/60-s-Grenzen, Verzögerungen von Antwort/Reservierung/Speicherung,
+  unverbrauchbare Doppelaktionen, parallele Browseraufrufe und fehlende Reviews.
+- Echter konkurrierender Zweitprozess auf isoliertem Datenvolumen ohne
+  Clientzugriff; gegateter realer Collector-Worker gibt Besitz erst nach letzter
+  Antwort/Join frei. Join-Timeout hält den Besitz; ein Fehler der letzten
+  Kernantwort sperrt den Diagnosestart.
+- Echter Kindprozess beendet sich unmittelbar nach Runner-Reservierung vor
+  Antwortabschluss. Neue gesperrte Recovery erhält Versuch 1/3, setzt
+  `interrupted` und macht die alte ID nicht erneut ausführbar.
+- Transport-/Teilantwort-/Protokoll-/Decoder-/Speicherfehler stoppen ohne
+  Folgeanfrage. Decoderfehler erhalten Rohworte; Ausfall auch der
+  Fehlerpersistierung erhält aktive Markierung und Reservierung für Recovery.
+  Gleichzeitiger Stop/Fristablauf schwächt harte Fehler nicht ab.
+- Stop und `close()` während gegateter Antwort erhalten das Ergebnis; Besitz
+  bleibt bis Verarbeitungsschluss exklusiv. `close()` beendet alle eigenen
+  Watchdogs. Autonomer Ablauf ohne Browseraktion beendet den Lauf.
+- Persistente Diagnosefehler sperren Collector-Start, direktes Run, Resume und
+  Acknowledge ohne Kernbudgetänderung. Konservative erste 60 s auch in
+  Collector-Recovery, unveränderter Kernzeitplan ohne Diagnosehistorie.
+- `ruff check .`: bestanden. Finales Source-/Wheel-Build mit `uv build
+  --python 3.12.9`: bestanden. `npm run build` mit Node 26.7.0/npm 12.0.2:
+  TypeScript und Vite erfolgreich; kein Frontend geändert.
+
+Separater tatsächlicher Loopback-Verbraucherlauf außerhalb von pytest:
+temporäre SQLite-Datenbank, dynamischer lokaler Port, echter Katalogsimulator,
+keine injizierte Uhr und kein injizierter Transport. Start sendete nichts;
+vorzeitiger expliziter Read lieferte `read_not_due`. Drei jeweils explizit
+aufgerufene und bewertete Schritte mit echten 60-s-Wartezeiten ergaben exakt
+FC03/255 auf 4098/1, 4099/1, 33408/1 und gespeicherte Rohworte `[0]`, `[173]`,
+`[65526]`. Gemessene Verbraucherschritte einschließlich Antwort/Speicherung:
+60,050 / 60,051 / 60,068 s; Gesamtlauf 180,224 s. Endzustand `completed`,
+Budget 3/3, **0 Kernbeobachtungen**. Keine automatische Folgeanfrage.
+Temporäre Daten, Verbraucherskript und eigene Buildartefakte anschließend entfernt.
+
+Plattformgrenze: OS-Besitz einschließlich echtem Zweitprozess unter Windows
+(`msvcrt`) geprüft; Linux-`fcntl`-Zweig erhalten, lokal nicht ausgeführt.
+Keine Live-/Unraid-/Browserabnahme, keine privaten Originalbelege unabhängig
+neu geprüft, keine Geräte- oder Schreibkommunikation. HTTP/Lifespan und die
+Betreiberangabe zum Ausschluss fremder Leser bleiben ausdrücklich #35,
+Diagnoseoberfläche #36; Steuerplanbewertung folgt getrennt mit #34.

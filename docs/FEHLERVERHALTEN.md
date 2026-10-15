@@ -84,7 +84,7 @@ Der Katalogeingang aus #32 verwendet denselben FC03-Telegrammpfad und dieselben
 Fehlerklassen samt tatsächlicher `received_bytes` wie Kernreads. Er führt keine
 Wiederaufnahme, Interpretation oder automatische Folgeanfrage aus. Ein Katalogfehler
 sperrt Diagnose vor Socketzugriff, nicht die unabhängigen Kernreads. Budget,
-Review, Zielbindung und persistenter Diagnosestopp werden erst in #33 orchestriert.
+Review, Zielbindung und persistenter Diagnosestopp werden durch #33 orchestriert.
 
 ## Offline-Prüfungen
 
@@ -117,7 +117,49 @@ Scheitert eine Antworttransaktion, bleiben Reservierung und vorheriger Zustand
 erhalten; es darf keine ungesicherte Folgeanfrage geben.
 
 Recovery unterbricht aktive Läufe und erhält verbrauchte Versuche, Antworten
-und Sperren. Der spätere Runner (#33) darf diese Operation erst nach erfolgreich
-erworbener OS-Besitzsperre aufrufen, niemals zur Reparatur eines fremden Besitzers.
-Restore unterbricht ausschließlich das neue Offline-Ziel. Sammler-Umschaltung,
-Zeitabstände, Zielprüfung und Gerätebesitz gehören weiterhin zum Runnerpaket.
+und Sperren. `ReadCheckRunner.recover_interrupted()` führt sie ausschließlich
+unter erfolgreich erworbener gemeinsamer OS-Sperre aus. Fremder Besitz bedeutet
+keine Reparatur und keinen anschließenden Collectorstart. Restore unterbricht
+ausschließlich das neue Offline-Ziel.
+
+### Manueller Prüflauf (Issue #33)
+
+`start()` prüft den unveränderlichen Plan gegen aktuelle private Settings und
+den kanonischen Katalog, stoppt einen sauberen Collector einschließlich Join,
+prüft dessen letzte Antwort erneut und übernimmt `DATA_DIR/collector.lock`.
+Gespeicherte Kernfehler/Retry-Zustände und verwaistes `running` sperren die
+Diagnose. Unter Gerätebesitz werden Persistenz und Bindung erneut geprüft;
+Start sendet keine Anfrage und startet nach Konflikten kein Monitoring.
+
+Feste Grenzen: 1–3 geplante Blöcke, genau dieses Anfragebudget, 3 s Transport-
+Gesamtdeadline einschließlich Client-Lock, 600 s ab erfolgreichem Start.
+Vor der ersten Anfrage 60 s warten; danach jeweils mindestens 60 s ab
+abgeschlossener Antwortspeicherung. Vorzeitige Klicks liefern `read_not_due`,
+warten nicht und lösen später nichts aus. Nach jeder erfolgreichen Antwort
+bleibt der Lauf bis zur einmaligen Betreiberbewertung `awaiting_review`.
+
+Vor und nach jeder dauerhaften Reservierung werden Stop, Frist und Bindung
+geprüft. Eine abgebrochene Reservierung verbraucht weiterhin Budget.
+Transport-/Protokoll-/Decoder-/Daten-/Speicherfehler beenden den gesamten Lauf,
+ohne Folgepaket oder Wiederholung. Erkannte aktive Bindungs-/Katalogfehler
+beenden auch vor Reservierung den Lauf; Zurückstellen der Settings reaktiviert
+ihn nicht. Rohworte bleiben bei Decoderfehlern erhalten. Öffentliche Resultate
+enthalten nur bereinigte Fehlercodes, nicht rohe Ausnahmen mit Host/Pfad.
+
+`stop()` setzt das Stop-Event vor dem Warten auf den gemeinsamen Moduslock.
+Eine laufende Anfrage darf ihre Deadline beenden und wird gespeichert;
+gleichzeitiger Stop/Ablauf schwächt harte Fehler nicht ab. Der Watchdog
+prüft nur Frist/Stop und gibt Besitz erst nach Ende der laufenden Verarbeitung
+frei. `close()` stoppt kontrolliert und wartet auf alle eigenen Watchdogs.
+Bei Speicherfehlern sperrt der Runner lokal weitere Aktionen, persistiert
+bestmöglich `stopped_storage` und gibt Besitz frei. Scheitert auch diese
+Speicherung, bleiben aktive Markierung/Reservierung für gesperrte Recovery
+zu `interrupted` bestehen.
+
+Collector-`start`/direktes `run` prüfen die Diagnosesperre unter OS-Besitz,
+`resume`/`acknowledge_and_start` vor jeder Feld-/Budgetänderung. Diagnosefehler
+können damit nicht quittiert werden. Nach irgendeiner Diagnose-Reservierung
+wartet der nächste Collectorlauf mindestens 60 s, auch im Recoverypfad;
+ohne Diagnosehistorie bleibt sein bisheriger Zeitplan unverändert.
+Monitoring bleibt nach jedem Diagnoseende angehalten. Bewusstes Fortsetzen
+verwendet die bestehende Sammleraktion; keine automatische Wiederaufnahme.
