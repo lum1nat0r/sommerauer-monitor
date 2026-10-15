@@ -33,3 +33,10 @@ Lizenz (MIT weiterhin nur Vorschlag) und Zugriffsschutz bei den zugeordneten Iss
 festlegen. Foundation-Laufzeiten und -Bibliotheken sind festgepinnt; MQTT/
 Solarprognose/START-SOLL sind spätere Arbeitspakete. Keine Aktivierung von
 Heizungsänderungen aus dieser Übergabe ableiten.
+
+Image-Workflow: Pull Requests bauen `linux/amd64` ohne Push; Release-Tags
+`vX.Y.Z` veröffentlichen erst nach Offline-Prüfungen. Es gibt noch keinen Tag,
+keine erteilte Lizenz und kein veröffentlichtes GHCR-Image. Vor dem ersten
+Release die offenen Nachweise aus #13 und die Releasefreigabe aus #14 auswerten,
+Branch-/Tag-Schutz einrichten sowie die GHCR-Sichtbarkeit bewusst festlegen.
+Details: [Unraid-/Release-Strategie](docs/UNRAID.md#github-image-build-und-veröffentlichungsgrenze).

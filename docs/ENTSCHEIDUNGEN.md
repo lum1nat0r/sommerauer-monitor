@@ -23,6 +23,7 @@ Stand 14.10.2026; Herkunft jeweils angegeben.
 | Node.js 26.x und npm 12.x; Frontend-Abhängigkeiten in `package-lock.json` | Verbindliche Entwicklungs- und CI-Laufzeiten |
 | Erststart ohne Host, Erfassung standardmäßig deaktiviert; Host in API-Ausgabe redigiert | Offline-sichere Projektkonfiguration; keine Gerätezugriffe implementiert |
 | CI nur mit synthetischen/in-process Tests und Frontend-Build | GitHub Actions workflow `.github/workflows/ci.yml`; keine Anlagenzugriffe/Secrets |
+| Image-Build/Registry: PR-Build ohne Push, kein `main`-Image, Release nur aus `vX.Y.Z` nach Offline-Prüfungen | Arbeitsentscheidung für Issue #14; Release selbst bleibt bis Lizenz-/Abnahmefreigabe aus |
 
 Noch offen: Lizenz (MIT vorgeschlagen), Wahl einer Modbus-Bibliothek vs. kleinem
 eigenem Lesetransport, Zugriffsschutz der lokalen Verwaltungsfunktionen,

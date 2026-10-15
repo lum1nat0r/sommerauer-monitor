@@ -482,3 +482,38 @@ Tatsächlich geprüft:
 Grenzen: kein Displayabgleich, keine längere Betriebs-/Verträglichkeitsprüfung
 und kein Unraid-Test. Der Browser zeigte die gespeicherten Messwerte; daraus
 folgt keine unabhängige Bestätigung durch das Heizungsdisplay oder den Hersteller.
+
+## 15.10.2026 – GHCR-Image-Workflow vorbereitet (Teilumfang #14)
+
+Der neue Workflow baut bei Pull Requests ohne Push und veröffentlicht ein Image
+nur für einen passenden Versionstag nach Lizenz-, `main`-Commit- und
+Issue-#13-Prüfung sowie erneutem Offline-Test/Container-Smoke. Noch kein Tag,
+kein GHCR-Push und kein Unraid-Deployment; die Lizenzentscheidung bleibt offen.
+Node und npm im Docker-Build wurden an die vorhandene Node-26-/npm-12-Vorgabe
+angepasst.
+
+Tatsächlich geprüft:
+
+- `actionlint` 1.7.12 für beide Workflowdateien und `bash -n` für das
+  Smoke-Skript: ohne Befund.
+- `uv run --locked pytest -q`: 69 bestanden, ein bestehendes
+  Starlette/AnyIO-DeprecationWarning; `uv run --locked ruff check .` und
+  `npm run build`: bestanden.
+- `podman build --platform linux/amd64` mit Buildversion `pr-local` und
+  synthetischer Revision `offline-smoke`: erfolgreich. Das endgültige Image
+  verwendete Node 26.7.0/npm 12.0.2 für den Frontend-Build.
+- Das tatsächliche Image lief nicht-root, mit schreibgeschütztem Root und
+  temporärem Datenvolume ohne Modbus-Ziel/aktivierte Erfassung. Der aus dem
+  Workflow aufgerufene Smokecheck prüfte `/api/health` (`ok`), `/api/version`
+  (`pr-local`/`offline-smoke`) und Collectorstatus `unconfigured` erfolgreich.
+- PR #27: GitHub Actions `pull-request-build` baute und startete das Image
+  erfolgreich (38 s); die Python- und Frontend-Jobs der Offline-CI bestanden
+  ebenfalls. Der Release-Job wurde beim PR erwartungsgemäß übersprungen.
+
+Grenzen: Podman-OCI-Build meldete erneut, dass der Dockerfile-`HEALTHCHECK`
+im OCI-Format nicht übernommen wird; die API-Healthroute wurde geprüft.
+`npm ci` meldete eine bekannte High-Severity-Dependency-Warnung und für
+`esbuild` unter npm 12 ein blockiertes Installationsskript; der Frontend-Build
+war erfolgreich. Kein Release-Tag oder Registry-Push, kein Release-Job-Lauf und
+kein Hardware-/Unraid-Test. GitHub-Rulesets für Branch/Tags sind noch nicht
+konfiguriert; dies bleibt Voraussetzung vor dem ersten Release.
