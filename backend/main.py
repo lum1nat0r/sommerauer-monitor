@@ -262,6 +262,7 @@ def collector_status(request: Request) -> dict[str, object]:
         "stopped_data": "Datenfehler; Erfassung angehalten",
         "stopped_storage": "Speicher- oder Zustandsfehler; Erfassung angehalten",
         "paused": "Erfassung pausiert",
+        "completed": "Erfassung abgeschlossen",
     }
     state = saved.get("state")
     attempts = saved.get("reconnect_attempts", 0)

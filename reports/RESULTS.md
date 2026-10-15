@@ -517,3 +517,180 @@ im OCI-Format nicht übernommen wird; die API-Healthroute wurde geprüft.
 war erfolgreich. Kein Release-Tag oder Registry-Push, kein Release-Job-Lauf und
 kein Hardware-/Unraid-Test. GitHub-Rulesets für Branch/Tags sind noch nicht
 konfiguriert; dies bleibt Voraussetzung vor dem ersten Release.
+
+## 15.10.2026 – Issue #13: Abnahmeprüfung und gestufte Live-Läufe
+
+Abnahmestand: App 0.1.0, Commit `64521b5`, Kernprofil/Decoder Version 1.
+Die Abhängigkeit #12 ist geschlossen; deren Offline-/Containerbelege sind oben
+dokumentiert und wurden nicht als neue Geräteprüfung ausgegeben.
+
+### Bereits vorhandener Erstlauf
+
+Die private SQLite-Datei des oben dokumentierten Full-Stack-Live-Zyklus wurde
+erneut ausschließlich lokal ausgewertet, ohne Geräteanfrage:
+FC03/Unit 255, genau 4102/1, 28688/2 und 36864/2, alle erfolgreich,
+vier Beobachtungen mit Qualität `ok`, Profil-/Decoderversion 1.
+Anfragebeginn 10:18:35.785 bis 10:18:35.910 UTC; gespeicherte
+Anfragedauern 78, 19 und 35 ms. Endzustand `completed`, Budget 3/3,
+Wiederaufnahmezähler 0, Stopgrund `Finite collection limit reached`.
+Ein Wiederholungsintervall ist aus diesem Einzelzyklus nicht ableitbar.
+Der ursprüngliche Plan vor Ausführung ist in der früheren `NEXT_STEPS.md`
+nachvollziehbar ([Änderung in PR #26](https://github.com/lum1nat0r/sommerauer-monitor/pull/26/files)):
+höchstens drei serielle Kernanfragen ohne Retry, feste 3-s-Deadline,
+andere Leser vorher beendet, sofortiger Fehlerstopp. Eine separate damalige
+private Laufplandatei wurde nicht eingesehen.
+
+### Voraussetzungen und Offline-Vorbereitung der neuen Läufe
+
+Betreiberangabe im Abnahmedialog: Alle anderen Modbus-Leser sind beendet,
+Displayzugang besteht; der Monitor ist noch nicht auf Unraid installiert.
+Lokal waren weder Python-/Node-Monitorprozesse noch laufende Podman-Container
+vorhanden. Das schließt entfernte Leser nicht technisch aus; hierfür gilt die
+Betreiberangabe.
+
+Vor dem neuen Kurzlauf wurden 15 und 90 Anfragen mit dem tatsächlichen
+FC03-Transport gegen den Loopback-Simulator und virtueller Schedulerzeit
+ausgeführt: 20 bzw. 120 synthetische Beobachtungen, `completed`,
+Wiederaufnahmezähler 0, SQLite-Integrität `ok`. Eine simulierte
+Modbus-Exception stoppte nach genau einer Anfrage in `stopped_protocol`.
+Wiederherstellung des jeweiligen Endzustands erzeugte keine weitere Anfrage.
+Der erste Durchgang scheiterte ausschließlich beim Entfernen einer noch
+geöffneten temporären SQLite-Datei unter Windows; nach explizitem Schließen
+der Prüfverbindung war der gesamte Offline-Durchgang erfolgreich.
+Dies sind Simulatorbelege, keine echten Laufzeiten oder Gerätefehler.
+
+### Aktueller Displayabgleich
+
+Die erste neue Kernmessung um 12:03:32 UTC / 14:03:32 Europe/Vienna wurde
+dem Betreiber privat zum gezielten Displayvergleich genannt. Er bestätigte
+die Übereinstimmung aller vier Kernwerte einschließlich Anlagen-Betriebszähler.
+Das ist eine Betreiberbeobachtung, keine unabhängige Foto-/Displayprüfung
+durch den Assistenten. Messwerte und Display-Rohbelege bleiben privat.
+
+### Erster kurzer Live-Lauf: Timingabnahme nicht bestanden
+
+Vorheriger Plan in `NEXT_STEPS.md`, konkrete Ziel-/Laufdaten privat.
+Höchstens 300 s / 15 Anfragen, FC03/Unit 255, drei Kernblöcke,
+mindestens 60 s je Block, 3-s-Transportdeadline, null Wiederaufnahmen.
+Tatsächlich 15 erfolgreiche Anfragen in 240,687 s, 20 Beobachtungen `ok`,
+SQLite-Integrität `ok`, Stopgrund Anfragebudget (`completed`, 15/15).
+Am Transportaufruf wurden 59,984–60,047 s je wiederholtem Block gemessen;
+damit war die Timingabnahme nicht bestanden. Kein Geräte-/Protokoll-/Datenfehler;
+kein weiterer Lauf wurde automatisch gestartet.
+
+Die ursprüngliche Windows-Uhr `time.monotonic` verwendet hier `GetTickCount64`
+mit 15,625 ms Auflösung; die genannten Werte sind deshalb kein hochauflösender
+Paketmitschnitt. Unabhängig davon reproduzierte ein neuer deterministischer
+Regressionstest die fehlerhafte Referenz vor der persistenten Reservierung:
+0,5 s variable Reservierungsdauer verkürzten den tatsächlichen Abstand
+im injizierten Client auf 59,5 s (Test vor Korrektur fehlgeschlagen).
+
+Korrektur: `time.perf_counter` als hochauflösende monotone Scheduleruhr
+(hier `QueryPerformanceCounter`, Auflösung 100 ns); 60-s-Mindestabstand
+konservativ ab Abschluss der vorherigen Blockverarbeitung statt ab Beginn
+der Reservierung. Damit kommen Transport-/Verarbeitungslaufzeiten zum
+Mindestintervall hinzu. Kein neuer Zusatzregister-, Retry- oder Schreibpfad.
+
+Nach Korrektur: `uv run --locked pytest -q` – 70 bestanden, ein vorhandenes
+Starlette/AnyIO-DeprecationWarning; `uv run --locked ruff check .` bestanden.
+Der tatsächliche Loopback-Transport wurde mit 15/90 Anfragen und simulierter
+Exception erneut erfolgreich ausgeführt; virtuelle Schedulerzeit, kein Live-Nachweis.
+Ein neuer, separat geplanter Kurzlauf ersetzt nicht die Belege des ersten Laufs.
+
+### Korrigierter kurzer Live-Lauf: bestanden
+
+Neuer privater Plan und neue SQLite-Datei unter
+`data/issue13-abnahme/short-fixed/`; vorheriger Lauf unverändert erhalten.
+Dieselben drei Kernblöcke, FC03/Unit 255, 3-s-Deadline, 300-s-Limit,
+eigenes Budget 15, keine Wiederaufnahme. Basis `64521b5` mit oben beschriebener
+Timingkorrektur.
+
+Tatsächlich 15/15 erfolgreiche Anfragen in 240,661 s (5 vollständige Kernzyklen),
+20 Beobachtungen `ok`, SQLite-Integrität `ok`. Hochauflösend gemessene Abstände
+am Transportaufruf desselben Blocks 60,040320–60,291638 s.
+Antwortdauer 11,609–268,209 ms, Mittelwert 49,045 ms.
+Stopgrund Anfragebudget, Endzustand `completed`, Wiederaufnahmezähler 0.
+Wiederherstellung dieses gespeicherten Endzustands blieb `completed` und erzeugte
+keine zusätzliche Transportanfrage; kein Neustart- oder Persistenzbeleg auf Unraid.
+
+Erst nach dieser Auswertung wurde der separate 1800-s-/90-Anfragen-Plan in
+`NEXT_STEPS.md` und privat festgehalten. Kein automatisches Verlängern des
+kurzen Laufs und kein Übergang in unbeschränkte Erfassung.
+
+### Längerer endlicher Live-Lauf: bestanden
+
+Vor Beginn separat dokumentiert: höchstens 1800 s / 90 Anfragen,
+privater Plan unter `data/issue13-abnahme/long/`, gleiche Zielkonfiguration
+und Timingkorrektur wie im bestandenen Kurzlauf. Ein synchroner aktiver
+Transport, FC03/Unit 255, nur 4102/1, 28688/2 und 36864/2, maximal zwei
+Register, 3-s-Deadline; keine Wiederaufnahme und keine künstlichen Störungen.
+
+Tatsächlich 90/90 erfolgreiche Anfragen, exakt 30 je Kernblock, von
+12:14:59 bis 12:44:00 UTC; Laufdauer 1741,599 s.
+120 Beobachtungen `ok`, SQLite-Integrität `ok`.
+Hochauflösende Abstände am Transportaufruf desselben Blocks
+60,024734–60,124170 s; Antwortdauer 11,346–97,432 ms,
+Mittelwert 25,114 ms. Stopgrund Anfragebudget, `completed`, Budget 90/90,
+Wiederaufnahmezähler 0. Wiederherstellung des gespeicherten Endzustands
+erzeugte keine weitere Anfrage. Insgesamt 120 neue Live-Anfragen in
+beiden Kurzläufen und diesem längeren Lauf; der frühere Erstzyklus
+umfasste separat drei Anfragen.
+
+Nach den Läufen meldete der Betreiber, keine neuen Störanzeigen oder
+Anlagenauffälligkeiten bemerkt zu haben. Das ist eine Betreiberbeobachtung,
+keine unabhängige Heizungsfunktionsprüfung oder Verträglichkeitszusage.
+Nicht geprüft: andere Betriebsphasen über Tage/Wochen, Zusatzregister,
+Sensor-Kalibrierung und die tatsächliche Installation auf Unraid.
+
+### Persistenz, API und Dashboard nach Ende der Erfassung
+
+- Lokales SQLite-Online-Backup und Restore des korrigierten Kurzlaufs:
+  alle 20 Originalbeobachtungen einschließlich IDs, Zeiten, Werte und
+  Rohworte identisch, Integrität `ok`, wiederhergestellter Zustand `paused`.
+  Keine Geräteanfrage; Windows-Nachweis, kein Unraid-Test.
+- Tatsächlichen Uvicorn-Prozess mit Langlauf-DB und
+  `COLLECTOR_ENABLED=false` gestartet: Health/Datenbank `ok`, vier aktuelle
+  Kernsignale mit gespeicherter Qualität `ok`; alle 120 CSV-Zeilen stimmten
+  in ID, Signal, Zeit, Wert und Qualität mit SQLite überein. Rohwerte wurden
+  dafür lokal verglichen, nicht veröffentlicht.
+- Dabei wurde ein zweiter Abnahmefehler sichtbar: Die deaktivierte API
+  behandelte gespeichertes `completed` fälschlich als `stopped_storage`.
+  Den vorhandenen endlichen App-Test um Neustart mit deaktiviertem Sammler
+  erweitert; vor Korrektur schlug dieser mit genau dem falschen Status fehl.
+  Korrektur in `backend/main.py`: `completed` ist auch als gespeicherter
+  Endzustand gültig. Kein neuer Steuer-/Gerätepfad.
+- Erneut gestarteter tatsächlicher API-Prozess: `completed`, kein Fehlergrund,
+  gesunde DB und identische 120 CSV-Beobachtungen. Anfragezahl blieb nach
+  Prozessneustarts, API-Abfragen und Browserprüfung unverändert 90.
+- Das tatsächliche Vite-/API-Dashboard wurde mit lokalem Chrome visuell geprüft:
+  „Erfassung abgeschlossen“, kein fälschlicher Speicherstopp, vier gespeicherte
+  Kernwerte als veraltet markiert, Verlauf mit 30 Originalbeobachtungen.
+  Keine Browser-JavaScript-Fehler. Der automatische Browserstart war zunächst
+  nicht verfügbar; expliziter Start des vorhandenen Chrome funktionierte.
+  Kein Container-/Unraid-Dashboardnachweis aus diesem Lauf.
+- Abschließend `uv run --locked pytest -q`: 70 bestanden, ein bekanntes
+  Starlette/AnyIO-DeprecationWarning; `uv run --locked ruff check .` bestanden.
+  Keine erneute Frontend-Build- oder GitHub-Actions-Prüfung für diese Aussage.
+  Prüfprozesse beendet; temporäres Laufwerkzeug entfernt, private Laufpläne,
+  Messungen und Auswertungen erhalten. `.env` unverändert.
+
+### Finale Kriterien und Abnahmegrenze zu #13
+
+| Issue-Kriterium | Ergebnis / Beleg |
+|---|---|
+| Neue Verbindung tatsächlich belegt | Erfüllt: ursprünglicher Erstzyklus und neue endliche FC03-Läufe am ausschließlich privat konfigurierten Ziel. |
+| Jeder Lauf mit Plan, tatsächlicher Anzahl, Timing und Stopgrund | Erfüllt: historischer Erstplan in früherer `NEXT_STEPS.md`; neue Pläne vor Ausführung, tatsächliche Auswertungen oben und Rohbelege privat. Die erste Timingabnahme bleibt ausdrücklich fehlgeschlagen dokumentiert. |
+| Kein Dauerbetriebsversprechen aus Einzelread | Erfüllt: gestufte Auswertung; Betriebsplan erst nach längerem Lauf erstellt, weder Dauerbetrieb aktiviert noch langfristige Störungsfreiheit behauptet. |
+| Keine Schreibbefehle, Suche oder Wiederholung nach hartem Fehler | Erfüllt: nur die drei FC03-Kernblöcke, keine echten harten Fehler, null Live-Wiederaufnahmen; Exception-Stopp ausschließlich im Loopback-Simulator geprüft. |
+| Private Rohbelege bleiben privat, Zusammenfassung nachvollziehbar | Erfüllt: Daten unter ignoriertem `data/issue13-abnahme/`, öffentlich nur bereinigte Methodik, Anfrage-/Timing-/Qualitätsauswertung und Betreiberbeobachtungen. |
+| Unraid nur bei tatsächlicher Durchführung als bestanden markieren | Nachweisgrenze eingehalten: nicht installiert, nicht geprüft, nicht als bestanden markiert. |
+
+**Abgenommen ist die gestufte lokale Kernregister-Leseinbetriebnahme.**
+Der Betreiber bestätigt Displayübereinstimmung und keine bemerkten neuen
+Anlagenauffälligkeiten; Geräteantworten, synthetische Nachweise und
+Betreiberbeobachtungen bleiben getrennt. Der nachgelagerte
+[Betriebsplan](../docs/INBETRIEBNAHME.md#betriebsplan-nach-der-begrenzten-abnahme)
+beschreibt die nächste Betreiberinstallation, ohne sie zu aktivieren.
+Unraid-Mount/Neustart/Containerersatz/externes Backup und Restore sowie
+tatsächlicher Dauerbetrieb bleiben offen. Keine neue Lizenz-/Releasefreigabe
+und keine Aktivierung zusätzlicher Gerätefunktionen.

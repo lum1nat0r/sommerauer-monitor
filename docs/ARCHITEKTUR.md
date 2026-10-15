@@ -27,8 +27,10 @@ flowchart LR
 - Decoder: reine Funktionen, Signalherkunft und Gültigkeit. Kein I/O und keine
   stillschweigende Skalierung unbekannter Einträge.
 - Sammler (`backend/collector.py`): zentraler sequenzieller Kernprofil-Leser mit
-  mindestens 60 s je Block, ohne zusätzliche Pause zwischen Requests. Testläufe begrenzen
-  Dauer und/oder Anfragezahl; Pause, Stop und Shutdown sperren neue Reads.
+  mindestens 60 s ab Abschluss der vorherigen Verarbeitung desselben Blocks,
+  hochauflösend monoton gemessen, ohne zusätzliche Pause zwischen verschiedenen
+  Blöcken. Testläufe begrenzen Dauer und/oder Anfragezahl; Pause, Stop und Shutdown
+  sperren neue Reads.
   Ein OS-Dateilock im Datenverzeichnis verhindert konkurrierende Prozesse mit
   gemeinsamem Deployment-Volume. Die FastAPI-Lifespan startet ihn nur bei
   `COLLECTOR_ENABLED=true`; HTTP-Aufrufe starten keine Reads.

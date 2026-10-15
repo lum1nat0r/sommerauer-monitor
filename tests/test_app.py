@@ -70,6 +70,19 @@ def test_app_stops_after_configured_request_limit_and_stores_observation(
     assert history["total"] == 1
     assert history["items"][0]["value"] == 42
 
+    monkeypatch.setenv("COLLECTOR_ENABLED", "false")
+    get_settings.cache_clear()
+    with TestClient(app) as client:
+        status = client.get("/api/collector/status").json()
+        health = client.get("/api/health").json()
+        restored_history = client.get("/api/history/boiler.temperature").json()
+
+    assert status["state"] == "completed"
+    assert status["reason"] is None
+    assert health == {"status": "ok", "database": "ok"}
+    assert restored_history == history
+    assert reads == [4102]
+
 
 def test_configuration_rejects_unimplemented_register_profiles() -> None:
     with pytest.raises(ValidationError):

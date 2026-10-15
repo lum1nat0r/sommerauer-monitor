@@ -8,8 +8,11 @@ andere Geräte. Host privat konfigurieren, Port 502, Unit 255, Modbus TCP, FC03.
 ## Bestätigte Kerngruppen
 
 Historische Geräteantworten und Displayabgleich am 09.10.2026 bestätigen fünf
-Register. Neue Netzwerkadresse und dauerhafter Betrieb sind noch nicht geprüft.
-Die privaten Rohdaten werden hier nicht veröffentlicht.
+Register. Am 15.10.2026 wurde die Verbindung am aktuellen privaten Ziel durch
+den begrenzten Kernzyklus erneut belegt; im Abnahmedialog zu #13 bestätigte der
+Betreiber den zeitnahen Displayabgleich aller vier Kernsignale.
+Dies ist keine unabhängige Display-/Sensorprüfung durch den Assistenten und kein
+Dauerbetriebsnachweis. Die privaten Rohdaten werden hier nicht veröffentlicht.
 
 | Offset / Anzahl | Interne Codes (hex) | Signal | Dekodierung |
 |---|---|---|---|

@@ -140,5 +140,16 @@ Release-Prüfungen: nicht-root starten, Volume-Rechte, Neustart/Persistenz, Offl
 Start, gesperrte Erfassung, Backup/Restore, Versionsanzeige, Image-Reproduzierbarkeit.
 Hardware- oder Unraid-Prüfung nur als bestanden melden, wenn tatsächlich ausgeführt.
 
+Stand nach Geräteabnahme #13 am 15.10.2026: Der Betreiber hat den Monitor noch
+nicht auf Unraid installiert. Erfolgreiche endliche Windows-FC03-Läufe,
+lokales SQLite-Backup/Restore und frühere Podman-Smokes sind **kein**
+bestandener Unraid-Betriebs-/Persistenzcheck. Vor dauerhaftem Betrieb muss
+der Betreiber Image/Revision, tatsächlichen lokalen Mount und UID/GID-Rechte,
+endliche Erfassung, Containerersatz/Neustart sowie externes Backup/Restore
+auf seiner Installation protokollieren. Der
+[Betriebsplan](INBETRIEBNAHME.md#betriebsplan-nach-der-begrenzten-abnahme)
+aktiviert weder Deployment noch Erfassung.
+
+
 Quellen: [Unraid Container](https://docs.unraid.net/unraid-os/using-unraid-to/run-docker-containers/managing-and-customizing-containers/),
 [SQLite WAL](https://www.sqlite.org/wal.html), [SQLite Backup](https://www.sqlite.org/backup.html).
