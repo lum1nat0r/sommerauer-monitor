@@ -36,8 +36,11 @@ flowchart LR
   idempotente Erfassungszyklen, Ereignis-/Zustands-/Konfigurationsspeicherung,
   begrenzte Chronologieabfragen, Online-Backup/Restore und Speicherfehler als
   `StorageError`. Anwendungsstart öffnet `/data/monitor.sqlite3` und prüft Migrationen.
-- API/UI: Lesen aus DB, kein Modbus beim HTTP-Refresh. Verwaltungsaktionen nur
-  lokal in der App, validiert und zugriffsgeschützt.
+- API/UI: `backend/main.py` stellt aus SQLite aktuelle Werte, seitenweise Historie,
+  paginierte Ereignisse und gestreamten Original-CSV-Export bereit. Lesezugriffe
+  sind Modbus-unabhängig. Mutierende Browser-Requests verlangen Same-Origin-Header;
+  die API-Konfiguration kann nur die Anzeigezeitzone ändern. Modbus-Endpunkt und
+  Datenpfad bleiben private Deployment-Konfiguration.
 - Ausgabeadapter später: MQTT unabhängig von der Verfügbarkeit des Brokers;
   Prognose und Steuerung bleiben getrennte Module und Datentypen.
 

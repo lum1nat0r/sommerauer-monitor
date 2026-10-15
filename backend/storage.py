@@ -256,6 +256,146 @@ class SQLiteStore:
         except (sqlite3.Error, json.JSONDecodeError) as exc:
             raise StorageError(f"Could not read history: {exc}") from exc
 
+    def current_signals(self) -> list[dict[str, Any]]:
+        try:
+            with self._connection() as connection:
+                rows = connection.execute(
+                    """SELECT o.* FROM observations o
+                    JOIN (
+                        SELECT signal_id, MAX(observed_at) AS latest
+                        FROM observations GROUP BY signal_id
+                    ) latest ON latest.signal_id=o.signal_id AND latest.latest=o.observed_at
+                    ORDER BY o.signal_id, o.observation_id"""
+                )
+                result = []
+                for row in rows:
+                    item = dict(row)
+                    item["raw_words"] = json.loads(item.pop("raw_words_json"))
+                    result.append(item)
+                return result
+        except (sqlite3.Error, json.JSONDecodeError) as exc:
+            raise StorageError(f"Could not read current signals: {exc}") from exc
+
+    def events(self, *, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 500 or offset < 0:
+            raise ValueError("invalid event pagination")
+        try:
+            with self._connection() as connection:
+                result = []
+                for row in connection.execute(
+                    "SELECT * FROM events ORDER BY occurred_at DESC, event_id DESC LIMIT ? OFFSET ?",
+                    (limit, offset),
+                ):
+                    item = dict(row)
+                    item["details"] = json.loads(item.pop("details_json"))
+                    result.append(item)
+                return result
+        except (sqlite3.Error, json.JSONDecodeError) as exc:
+            raise StorageError(f"Could not read events: {exc}") from exc
+
+    def stream_observations(
+        self, *, start: str | None = None, end: str | None = None
+    ) -> Iterator[dict[str, Any]]:
+        """Yield original observations in deterministic order without buffering the export."""
+        query = "SELECT * FROM observations WHERE 1=1"
+        args: list[Any] = []
+        if start is not None:
+            query += " AND observed_at >= ?"
+            args.append(start)
+        if end is not None:
+            query += " AND observed_at < ?"
+            args.append(end)
+        query += " ORDER BY observed_at, observation_id"
+        try:
+            with self._connection() as connection:
+                for row in connection.execute(query, args):
+                    item = dict(row)
+                    item["raw_words"] = json.loads(item.pop("raw_words_json"))
+                    yield item
+        except (sqlite3.Error, json.JSONDecodeError) as exc:
+            raise StorageError(f"Could not export observations: {exc}") from exc
+
+    def database_health(self) -> bool:
+        try:
+            with self._connection() as connection:
+                return connection.execute("SELECT 1").fetchone()[0] == 1
+        except sqlite3.Error:
+            return False
+
+    def latest_config(self) -> dict[str, Any] | None:
+        try:
+            with self._connection() as connection:
+                row = connection.execute(
+                    "SELECT config_json FROM config_versions ORDER BY version DESC LIMIT 1"
+                ).fetchone()
+                return json.loads(row[0]) if row else None
+        except (sqlite3.Error, json.JSONDecodeError) as exc:
+            raise StorageError(f"Could not read configuration: {exc}") from exc
+
+    def next_config_version(self) -> int:
+        try:
+            with self._connection() as connection:
+                return connection.execute(
+                    "SELECT COALESCE(MAX(version), 0) + 1 FROM config_versions"
+                ).fetchone()[0]
+        except sqlite3.Error as exc:
+            raise StorageError(f"Could not read configuration version: {exc}") from exc
+
+    def count_observations(
+        self, *, signal_id: str | None = None, start: str | None = None, end: str | None = None
+    ) -> int:
+        query = "SELECT COUNT(*) FROM observations WHERE 1=1"
+        args: list[Any] = []
+        if signal_id is not None:
+            query += " AND signal_id = ?"
+            args.append(signal_id)
+        if start is not None:
+            query += " AND observed_at >= ?"
+            args.append(start)
+        if end is not None:
+            query += " AND observed_at < ?"
+            args.append(end)
+        try:
+            with self._connection() as connection:
+                return int(connection.execute(query, args).fetchone()[0])
+        except sqlite3.Error as exc:
+            raise StorageError(f"Could not count observations: {exc}") from exc
+
+    def count_events(self) -> int:
+        try:
+            with self._connection() as connection:
+                return int(connection.execute("SELECT COUNT(*) FROM events").fetchone()[0])
+        except sqlite3.Error as exc:
+            raise StorageError(f"Could not count events: {exc}") from exc
+
+
+    def history_page(
+        self, signal_id: str, start: str | None = None, end: str | None = None,
+        *, limit: int = 1000, offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 10_000 or offset < 0:
+            raise ValueError("invalid history pagination")
+        query = "SELECT * FROM observations WHERE signal_id = ?"
+        args: list[Any] = [signal_id]
+        if start is not None:
+            query += " AND observed_at >= ?"
+            args.append(start)
+        if end is not None:
+            query += " AND observed_at < ?"
+            args.append(end)
+        query += " ORDER BY observed_at, observation_id LIMIT ? OFFSET ?"
+        args.extend((limit, offset))
+        try:
+            with self._connection() as connection:
+                result = []
+                for row in connection.execute(query, args):
+                    item = dict(row)
+                    item["raw_words"] = json.loads(item.pop("raw_words_json"))
+                    result.append(item)
+                return result
+        except (sqlite3.Error, json.JSONDecodeError) as exc:
+            raise StorageError(f"Could not read history page: {exc}") from exc
+
     def disk_usage_bytes(self) -> int:
         try:
             return sum(

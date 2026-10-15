@@ -200,3 +200,40 @@ Chromium konnte in dieser Umgebung nicht gestartet werden (`Shared browser daemo
 unavailable`); UI wurde daher nicht visuell im Browser geprüft. Die Ausgabe von
 Vite/HTTP wurde geprüft. Kein Schreibadapter, keine Verwaltungs-HTTP-Route und
 keine Hardwareänderungen.
+
+## 15.10.2026 – Issue #8: Lesende API, App-Konfiguration und Sammleraktionen
+
+`backend/main.py` bietet aktuelle Signalwerte mit Einheit, UTC-Messzeit, Alter,
+Qualität und Frischeflag; Historien werden nach Signal und halb-offenem,
+zeitzonenpflichtigem Zeitfenster paginiert. Ereignisse besitzen `limit`/`offset`.
+CSV läuft als Stream aus allen Originalbeobachtungen mit Zeitstempel, Qualität,
+Rohworten und Decoderherkunft; keine API-Aggregation oder stilles Downsampling.
+`/api/health` meldet Datenbankstatus getrennt vom Collectorstatus. Die API-Konfiguration
+erlaubt nur die validierte Anzeigezeitzone; Host, Port, Unit, Profil und Datenpfad
+bleiben Deployment-Konfiguration und werden nicht in Antworten ausgegeben.
+
+Pause, Fortsetzen und quittiertes Starten sind POST-Routen ohne Geräteschreibweg.
+Alle Mutationen verlangen eine exakt passende Origin-Quelle, nicht-cross-site
+Fetch-Metadaten und einen benutzerdefinierten Header; fremde Browserformulare
+werden abgewiesen. Konfigurationsänderungen werden versioniert und als Ereignis
+protokolliert. OpenAPI/Swagger stammen aus den FastAPI-Routenschemas.
+
+Tatsächlich geprüft:
+
+- `uv run pytest tests/test_app.py tests/test_storage.py` – 20 bestanden,
+  ein vorhandenes Starlette/AnyIO-DeprecationWarning.
+- `uv run pytest` – 62 bestanden, ein vorhandenes Starlette/AnyIO-DeprecationWarning.
+- `uv run ruff check .` – bestanden.
+- `npm run build` – TypeScript-Prüfung und Vite-Produktionsbuild bestanden.
+- Uvicorn auf Loopback gestartet: `/api/health`, `/api/config`,
+  `/api/collector/status` und `/openapi.json` tatsächlich per HTTP geprüft;
+  OpenAPI lieferte HTTP 200, Datenbank war gesund und Collector blieb `unconfigured`.
+- Synthetische API-Prüfungen belegen aktuelle Signale/Einheiten/Qualität,
+  Historienzeitstempel und Rohworte, CSV-Originalzeilen, Schutz fehlender
+  Origin-Metadaten, protokollierte Zeitzonenänderung und abgewiesene naive/
+  umgekehrte Zeitbereiche. Ein DST-Fallback-Test unterscheidet beide UTC-Zeitpunkte
+  der wiederholten lokalen Stunde.
+
+Grenzen: kein Modbus-Zugriff, keine Live-/Unraid-/Docker-Prüfung und keine visuelle
+UI-Prüfung. Der Schreibzugriff auf Konfiguration umfasst absichtlich nur
+`display_timezone`; Ziel-/Verbindungsparameter bleiben Deployment-Konfiguration.
