@@ -45,10 +45,16 @@ BO01/BO02 bezeichnen an dieser Anlage oben/unten desselben Puffers.
 
 ## FC03-Transport und Offline-Simulator
 
-`backend/modbus.py` akzeptiert nur `RegisterBlock`-Einträge des ausführbaren
-`core`-Profils und sendet FC03/Unit 255 mit maximal zwei Registern. Eine synchrone
-Socket-Anfrage verwendet eine feste Gesamtdeadline von 3 Sekunden ab Aufruf
-(einschließlich Warten auf den Client-Lock, Verbindungsaufbau und Empfang).
+`backend/modbus.py` trennt zwei validierende Eingänge: `read(RegisterBlock)`
+akzeptiert weiterhin nur exakte Einträge des ausführbaren `core`-Profils;
+`read_catalog(CatalogReadBlock)` prüft vor Socketzugriff den kanonischen Katalog.
+Erlaubt sind dokumentierte Einzelworte (auch einzelne Kernworte) oder exakte
+Kernblöcke; keine Lücken, fremden Zweierblöcke, Bool-/Nicht-Integer-Adressen oder
+freie Allowlist. Ein defekter Katalog sperrt nur den Diagnoseeingang.
+Beide verwenden ausschließlich den privaten `_read_fc03(offset, count)` mit
+FC03/Unit 255 und maximal zwei Registern. Eine synchrone Socket-Anfrage verwendet
+eine feste Gesamtdeadline von höchstens 3 Sekunden ab Telegrammaufruf
+(einschließlich Warten auf den Client-Lock, Verbindungsaufbau, Senden und Empfang).
 Es gibt keine Retry- oder parallele Request-Ebene.
 
 Der Transport setzt die erwartete Antwortlänge nach MBAP-Header und Profilblock
@@ -58,11 +64,20 @@ Timeout/Abbruch ohne Antwortbytes ist `ConnectionError`; Deadline-/Verbindungsab
 nach Teilantwort ist `IncompleteResponseError`; fehlerhafte vollständige Protokolle
 sind `ProtocolError`. TCP-Fragmentierung wird bis zur Deadline zusammengesetzt.
 
-`backend/modbus_simulator.py` liefert feste synthetische Werte für die drei
-Kernblöcke und definierte Faults (Fragmentierung, Verzögerung, Teilantwort,
-verfälschte Header/PDU, Exception und Verbindungsabbruch). Bibliotheks-/API-Start
-aktiviert ihn nicht. Modulstart bindet auf `127.0.0.1:1502`; die Klasse verweigert
-nicht-loopback Ziele. Kein Scan, Modbus-Schreibbefehl oder Diagnosemodus.
+`backend/modbus_simulator.py` liefert standardmäßig unverändert feste synthetische
+Werte ausschließlich für die drei Kernblöcke. Erst `catalog=True` bzw. CLI
+`--catalog` erlaubt zusätzlich dokumentierte Einzelworte aus dem kanonischen
+Katalog; 4103 und 4098/2 bleiben verboten. Die fünf Kernworte bleiben unverändert,
+sonst gilt `(offset * 17 + 3) & 0xFFFF`, mit synthetischen Sonderfällen
+4098→0, 4099→173 und 33408→65526. Keine Einheit oder Gerätebeobachtung daraus
+ableiten; der Transport interpretiert keine Rohworte.
+Alle Faults (Fragmentierung, Verzögerung, Teilantwort, verfälschte Header/PDU,
+Exception und Verbindungsabbruch) wirken auf beide Modi. `received_requests`
+liefert eine threadsichere unveränderliche Tupel-Momentaufnahme empfangener
+`(unit, function, offset, count)`-Anfragen, auch abgelehnter vollständiger Requests;
+kein Produktionslog. Bibliotheks-/API-Start aktiviert den Simulator nicht.
+Modulstart bindet auf `127.0.0.1:1502`; andere Bindeadressen werden verweigert.
+Kein Scan, Modbus-Schreibbefehl oder automatischer Diagnoseablauf.
 
 ## Weitere Kandidaten
 
@@ -141,8 +156,8 @@ Auswahl ändert weder Belegstatus noch Pollingprofil.
 `read_block = None` und `write_support = "unknown"`, gehören nicht zu den
 199 FC03-Auswahlen. Keine Schreibkodierung oder Rückfallfähigkeit abgeleitet.
 Ein Name wie `Leistung_Soll` beweist ebenfalls keine Schreibbarkeit.
-Diese Bibliotheksreferenz ist noch kein ausführbarer Diagnose-Lesepfad;
-Transport, Laufsteuerung, API und Dashboard folgen in eigenen Unterissues.
+Mit #32 existiert ein enger Transport für einzelne Diagnoseblöcke; noch kein
+ausführbarer Diagnoseablauf. Laufsteuerung, API und Dashboard folgen getrennt.
 
 
 Nicht enthalten im importierten Profil: Zustandskanal 4097; START-Code 9040 hex

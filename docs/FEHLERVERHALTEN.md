@@ -80,6 +80,12 @@ widersprüchlicher Zähler -> Datenstopp. Keine Null einsetzen, nicht korrigiere
 kein automatischer Folgeversuch. Rohworte und Fehler speichern, soweit Speicher
 funktioniert. DB voll/nicht beschreibbar/Migrationsfehler -> Speicherstopp.
 
+Der Katalogeingang aus #32 verwendet denselben FC03-Telegrammpfad und dieselben
+Fehlerklassen samt tatsächlicher `received_bytes` wie Kernreads. Er führt keine
+Wiederaufnahme, Interpretation oder automatische Folgeanfrage aus. Ein Katalogfehler
+sperrt Diagnose vor Socketzugriff, nicht die unabhängigen Kernreads. Budget,
+Review, Zielbindung und persistenter Diagnosestopp werden erst in #33 orchestriert.
+
 ## Offline-Prüfungen
 
 Die synthetischen Tests prüfen Retry-Abstand und denselben Block, Systemuhrsprung

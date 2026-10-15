@@ -14,7 +14,7 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
-## Register-Prüfwerkzeug: Übergabe nach #31
+## Register-Prüfwerkzeug: Übergabe nach #32
 
 Die kanonische Ressource liegt ausschließlich unter
 [`backend/resources/register_catalog.json`](backend/resources/register_catalog.json).
@@ -30,9 +30,12 @@ eine Quittierung reaktiviert niemals eine alte ID. Restore übernimmt Budget,
 Antworten, Bewertungen und Steuerrevisionen in ein neues Offline-Ziel und
 unterbricht dort aktive Diagnosen. [Speichervertrag](docs/DATENMODELL.md#diagnosejournal-issue-31).
 
-Danach #32 Transport, dann #33 Runner: Settings-basierte Bindung einschließlich
-exaktem Fingerprint, monotone 60-s-/600-s-Grenzen, OS-Besitz und Aufruf der
-Diagnosesperre vor Kernmonitoring. Recovery nur unter eigener OS-Sperre.
+Paket #32 ergänzt den gemeinsamen privaten FC03-Pfad, katalogvalidierte
+Einzelreads und den expliziten synthetischen Simulator-Katalogmodus. Standard-
+Kernreads bleiben katalogunabhängig; keine automatische Folgeanfrage.
+Danach #33 Runner: Settings-basierte Bindung einschließlich exaktem Fingerprint,
+monotone 60-s-/600-s-Grenzen, OS-Besitz und Aufruf der Diagnosesperre vor
+Kernmonitoring. Recovery nur unter eigener OS-Sperre.
 `control_plans` hat noch keine Revisionsoperationen (#34); private Speicherdicts
 dürfen nicht zur Diagnose-API (#35) werden. Noch keine Diagnoserouten oder UI
 integrieren. Wheel-Laufzeitnachweis außerhalb des Checkouts bleibt #39 vorbehalten.
