@@ -1,7 +1,8 @@
 # Gestufte Inbetriebnahme
 
-Stand: noch nicht ausgeführt. Die neue private Netzwerkadresse ist Benutzerangabe,
-keine neue Geräteantwort. Standardtests und CI verwenden keine Heizung.
+Stand: Offline-E2E-Abnahme #12 am 15.10.2026 abgeschlossen (siehe
+[`reports/RESULTS.md`](../reports/RESULTS.md)). Keine neue Geräteantwort oder
+Displayprüfung; Standardtests und CI verwenden keine Heizung.
 
 ## Voraussetzungen
 

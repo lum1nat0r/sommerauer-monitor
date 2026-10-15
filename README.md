@@ -5,8 +5,8 @@ dauerhafte Minutenhistorie und Web-Dashboard auf Unraid.
 
 **Stand 15.10.2026: Projektgrundlage, bestätigtes Kernprofil/Decoder, strikter FC03-Lesetransport,
 Loopback-Simulator, SQLite-Speicherung, zentraler Sammler, begrenzte Wiederaufnahme,
-lesende API und deutsches Dashboard umgesetzt.**
-Offen: vollständige Offline-Ende-zu-Ende-Abnahme, Deployment und Geräteprüfung.
+lesende API, Dashboard und Offline-Ende-zu-Ende-Abnahme (#12) umgesetzt.**
+Offen: Unraid-Deployment und Geräteprüfung.
 
 ## Hier mit der Arbeit beginnen
 

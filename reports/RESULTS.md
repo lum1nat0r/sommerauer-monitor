@@ -348,3 +348,58 @@ Tatsächlich geprüft:
 
 Grenzen: Podman-/Container-Smokes sind keine Unraid-7.3.2-Prüfung. Keine
 Gerätezugriffe. Eine tatsächliche Release-Veröffentlichung erfolgte nicht.
+
+## 15.10.2026 – Issue #12: Offline-Ende-zu-Ende- und Wiederherstellungsabnahme
+
+Die reproduzierbare Offline-Abnahme verbindet Loopback-Modbus-Simulator,
+FC03-Collector, SQLite, API/CSV und Container-Dashboard. `tests/test_end_to_end.py`
+prüft alle drei Kernblöcke Ende-zu-Ende mit virtueller Zeit, Signalen und
+unveränderten CSV-/SQLite-Originalwerten; eine Volume-Ersetzung liefert eine
+leere Historie statt erfundener Werte. Der Datenfluss verwendet ausschließlich
+synthetische Simulator-/Testdaten. Keine Heizungs- oder sonstigen Netzlesezugriffe.
+
+Abnahmestand: App `0.1.0`; Containerziel `linux/amd64`, API-Revision `unknown`.
+Podman 5.8.1 auf WSL2 baute das Image. Der Image-Build verwendet Node 22.14.0
+und CPython 3.12.9; Hostprüfungen liefen mit Node 26.7.0/npm 12.0.2,
+uv 0.12.2 und CPython 3.12.13.
+
+Tatsächlich geprüft:
+
+- `uv run --locked pytest -q` – 65 bestanden; ein vorhandenes
+  Starlette/AnyIO-DeprecationWarning. `uv run --locked ruff check .` bestanden.
+- `npm run build` – TypeScript-Prüfung und Vite-Produktionsbuild bestanden.
+  `docker compose config --quiet` und `podman build --platform linux/amd64`
+  bestanden.
+- Podman-Container als UID 99/GID 100 mit echtem Loopback-Simulator gestartet.
+  Die Datenbank enthielt die sechs erfolgreichen FC03-Abfragen der drei
+  bestätigten Blöcke (4102/1, 28688/2, 36864/2; Unit 255) und synthetisch
+  dekodierte Werte 42, 6079, 47 und 38. Tatsächliche Abstände zwischen Requests
+  waren mindestens 10 s, derselbe Block mindestens 60 s. `/api/health`,
+  `/api/signals/current`, CSV und die Browseroberfläche lieferten HTTP 200;
+  CSV enthielt vier Originalbeobachtungen.
+- Der Container-Simulator wurde auf Modbus-Exception umgestellt. Die siebte
+  Anfrage endete als `ProtocolError`/`stopped_protocol`; nach Containerneustart
+  blieb Status und Budget `stopped_protocol`/0, ohne achte Anfrage. Datenbank
+  und Historie blieben erhalten.
+- SQLite-Online-Backup vor dem Fehlerstopp: Integritätsprüfung `ok`; Restore
+  enthielt dieselben acht Beobachtungen (IDs, Signale, Zeitstempel, Werte,
+  Rohworte), setzte den Collector auf `paused`.
+- Chromium prüfte das laufende Container-Dashboard mit Simulatorwerten sowie
+  eine separate synthetische Fixture mit veraltetem Wert, ungültiger Qualität
+  und 6-Minuten-Lücke: Alter/Zeitstempel und Status sichtbar, zwei Punkte als
+  eine Messlücke gekennzeichnet, keine verbindende Diagrammlinie; CSV enthielt
+  drei Fixture-Zeilen. Keine Browser-JavaScript-Fehler.
+- Bestehende Offline-Tests decken zusätzlich Verbindungsausfall/Flattern,
+  fünf Wiederaufnahmeversuche, Crashreservierung/Neustart, Teilantworten,
+  harte Fehlerstopps, Migration/Neustart, synthetischen Speicherfehler,
+  10.050 Messungen, Backup/Restore und die wiederholte lokale Stunde beim
+  Sommerzeitwechsel ab. Der Modbus-Client besitzt keinen Schreibaufruf.
+
+Grenzen: Keine echte Geräteantwort, Displayprüfung, Unraid-7.3.2-Installation
+oder Live-Verträglichkeitszusage. Volle Datenträger wurden nicht real erzeugt;
+Speicherausfall ist per SQLite-Fehler injiziert. Ein verlorenes Datenvolume
+ist nicht wiederherstellbar, sofern kein externes Backup existiert; der
+Ersatzvolume-Test belegt nur den leeren, nicht vortäuschenden Neustart. Der
+Podman-OCI-Build meldete, dass OCI-Images `HEALTHCHECK` nicht unterstützen;
+die API-Healthroute wurde geprüft, nicht ein Container-Healthcheck. Keine
+GitHub-Actions- oder Hardwareprüfung.

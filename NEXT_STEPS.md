@@ -2,8 +2,8 @@
 
 Stand 15.10.2026: Projektgrundlage, `core`-Profil/Decoder, strikter FC03-Lesetransport,
 Loopback-Simulator, SQLite-Speicherung, zentraler Sammler, persistente Fehlerzustände,
-lesende API und Dashboard umgesetzt. Offen: Offline-Ende-zu-Ende-Abnahme,
-Deployment und Geräteprüfung; keine Live-Arbeit für Issue #7 oder #9.
+lesende API, Dashboard und Offline-Ende-zu-Ende-Abnahme (#12) umgesetzt. Offen:
+Unraid-Deployment und Geräteprüfung; keine Live-Gerätezugriffe für Issue #12.
 
 Zuerst [AGENTS](AGENTS.md), [Plan](docs/PLAN.md), [Entscheidungen](docs/ENTSCHEIDUNGEN.md),
 [Registerwissen](docs/MODBUS.md) und [Fehlerverhalten](docs/FEHLERVERHALTEN.md) lesen.
