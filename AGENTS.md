@@ -43,7 +43,7 @@ Echte Sensormesswerte bleiben unverändert. Später allenfalls START/SOLL änder
   Private Zieladressen nur in privatem Laufplan, öffentlich über Alias referenzieren.
   Dies ist Arbeitsdokumentation, keine zusätzliche pauschale Zustimmungshürde.
 - Standard: Unit 255, höchstens zwei Register, 3 Sekunden Gesamtdeadline,
-  mindestens 10 Sekunden nach voriger Antwort/Fehler, ein Client/eine Anfrage.
+  ein Client/eine Anfrage.
 - Einzeltest-Durchgang höchstens drei begründete Anfragen, Ergebnis jeweils
   sofort prüfen; keine Fehler-Retries. Bei Fehler/Stop/Auffälligkeit anhalten.
 - Keine Port-/Subnetzscans, keine Unit-/Adresssuche, kein Fuzzing, keine Broadcasts,

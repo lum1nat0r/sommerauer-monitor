@@ -12,6 +12,19 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
+## Begrenzter Ersttest am Gerät
+
+Einzeltestplan (noch nicht ausgeführt): Ziel ausschließlich aus der privaten
+Laufzeitkonfiguration `MODBUS_HOST`; Port 502, Unit 255, Modbus TCP/FC03.
+Zweck: neue Verbindung und die drei historisch bestätigten Kernblöcke prüfen:
+4102/1, 28688/2, 36864/2. Höchstens drei Anfragen insgesamt, je Anfrage
+maximal zwei Register und feste 3-s-Gesamtdeadline; seriell, mindestens
+10 s Abstand nach jeder Antwort, keinerlei Retry. Nach erster Verbindung,
+Protokoll- oder Datenabweichung sofort stoppen; keine zusätzlichen Register.
+Voraussetzung: andere Modbus-Leser einschließlich Altlogger sind beendet.
+Ergebnisse sind pro Block zu prüfen; ein Einzeltest belegt weder Dauerbetrieb
+noch Hersteller-Verträglichkeit. Keine Displaywerte voraussetzen.
+
 Lizenz (MIT weiterhin nur Vorschlag) und Zugriffsschutz bei den zugeordneten Issues
 festlegen. Foundation-Laufzeiten und -Bibliotheken sind festgepinnt; MQTT/
 Solarprognose/START-SOLL sind spätere Arbeitspakete. Keine Aktivierung von
