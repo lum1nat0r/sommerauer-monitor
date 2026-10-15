@@ -72,6 +72,16 @@ Echte Sensormesswerte bleiben unverändert. Später allenfalls START/SOLL änder
 - Fachliche Originalbelege liegen beim Betreiber. Fehlende Belege gezielt klären;
   das öffentliche Repo ersetzt sie nicht. Keine unabhängige Prüfung behaupten,
   wenn nur die hier dokumentierte Zusammenfassung gelesen wurde.
+
+## GitHub-Änderungen für Issues
+
+- Issue-Arbeit erfolgt auf einem eigenen Branch; Änderungen NIEMALS direkt auf `main` committen.
+- Nach Implementierung und erfolgreicher Verifikation dürfen die Issue-Änderungen gestaged und committet werden. Commit-Nachricht kurz halten und Issue zuordnen.
+- Den Issue-Branch zum konfigurierten Remote pushen und nach Abschluss der Verify-Sektion einen Pull Request erstellen.
+- PR-Beschreibung enthält eine knappe Zusammenfassung der Änderungen und `Closes #<Issue-Nummer>` (oder gleichwertige GitHub-Schließsyntax mit Issue-Link), damit GitHub das Issue beim Merge automatisch schließt.
+- PR nicht selbst mergen. Keine vorhandenen Commits ändern, Tags/Releases erstellen oder destruktive Git-Befehle verwenden, die Änderungen verwerfen.
+- Vorhandene Nutzeränderungen bewahren; nur Issue-bezogene Änderungen stagen/committen.
+- Issue/Kommentare nicht separat ändern; die PR-Schließreferenz ist die vorgesehene Verknüpfung.
 - Nach einem Arbeitspaket Issue/PR mit Änderung, echten Prüfungen, Grenzen und
   nächsten Schritten aktualisieren. Neue Ergebnisse in reports/RESULTS.md ergänzen;
   Simulator und Live-Ergebnisse getrennt, öffentlich nur bereinigte Zusammenfassungen.

@@ -1,7 +1,7 @@
 
 ---
 name: implement-issue
-description: Implement an existing GitHub issue according to its approved implementation plan. Includes coding, testing, and verification. Never commit, push, or create pull requests.
+description: Implement an existing GitHub issue according to its approved implementation plan. Includes coding, testing, verification, and creating a pull request.
 ---
 
 # Implement GitHub Issue
@@ -59,6 +59,9 @@ If no issue is provided, ask for one before proceeding.
 - Check for regressions and obvious edge cases.
 - Ensure no secrets, credentials, or temporary debugging artifacts were introduced.
 - Use browser-based verification when relevant and available.
+- Once verification passes, commit the issue changes on the dedicated branch and push it to the configured remote.
+- Then create a pull request. Its description must summarize the changes and include GitHub closing syntax for the issue, such as `Closes #123`, so merging the pull request closes the issue automatically.
+- Do not merge the pull request. If the branch cannot be pushed or the pull request cannot be created, report the exact blocker; do not claim completion.
 
 ### 5. Report
 
@@ -71,25 +74,16 @@ Provide a concise final report containing:
 5. **Deviations:** Any departures from the original plan.
 6. **Remaining work:** Known limitations or unresolved issues.
 
-## Strict Git Restrictions
+## Git Workflow Rules
 
-The following operations are prohibited unless the user explicitly authorizes them in a subsequent instruction:
-
-- Do NOT create Git commits.
-- Do NOT amend existing commits.
-- Do NOT push changes to any remote.
-- Do NOT create or update pull requests.
-- Do NOT create tags or releases.
-- Do NOT create or switch branches automatically.
-- Do NOT stage files using `git add`.
-- Do NOT modify the GitHub issue or its comments.
-- Do NOT perform destructive Git operations such as reset, clean, or checkout that discard changes.
-
-All implementation changes must remain uncommitted in the current working tree.
-
-Read-only Git operations such as `git status`, `git diff`, and `git log` are allowed.
-
-Preserve any pre-existing user changes in the working tree.
+- Work on a dedicated branch for the issue; never commit directly to the main branch.
+- Stage and commit the issue changes after implementation and verification. Use a concise commit message that identifies the issue.
+- Push the issue branch to the configured remote and open a pull request after verification.
+- Include a change summary and the GitHub closing keyword `Closes #<issue-number>` in the pull request description.
+- Do not amend existing commits, create tags or releases, or merge the pull request.
+- Do not perform destructive Git operations such as reset, clean, or checkout that discard changes.
+- Preserve pre-existing user changes; do not stage or commit unrelated changes.
+- Do not alter the issue or its comments except through the pull request's closing reference.
 
 ## Autonomy and Decision Making
 
@@ -104,13 +98,13 @@ Preserve any pre-existing user changes in the working tree.
 
 ## Completion Criteria
 
-The task is complete when:
-
 - All feasible requirements have been implemented.
 - Relevant tests and checks have been executed.
 - Failures introduced by the implementation have been resolved.
 - The changes have been reviewed against the issue.
+- The issue changes are committed and pushed on their dedicated branch.
+- A pull request exists with a change summary and a closing reference to the issue.
 - A final implementation report has been provided.
-- All changes remain uncommitted and unpushed.
 
 Stop after reporting. Wait for the user's review and further instructions.
+
