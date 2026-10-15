@@ -13,8 +13,7 @@ Offen: tatsächliches Unraid-Deployment und Langzeitbetrieb. Kein Dauerbetrieb a
 
 Issue #30 ergänzt die isolierte Katalogreferenz für das Register-Prüfwerkzeug:
 199 unveränderte Zuordnungen als validierte Paketressource, unveränderlicher
-Prozesssnapshot und Auswahl von 1–3 engen Leseblöcken. Noch kein Diagnose-Runner,
-keine Diagnose-API und keine Diagnoseoberfläche; Kernpolling bleibt unverändert.
+Prozesssnapshot und Auswahl von 1–3 engen Leseblöcken.
 Vertrag und Grenzen: [Modbus/Katalog](docs/MODBUS.md#diagnoseauswahl-issue-30).
 
 Issue #31 ergänzt ein getrenntes SQLite-Diagnosejournal mit unveränderlichen
@@ -22,6 +21,11 @@ Prüfplänen, dauerhaften Anfrage-Reservierungen, quittierungspflichtigen Stopps
 Schema-v2-Migration/Restore. Keine Geräte-I/O; Steuerrevisionen erhalten nur ihre
 Tabelle. Interner Speichervertrag und Datenschutz:
 [Datenmodell](docs/DATENMODELL.md#diagnosejournal-issue-31).
+
+Issue #32 ergänzt `read_catalog()` über denselben strikten FC03-Telegrammpfad
+wie Kernreads und den expliziten synthetischen Simulator-Katalogmodus
+(`--catalog`). Noch kein Diagnose-Runner, keine Diagnose-API oder Oberfläche;
+kein zusätzliches Kernpolling und keine Live-Abnahme.
 
 ## Hier mit der Arbeit beginnen
 

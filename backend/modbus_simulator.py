@@ -1,4 +1,4 @@
-"""Deterministic, loopback-only Modbus TCP simulator for offline transport checks."""
+"""Deterministischer Loopback-Simulator; alle Rohworte sind synthetische Testdaten."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import socketserver
 import threading
 import time
 
+from backend.catalog import RegisterCatalog, load_catalog
 from backend.modbus import FUNCTION_READ_HOLDING_REGISTERS, UNIT_ID
 from backend.registers import CORE_PROFILE
 
@@ -41,13 +42,14 @@ class _Handler(socketserver.BaseRequestHandler):
         function = request[7]
         offset = int.from_bytes(request[8:10], "big")
         count = int.from_bytes(request[10:12], "big")
+        self.server.record_request((unit, function, offset, count))  # type: ignore[attr-defined]
 
         if (
             protocol != 0
             or length != 6
             or unit != UNIT_ID
             or function != FUNCTION_READ_HOLDING_REGISTERS
-            or (offset, count) not in {(block.offset, block.count) for block in CORE_PROFILE}
+            or not self.server.allows_block(offset, count)  # type: ignore[attr-defined]
         ):
             connection.sendall(_exception(transaction, unit, function, 2))
             return
@@ -94,15 +96,33 @@ class _Server(socketserver.TCPServer):
         address: tuple[str, int],
         fault: str,
         delay_seconds: float,
+        catalog: RegisterCatalog | None,
         request_handler: type[socketserver.BaseRequestHandler] = _Handler,
     ) -> None:
         self.fault = fault
         self.delay_seconds = delay_seconds
+        self._catalog = catalog
+        self._received_requests: list[tuple[int, int, int, int]] = []
+        self._requests_lock = threading.Lock()
         super().__init__(address, request_handler)
+
+    def allows_block(self, offset: int, count: int) -> bool:
+        return any(block.offset == offset and block.count == count for block in CORE_PROFILE) or (
+            self._catalog is not None and count == 1 and offset in self._catalog.entries
+        )
+
+    def record_request(self, request: tuple[int, int, int, int]) -> None:
+        with self._requests_lock:
+            self._received_requests.append(request)
+
+    @property
+    def received_requests(self) -> tuple[tuple[int, int, int, int], ...]:
+        with self._requests_lock:
+            return tuple(self._received_requests)
 
 
 class ModbusSimulator:
-    """Context-managed simulator; its default and CLI bind are loopback only."""
+    """Offline-Simulator: standardmäßig nur Kernblöcke, optional Katalogrohworte."""
 
     def __init__(
         self,
@@ -111,6 +131,7 @@ class ModbusSimulator:
         host: str = "127.0.0.1",
         port: int = 0,
         delay_seconds: float = 3.5,
+        catalog: bool = False,
     ) -> None:
         if host != "127.0.0.1":
             raise ValueError("simulator may bind only to the 127.0.0.1 loopback address")
@@ -118,13 +139,21 @@ class ModbusSimulator:
             raise ValueError(f"unknown simulator fault: {fault}")
         if delay_seconds < 0:
             raise ValueError("delay_seconds must be non-negative")
-        self._server = _Server((host, port), fault, delay_seconds)
+        if type(catalog) is not bool:
+            raise ValueError("catalog must be a boolean")
+        catalog_snapshot = load_catalog() if catalog else None
+        self._server = _Server((host, port), fault, delay_seconds, catalog_snapshot)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
 
     @property
     def address(self) -> tuple[str, int]:
         host, port = self._server.server_address[:2]
         return str(host), int(port)
+
+    @property
+    def received_requests(self) -> tuple[tuple[int, int, int, int], ...]:
+        """Unveränderliche Momentaufnahme empfangener Anfragen, kein Anlagenlog."""
+        return self._server.received_requests
 
     def __enter__(self) -> ModbusSimulator:
         self._thread.start()
@@ -137,7 +166,21 @@ class ModbusSimulator:
 
 
 def _response(transaction: bytes, unit: int, offset: int, count: int) -> bytearray:
-    words = {4102: (42,), 28688: (4, 319), 36864: (47, 38)}[offset][:count]
+    # Keine Einheiten-/Anlagenbelege: feste Kernworte und explizite Testsonderfälle.
+    fixed_words = {
+        4102: 42,
+        28688: 4,
+        28689: 319,
+        36864: 47,
+        36865: 38,
+        4098: 0,
+        4099: 173,
+        33408: 65526,
+    }
+    words = (
+        fixed_words.get(word_offset, (word_offset * 17 + 3) & 0xFFFF)
+        for word_offset in range(offset, offset + count)
+    )
     pdu = bytes((FUNCTION_READ_HOLDING_REGISTERS, count * 2)) + b"".join(
         word.to_bytes(2, "big") for word in words
     )
@@ -163,8 +206,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=1502)
     parser.add_argument("--fault", choices=FAULTS, default="valid")
+    parser.add_argument(
+        "--catalog", action="store_true", help="Dokumentierte Einzelregister synthetisch beantworten"
+    )
     args = parser.parse_args()
-    with ModbusSimulator(args.fault, port=args.port) as simulator:
+    with ModbusSimulator(args.fault, port=args.port, catalog=args.catalog) as simulator:
         print(f"Offline Modbus simulator listening on {simulator.address[0]}:{simulator.address[1]}")
         try:
             threading.Event().wait()

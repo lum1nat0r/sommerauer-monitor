@@ -844,3 +844,53 @@ tauschen. Speicher-Dicts bleiben privat, keine HTTP-/Downloadprojektion hinzugef
 Settings-Fingerprint, monotone Fristen, Gerätebesitz und Kernmonitoring-Umschaltung
 bleiben #33, Transport #32, bereinigte öffentliche Projektion #35.
 Keine Geräteverbindung, Scans, Schreibtelegramme oder neuen Live-Belege.
+
+## 15.10.2026 – Issue #32: Gemeinsamer FC03-Pfad und Katalogsimulator
+
+`backend/modbus.py` verwendet einen gemeinsamen privaten Telegrammpfad für
+exakte Kernprofilreads und vor Socketzugriff katalogvalidierte Diagnoseblöcke.
+Einzelne dokumentierte Worte sind zulässig, fremde Zweierblöcke und Lücken
+nicht. Kernreads bleiben bei defektem Katalog nutzbar. Unveränderte Rohworte,
+Fehlerklassen und tatsächliche empfangene Bytezahlen; keine Interpretation,
+Wiederholung oder automatische Folgeanfrage.
+
+Der Loopback-Simulator bleibt standardmäßig auf die drei Kernblöcke begrenzt.
+Nur `catalog=True`/`--catalog` aktiviert synthetische Katalogantworten. Alle
+bisherigen Faults gelten für beide Pfade; `received_requests` ist eine
+threadsichere, schreibgeschützte und zeitlich stabile Momentaufnahme.
+
+Tatsächlich ausschließlich offline ausgeführt, uv 0.12.2:
+
+- `uv sync --locked` erfolgreich. System-`python` meldet 3.14.7; sämtliche
+  Verhaltensprüfungen und der Smoke liefen deshalb ausdrücklich über
+  `uv run --isolated --python 3.12.9 --locked` mit CPython 3.12.9.
+- `pytest tests/test_modbus.py tests/test_registers.py`: **150 bestanden**.
+  Beide Pfade mit sämtlichen Faults und exakten Bytezahlen, keine Retries;
+  ungültige Typen/Bool-/Bereichswerte, Lücken und Fremdblöcke vor Socket
+  per Sentinel und unveränderter Anfrageliste abgewiesen.
+- Alle dokumentierten Einzelworte im expliziten Loopback-Katalogmodus
+  geprüft; alle fünf Kernworte unverändert. Kerndecoder liefert für `(4,319)`
+  genau 6079 Minuten. Unbekannte Rohworte bleiben ohne Interpretation.
+- Gegatete konkurrierende Kern-/Katalogaufrufe beider Reihenfolgen öffnen
+  nie parallele Sockets. Ein wartender Aufruf verbraucht sein eigenes
+  Gesamtbudget ohne zweiten Socket. Deterministische In-process-Zeitprüfung
+  mit langsamen Fragmenten erhält ein gemeinsames 0,35-s-Budget einschließlich
+  Lock, Verbindung und Senden; kein Neustart je Fragment.
+- Separater echter Loopback-Verbraucherlauf außerhalb von pytest, dynamischer
+  Port, drei explizite Aufrufe 4098/1, 4099/1, 33408/1:
+  Rohworte exakt `(0,)`, `(173,)`, `(65526,)`; Snapshot exakt
+  `((255,3,4098,1),(255,3,4099,1),(255,3,33408,1))`.
+  Anschließender expliziter Zählerread liefert unverändert `(4,319)`.
+- Gesamtsuite mit explizit leerem `MODBUS_HOST` und deaktiviertem Collector:
+  **236 bestanden**, eine bestehende Starlette/AnyIO-DeprecationWarning.
+- `ruff check .`: bestanden. `uv build --python 3.12.9`: Source-Distribution
+  und Wheel erfolgreich; erzeugte Buildartefakte anschließend entfernt.
+
+Kein Frontend geändert; kein Browser-/Unraid-/Live-Nachweis und kein
+installierter Wheel-Laufzeitnachweis behauptet. Keine privaten Ziele,
+Gerätekommunikation oder Schreibtelegramme. Bestehende Caller behalten
+ihre Imports und APIs; keine Symbolverschiebung oder Kompatibilitätsaliase.
+Die LSP-Referenzabfrage am vorhandenen Ruff-Server lief in einen Timeout;
+die im Issue vorgegebene exakte Symbolsuche erfasste Backend, Tests und Scripts.
+Runner mit Besitz, Budget, Zielbindung, Fristen und Reviews bleibt #33;
+API/UI und spätere Gesamtintegration bleiben getrennte Arbeitspakete.
