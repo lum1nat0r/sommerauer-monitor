@@ -5,7 +5,12 @@ import time
 import pytest
 
 from backend.collector import Collector, CollectorOwnershipError, _ProcessLock
-from backend.modbus import RegisterRead
+from backend.modbus import (
+    ConnectionError as ModbusConnectionError,
+    IncompleteResponseError,
+    ProtocolError,
+    RegisterRead,
+)
 from backend.storage import SQLiteStore, StorageError
 
 
@@ -214,7 +219,7 @@ def test_counter_regression_stops_collector_without_rewriting_the_value(tmp_path
     )
     collector.run()
 
-    assert collector.state == "data_error"
+    assert collector.state == "stopped_data"
     assert len(client.starts) == 5
     assert [row["value"] for row in store.history("boiler.operating_minutes")] == [2]
 
@@ -232,3 +237,242 @@ def test_storage_failure_stops_without_another_read(tmp_path):
     assert collector.state == "stopped_storage"
     assert len(client.starts) == 1
     assert "synthetic disk failure" in collector.error
+
+
+def test_connection_failure_retries_the_same_block_after_delay(tmp_path):
+    clock = FakeClock()
+
+    class RecoversOnRetry(FakeClient):
+        def read(self, block):
+            if not self.starts:
+                self.starts.append((block.offset, clock.monotonic()))
+                clock.origin += timedelta(days=1)
+                raise ModbusConnectionError("synthetic offline")
+            return super().read(block)
+
+    client = RecoversOnRetry(clock)
+    collector = Collector(
+        host="unused.invalid",
+        port=502,
+        store=SQLiteStore(tmp_path / "recovery.sqlite3"),
+        data_dir=tmp_path,
+        client=client,
+        monotonic=clock.monotonic,
+        wait=clock.wait,
+        now=clock.now,
+        max_requests=2,
+    )
+    collector.run()
+
+    assert [offset for offset, _ in client.starts] == [4102, 4102]
+    assert client.starts[1][1] - client.starts[0][1] >= 60
+    assert collector.state == "completed"
+    assert collector.status()["reconnect_attempts"] == 1
+
+
+def test_reconnect_budget_stops_after_exactly_five_attempts(tmp_path):
+    clock = FakeClock()
+
+    class AlwaysOffline(FakeClient):
+        def read(self, block):
+            self.starts.append((block.offset, clock.monotonic()))
+            raise ModbusConnectionError("synthetic offline")
+
+    client = AlwaysOffline(clock)
+    store = SQLiteStore(tmp_path / "budget.sqlite3")
+    collector = Collector(
+        host="unused.invalid",
+        port=502,
+        store=store,
+        data_dir=tmp_path,
+        client=client,
+        monotonic=clock.monotonic,
+        wait=clock.wait,
+        now=clock.now,
+    )
+    collector.run()
+
+    assert len(client.starts) == 6  # Initial failure plus the five reserved retries.
+    assert collector.state == "stopped_transport"
+    assert collector.status()["reconnect_attempts"] == 5
+    restored, restored_client, _ = make_collector(
+        tmp_path, store=store, limit=2
+    )
+    restored.start()
+    assert restored.state == "stopped_transport"
+    assert restored_client.starts == []
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ProtocolError("synthetic malformed response"),
+        IncompleteResponseError("synthetic partial response"),
+    ],
+)
+def test_protocol_failure_stops_without_retry_or_next_block(tmp_path, failure):
+    clock = FakeClock()
+
+    class BadProtocol(FakeClient):
+        def read(self, block):
+            self.starts.append((block.offset, clock.monotonic()))
+            raise failure
+
+    client = BadProtocol(clock)
+    store = SQLiteStore(tmp_path / "protocol.sqlite3")
+    collector = Collector(
+        host="unused.invalid",
+        port=502,
+        store=store,
+        data_dir=tmp_path,
+        client=client,
+        monotonic=clock.monotonic,
+        wait=clock.wait,
+        now=clock.now,
+    )
+    collector.run()
+
+    assert collector.state == "stopped_protocol"
+    assert [offset for offset, _ in client.starts] == [4102]
+    restarted_client = FakeClient(clock)
+    restarted = Collector(
+        host="unused.invalid",
+        port=502,
+        store=store,
+        data_dir=tmp_path,
+        client=restarted_client,
+        monotonic=clock.monotonic,
+        wait=clock.wait,
+        now=clock.now,
+    )
+    restarted.start()
+
+    assert restarted.state == "stopped_protocol"
+    assert restarted_client.starts == []
+
+
+def test_restart_from_running_reserves_request_and_waits_conservatively(tmp_path):
+    clock = FakeClock()
+    store = SQLiteStore(tmp_path / "crash.sqlite3")
+    original = Collector(
+        host="unused.invalid",
+        port=502,
+        store=store,
+        data_dir=tmp_path,
+        client=FakeClient(clock),
+        monotonic=clock.monotonic,
+        wait=clock.wait,
+        now=clock.now,
+    )
+    original.state = "running"
+    original._request_in_flight = True
+    original._last_action = "Reserved request"
+    original._persist_state()
+
+    restarted = Collector(
+        host="unused.invalid",
+        port=502,
+        store=store,
+        data_dir=tmp_path,
+        client=FakeClient(clock),
+        monotonic=clock.monotonic,
+        wait=clock.wait,
+        now=clock.now,
+    )
+
+    assert restarted.state == "reconnect_wait"
+    assert restarted._retry_at == clock.now() + timedelta(seconds=60)
+    assert restarted.status()["reconnect_attempts"] == 1
+
+
+def test_midcycle_failure_requires_three_complete_cycles_to_clear_budget(tmp_path):
+    clock = FakeClock()
+
+    class DisconnectsAtOperatingCounter(FakeClient):
+        def read(self, block):
+            self.starts.append((block.offset, clock.monotonic()))
+            if block.offset == 28688 and len(self.starts) == 2:
+                raise ModbusConnectionError("synthetic offline")
+            clock.elapsed += self.delay
+            self.ends.append(clock.monotonic())
+            return RegisterRead(block.offset, self.VALUES[block.offset])
+
+    client = DisconnectsAtOperatingCounter(clock)
+    collector = Collector(
+        host="unused.invalid",
+        port=502,
+        store=SQLiteStore(tmp_path / "three-cycles.sqlite3"),
+        data_dir=tmp_path,
+        client=client,
+        monotonic=clock.monotonic,
+        wait=clock.wait,
+        now=clock.now,
+        max_requests=13,
+    )
+    collector.run()
+
+    assert len(client.starts) == 13
+    assert collector.state == "completed"
+    assert collector.status()["reconnect_attempts"] == 0
+    assert collector._successful_core_cycles == 0
+
+
+def test_user_pause_is_persisted_and_does_not_autostart_after_restart(tmp_path):
+    clock = FakeClock()
+    store = SQLiteStore(tmp_path / "pause.sqlite3")
+    collector = Collector(
+        host="unused.invalid",
+        port=502,
+        store=store,
+        data_dir=tmp_path,
+        client=FakeClient(clock),
+        monotonic=clock.monotonic,
+        wait=clock.wait,
+        now=clock.now,
+    )
+    collector.state = "running"
+    collector.pause()
+
+    restored, client, _ = make_collector(tmp_path, store=store, limit=2)
+    restored.start()
+
+    assert restored.state == "paused"
+    assert client.starts == []
+
+
+def test_changed_target_cannot_resume_saved_retry_state(tmp_path):
+    clock = FakeClock()
+    store = SQLiteStore(tmp_path / "target-change.sqlite3")
+    original = Collector(
+        host="first.invalid",
+        port=502,
+        store=store,
+        data_dir=tmp_path,
+        client=FakeClient(clock),
+        monotonic=clock.monotonic,
+        wait=clock.wait,
+        now=clock.now,
+    )
+    original.state = "reconnect_wait"
+    original.error = "synthetic connection failure"
+    original._retry_at = clock.now() + timedelta(seconds=60)
+    original._retry_delay_seconds = 60
+    original._retry_monotonic_deadline = clock.monotonic() + 60
+    original._persist_state()
+
+    client = FakeClient(clock)
+    restarted = Collector(
+        host="second.invalid",
+        port=502,
+        store=store,
+        data_dir=tmp_path,
+        client=client,
+        monotonic=clock.monotonic,
+        wait=clock.wait,
+        now=clock.now,
+    )
+    restarted.start()
+
+    assert restarted.state == "paused"
+    assert restarted.error == "Saved state belongs to a different target or profile"
+    assert client.starts == []

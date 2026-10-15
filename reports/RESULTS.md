@@ -159,3 +159,44 @@ unterschiedliche Datenverzeichnisse können keine gemeinsame Anlagenbesitzschaft
 garantieren. Zusatzgruppen sind mangels bestätigter Decoder/Transportfreigabe nicht
 aktiviert. API-Pause/Start und Dashboard folgen Issue #8/#9; Wiederverbindung Issue #7.
 Änderungen bleiben uncommitted; kein Commit/PR erstellt.
+
+## 15.10.2026 – Issue #7: Persistente Fehlerzustände und begrenzte Wiederaufnahme
+
+Der Sammler speichert Zustand, Fehlerkategorie, Konfigurations-Fingerprint,
+Wiederaufnahmebudget, Kernzyklusfortschritt, nächsten Block und vorab reservierte
+Anfragen in der bestehenden SQLite-Zustandszeile. Reine Verbindungsfehler pausieren
+den regulären Zeitplan und planen höchstens fünf Reads desselben bestätigten
+Kernblocks mit Abständen von 1/2/5/10/15 Minuten. Budget und Anfrage werden vor
+dem Socketzugriff persistiert; drei vollständige erfolgreiche Kernzyklen setzen
+das Wiederaufnahmebudget zurück. Teilantworten, Protokoll-, Daten- und
+Speicherfehler stoppen ohne Folge-Read. Harte Stopps und Nutzerpausen bleiben nach
+Neustart bestehen. Ein abweichender Ziel-/Profil-Fingerprint führt nicht zu
+automatischer Wiederaufnahme. Laufzeit-Wartefristen nutzen monotone Zeit; ein
+Neustart setzt die volle Rest-Wartefrist konservativ neu an.
+
+`GET /api/collector/status` stellt Zustand, Fehlerkategorie, Versuche, nächste
+Aktion und Retry-Zeit bereit. Transportdetails und Konfigurations-Fingerprints
+werden in der Antwort nicht offengelegt. Das Dashboard zeigt diese Statuswerte.
+Manuelle Freigabe ist als `acknowledge_and_start`-Sammlermethode vorhanden; ein
+zustandsändernder HTTP-Endpunkt bleibt wegen des noch offenen Zugriffsschutzes
+außerhalb dieses Issues.
+
+Tatsächlich geprüft:
+
+- `uv run pytest -q` – 58 bestanden; ein vorhandenes Starlette/AnyIO-DeprecationWarning.
+- `uv run ruff check .` – bestanden.
+- `npm run build` – TypeScript-Prüfung und Vite-Produktionsbuild bestanden.
+- Loopback-HTTP-Smoke über Vite-Proxy: `/api/collector/status` lieferte HTTP 200
+  und den Zustand `unconfigured`; Frontend-Einstiegsseite lieferte HTTP 200.
+- Synthetische Tests prüfen den gleichen Retry-Block, Uhrsprung ohne verkürzte
+  monotone Wartezeit, genau fünf Wiederaufnahmeversuche, Protokoll-/Teilantwortstopp,
+  Crashreservierung, Zielwechsel, pausierten Neustart und Reset nach drei
+  vollständigen Kernzyklen.
+- Ein zusätzlicher API-Test prüft den unlesbaren Zustandsspeicher; die Statusantwort
+  bleibt nutzbar und enthält keine lokalen Speicherdetails.
+
+Grenzen: kein Gerätezugriff, Live-/Unraid-/Docker-Test oder GitHub-Actions-Lauf.
+Chromium konnte in dieser Umgebung nicht gestartet werden (`Shared browser daemon
+unavailable`); UI wurde daher nicht visuell im Browser geprüft. Die Ausgabe von
+Vite/HTTP wurde geprüft. Kein Schreibadapter, keine Verwaltungs-HTTP-Route und
+keine Hardwareänderungen.

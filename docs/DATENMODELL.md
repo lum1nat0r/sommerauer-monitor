@@ -1,7 +1,7 @@
 # Signal-, Speicher- und API-Vertrag
 
-Die Signaldecodierung und SQLite-Speicherbasis sind implementiert; API-Verläufe
-und Sammler-Integration bleiben spätere Arbeitspakete.
+Die Signaldecodierung, SQLite-Speicherung, Erfassung und persistente Sammlerzustände
+sind implementiert; Messwert-/Verlaufs-API und Verwaltungssteuerung bleiben offen.
 
 ## Signale und Messungen
 
@@ -53,12 +53,13 @@ Sommerzeitwechsel. Große Exporte streamen; Abfrageumfang/Sortierung determinist
 | Verlauf | Signal(e), Zeitraum, Auflösung/Punktlimit, Lücken |
 | Ereignisse | sortiert, Filter, Pagination |
 | CSV | Originalmessungen im Zeitraum; keine stillen Aggregate |
-| Erfassungszustand | Zustand, Fehlergrund, verbleibende Versuche, nächste Aktion |
+| Erfassungszustand (`GET /api/collector/status`) | Zustand, Fehlergrund, verbrauchte Versuche, nächste Aktion/Zeit |
 | Pause/Fortsetzen | ausschließlich Sammlersteuerung; kein Kesselbefehl |
 | Konfiguration | validierte App-Konfiguration, redigierte Geheimnisse |
 
-HTTP-Routen und Schemas beim API-Issue festlegen, OpenAPI und Fehlerantworten
+Weitere HTTP-Routen und Schemas beim API-Issue festlegen, OpenAPI und Fehlerantworten
 dokumentieren. Reads lösen nie Modbus aus. Verwaltungsaktionen erfordern einen
-konkreten lokalen Zugriffsschutz und Schutz gegen unbeabsichtigte Browseraufrufe.
-Konfigurationsänderungen transaktional, bei relevanten Änderungen kontrolliert
-pausieren. Keine beliebigen Register/Funktionen als HTTP-Parameter anbieten.
+konkreten lokalen Zugriffsschutz und Schutz gegen unbeabsichtigte Browseraufrufe;
+dieses Issue ergänzt deshalb nur den lesenden Statusendpunkt. Konfigurationsänderungen
+transaktional, bei relevanten Änderungen kontrolliert pausieren. Keine beliebigen
+Register/Funktionen als HTTP-Parameter anbieten.

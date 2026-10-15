@@ -3,10 +3,10 @@
 Geplante lokale Monitoring-App für eine Sommerauer-Pelletsheizung: Modbus-Datenlogging,
 dauerhafte Minutenhistorie und Web-Dashboard auf Unraid.
 
-**Stand 14.10.2026: Projektgrundlage, API/UI-Startpunkt, bestätigtes Kernprofil/Decoder,
-strikter FC03-Lesetransport, Loopback-Simulator, SQLite-Speicherung mit Backup/Restore
-und ein zentraler Sammler mit zeitbegrenztem/budgetiertem Offline-Laufmodus umgesetzt.
-Geräteprüfung, lokale Verwaltungs-API/UI, Fehler-Wiederaufnahme und Deployment fehlen weiterhin.**
+**Stand 15.10.2026: Projektgrundlage, API/UI-Startpunkt, bestätigtes Kernprofil/Decoder,
+strikter FC03-Lesetransport, Loopback-Simulator, SQLite-Speicherung mit Backup/Restore,
+zentraler Sammler und persistente Fehlerzustände mit begrenzter Wiederaufnahme umgesetzt.
+Geräteprüfung, Verwaltungssteuerung, vollständiges Dashboard und Deployment fehlen weiterhin.**
 
 ## Hier mit der Arbeit beginnen
 

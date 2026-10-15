@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 import threading
@@ -28,6 +28,9 @@ from backend.storage import SQLiteStore, StorageError
 
 MIN_REQUEST_GAP_SECONDS = 10.0
 MIN_BLOCK_INTERVAL_SECONDS = 60.0
+RECONNECT_DELAYS_SECONDS = (60.0, 120.0, 300.0, 600.0, 900.0)
+MAX_RECONNECT_ATTEMPTS = len(RECONNECT_DELAYS_SECONDS)
+
 
 
 class CollectorOwnershipError(RuntimeError):
@@ -120,21 +123,179 @@ class Collector:
         self._lock = _ProcessLock(data_dir / "collector.lock")
         self._stop = threading.Event()
         self._paused = threading.Event()
+        self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._started_at: float | None = None
         self._request_count = 0
         self._last_request_end: float | None = None
         self._last_started: dict[int, float] = {}
         self._last_counter: tuple[int, datetime] | None = None
+        self._endpoint_id = self._configuration_id(host, port)
+        self._next_offset = CORE_PROFILE[0].offset
+        self._retry_block_offset = CORE_PROFILE[0].offset
+        self._reconnect_attempts = 0
+        self._successful_core_cycles = 0
+        self._successful_blocks_in_cycle = 0
+        self._retry_at: datetime | None = None
+        self._retry_delay_seconds: float | None = None
+        self._last_action: str | None = None
+        self._retry_monotonic_deadline: float | None = None
+        self._request_in_flight = False
         self.state = "paused"
         self.error: str | None = None
+        self._has_saved_state = False
+        self._restore_state()
+        if self.state == "paused":
+            self._paused.set()
+
+    @staticmethod
+    def _configuration_id(host: str, port: int) -> str:
+        import hashlib
+
+        return hashlib.sha256(f"{host.casefold()}:{port}:255:{PROFILE_ID}".encode()).hexdigest()
+
+    def status(self) -> dict[str, Any]:
+        reasons = {
+            "running": "Wiederaufnahme erfolgreich; Budget-Reset nach drei Kernzyklen",
+            "reconnect_wait": "Verbindungsfehler; begrenzte Wiederaufnahme geplant",
+            "stopped_transport": "Wiederaufnahmebudget ausgeschöpft",
+            "stopped_protocol": "Protokollfehler; Erfassung angehalten",
+            "stopped_data": "Datenfehler; Erfassung angehalten",
+            "stopped_storage": "Speicher- oder Zustandsfehler; Erfassung angehalten",
+            "paused": "Erfassung pausiert",
+        }
+        next_action_at = self._retry_at
+        if self.state == "reconnect_wait" and self._retry_monotonic_deadline is not None:
+            remaining = max(0.0, self._retry_monotonic_deadline - self.monotonic())
+            next_action_at = self.now() + timedelta(seconds=remaining)
+        return {
+            "state": self.state,
+            "reason": reasons.get(self.state) if self.error else None,
+            "reconnect_attempts": self._reconnect_attempts,
+            "reconnect_attempt_limit": MAX_RECONNECT_ATTEMPTS,
+            "next_action_at": next_action_at.isoformat() if next_action_at else None,
+            "next_action": self._last_action,
+            "profile_id": PROFILE_ID,
+        }
+
+    def _restore_state(self) -> None:
+
+        try:
+            saved = self.store.get_collector_state()
+        except StorageError as exc:
+            self.state = "stopped_storage"
+            self.error = f"Could not restore collector state: {exc}"
+            self._last_action = "Inspect storage; no automatic reads"
+            return
+        self._has_saved_state = saved is not None
+        if saved is None:
+            self._last_action = "Start collection"
+            return
+        try:
+            if saved["configuration_id"] != self._endpoint_id or saved["profile_id"] != PROFILE_ID:
+                self.error = "Saved state belongs to a different target or profile"
+                self._last_action = "Review configuration and acknowledge"
+                return
+            self.state = saved["state"]
+            self.error = saved.get("error")
+            self._request_count = int(saved.get("request_count", 0))
+            self._reconnect_attempts = int(saved.get("reconnect_attempts", 0))
+            self._successful_core_cycles = int(saved.get("successful_core_cycles", 0))
+            self._successful_blocks_in_cycle = int(saved.get("successful_blocks_in_cycle", 0))
+            self._next_offset = int(saved.get("next_offset", CORE_PROFILE[0].offset))
+            self._retry_block_offset = int(saved.get("retry_block_offset", CORE_PROFILE[0].offset))
+            valid_offsets = {block.offset for block in CORE_PROFILE}
+            if (
+                not 0 <= self._reconnect_attempts <= MAX_RECONNECT_ATTEMPTS
+                or not 0 <= self._successful_core_cycles < 3
+                or not 0 <= self._successful_blocks_in_cycle < len(CORE_PROFILE)
+                or self._next_offset not in valid_offsets
+                or self._retry_block_offset not in valid_offsets
+            ):
+                raise ValueError("persisted recovery counters or block offsets are invalid")
+            self._last_action = saved.get("next_action")
+            self._retry_delay_seconds = (
+                float(saved["retry_delay_seconds"])
+                if saved.get("retry_delay_seconds") is not None else None
+            )
+            if self.state == "paused" and self._retry_delay_seconds is not None:
+                self._retry_at = self.now() + timedelta(seconds=self._retry_delay_seconds)
+                self._retry_monotonic_deadline = self.monotonic() + self._retry_delay_seconds
+            if self.state in {"reconnect_wait", "running"}:
+                in_flight = self.state == "running" and saved.get("request_in_flight", False)
+                if self.state == "running" and not in_flight:
+                    self._retry_block_offset = self._next_offset
+                if in_flight:
+                    self._successful_core_cycles = 0
+                    self._successful_blocks_in_cycle = 0
+                    self.error = "Request outcome was uncertain at process restart"
+                    self._reconnect_attempts += 1
+                    if self._reconnect_attempts >= MAX_RECONNECT_ATTEMPTS:
+                        self.state = "stopped_transport"
+                        self.error = "Interrupted request exhausted the recovery budget"
+                        self._last_action = "Acknowledge after resolving interrupted requests"
+                        self._retry_at = None
+                        self._retry_delay_seconds = None
+                        self._successful_blocks_in_cycle = 0
+                        self._paused.set()
+                        return
+                    delay = RECONNECT_DELAYS_SECONDS[self._reconnect_attempts - 1]
+                elif self.state == "running":
+                    delay = RECONNECT_DELAYS_SECONDS[
+                        min(self._reconnect_attempts, MAX_RECONNECT_ATTEMPTS - 1)
+                    ]
+                else:
+                    delay = self._retry_delay_seconds or RECONNECT_DELAYS_SECONDS[0]
+                self._retry_delay_seconds = delay
+                self._retry_at = self.now() + timedelta(seconds=delay)
+                self._retry_monotonic_deadline = self.monotonic() + delay
+                self.state = "reconnect_wait"
+                self._last_action = "Retry same core block after a conservative restart delay"
+            elif self.state not in {
+                "paused", "stopped_transport", "stopped_protocol", "stopped_data",
+                "stopped_storage", "completed",
+            }:
+                raise ValueError("unknown persisted collector state")
+        except (KeyError, TypeError, ValueError, OverflowError):
+            self.state = "stopped_storage"
+            self.error = "Persisted collector state is invalid"
+            self._retry_at = None
+            self._last_action = "Inspect persisted state; no automatic reads"
+        if self.state != "reconnect_wait":
+            self._paused.set()
+
+    def acknowledge_and_start(self) -> None:
+        if self.state not in {
+            "paused", "stopped_transport", "stopped_protocol", "stopped_data",
+            "stopped_storage", "completed",
+        }:
+            raise CollectorStopped(f"cannot acknowledge collector in state {self.state}")
+        self.error = None
+        self._reconnect_attempts = 0
+        self._successful_core_cycles = 0
+        self._successful_blocks_in_cycle = 0
+        self._retry_at = None
+        self._retry_delay_seconds = None
+        self._retry_monotonic_deadline = None
+        self.state = "paused"
+        self._last_action = "Start collection"
+        self._has_saved_state = False
+        self._persist_state()
+        self._paused.clear()
+        if self._thread is None or not self._thread.is_alive():
+            self.start()
 
     def start(self) -> None:
         """Acquire ownership before creating the background worker."""
         if self._thread is not None and self._thread.is_alive():
             return
+        if self._has_saved_state and self.state == "paused":
+            return
+        if self.state.startswith("stopped_") or self.state in {"stopped_protocol", "completed"}:
+            return
         self._lock.acquire()
         self._stop.clear()
+        self._wake.clear()
         self._paused.clear()
         self._thread = threading.Thread(target=self.run, name="sommerauer-collector", daemon=True)
         self._thread.start()
@@ -144,35 +305,56 @@ class Collector:
         try:
             if self._thread is None:
                 self._lock.acquire()
-            self.state = "running"
+            if not self._has_saved_state:
+                self._paused.clear()
+            if self.state != "reconnect_wait":
+                self.state = "running"
             self._started_at = self.monotonic()
             self._persist_state()
             while not self._stop.is_set():
                 if self._paused.is_set():
                     self.state = "paused"
+                    self._last_action = "Resume collection"
                     self._persist_state()
                     if self.wait(self._stop, 0.1):
                         break
                     continue
                 if self._limit_reached():
                     self.state = "completed"
+                    self._last_action = "Finite collection limit reached"
                     self._persist_state()
                     break
-                block = self._next_block()
-                due = self._due_at(block)
-                if self.max_duration_seconds is not None and self._started_at is not None:
-                    due = min(due, self._started_at + self.max_duration_seconds)
-                if not self._wait_until(due):
-                    break
-                if self._stop.is_set() or self._paused.is_set():
-                    continue
-                if self._limit_reached():
-                    self.state = "completed"
+                recovering = self.state == "reconnect_wait"
+                if recovering:
+                    if self._retry_at is None or self._retry_monotonic_deadline is None:
+                        raise StorageError("Reconnect state has no retry deadline")
+                    remaining = self._retry_monotonic_deadline - self.monotonic()
+                    if remaining > 0 and not self._wait_until(self.monotonic() + remaining):
+                        break
+                    if self._stop.is_set() or self._paused.is_set():
+                        continue
+                    block = self._block_by_offset(self._retry_block_offset)
+                    self._reconnect_attempts += 1
+                    self.state = "running"
+                    self._last_action = "Attempting bounded recovery read"
+                    self._retry_at = None
+                    self._retry_monotonic_deadline = None
                     self._persist_state()
-                    break
-                self._read_one(block)
+                else:
+                    block = self._block_by_offset(self._next_offset)
+                    if not self._wait_until(self._due_at(block)):
+                        break
+                    if self._stop.is_set() or self._paused.is_set():
+                        continue
+                    if self._limit_reached():
+                        self.state = "completed"
+                        self._last_action = "Finite collection limit reached"
+                        self._persist_state()
+                        break
+                self._read_one(block, recovery=recovering)
             if self.state == "running":
-                self.state = "stopped"
+                self.state = "paused"
+                self._last_action = "Collection paused"
                 self._persist_state()
         except CollectorOwnershipError:
             self.state = "ownership_error"
@@ -188,22 +370,42 @@ class Collector:
     def pause(self) -> None:
         """Pause future reads; an in-flight read may finish by its transport deadline."""
         self._paused.set()
+        self._wake.set()
+        if self.state in {"running", "reconnect_wait"}:
+            self.state = "paused"
+            self._last_action = "Collection paused"
+            self._persist_state()
 
     def resume(self) -> None:
-        if self.state in {"stopped_storage", "protocol_error", "data_error", "ownership_error"}:
+        if self.state not in {"paused"}:
             raise CollectorStopped(f"cannot resume collector in state {self.state}")
         self._paused.clear()
+        self._wake.clear()
+        self.state = "reconnect_wait" if self._retry_at is not None else "running"
+        self._last_action = (
+            "Resume after saved retry delay"
+            if self.state == "reconnect_wait" else "Resume collection"
+        )
+        self._has_saved_state = False
+        self._persist_state()
+        if self._thread is None or not self._thread.is_alive():
+            self.start()
 
     def stop(self, timeout: float | None = 4.0) -> None:
         """Prevent new reads, allow an in-flight request to finish, then join the worker."""
         self._stop.set()
+        self._wake.set()
         if self._thread is not None:
             self._thread.join(timeout)
             if self._thread.is_alive():
                 raise TimeoutError("collector did not stop before the join timeout")
             self._thread = None
-        if self.state not in {"stopped_storage", "protocol_error", "data_error", "ownership_error", "completed"}:
+        if self.state not in {
+            "stopped_storage", "stopped_protocol", "stopped_data",
+            "stopped_transport", "completed", "reconnect_wait",
+        }:
             self.state = "paused"
+            self._last_action = "Collection paused"
             self._persist_state()
 
     def _limit_reached(self) -> bool:
@@ -216,8 +418,12 @@ class Collector:
             )
         )
 
-    def _next_block(self):
-        return CORE_PROFILE[self._request_count % len(CORE_PROFILE)]
+    @staticmethod
+    def _block_by_offset(offset: int):
+        for block in CORE_PROFILE:
+            if block.offset == offset:
+                return block
+        raise StorageError("Persisted collector block is outside the core profile")
 
     def _due_at(self, block) -> float:
         due = self._started_at if self._started_at is not None else self.monotonic()
@@ -229,16 +435,26 @@ class Collector:
         return due
 
     def _wait_until(self, due: float) -> bool:
-        while not self._stop.is_set() and self.monotonic() < due:
-            if self.wait(self._stop, due - self.monotonic()):
-                return False
+        while (
+            not self._stop.is_set()
+            and not self._paused.is_set()
+            and self.monotonic() < due
+        ):
+            if self.wait(self._wake, due - self.monotonic()):
+                break
         return not self._stop.is_set()
 
-    def _read_one(self, block) -> None:
+    def _read_one(self, block, *, recovery: bool = False) -> None:
         started = self.now()
         started_mono = self.monotonic()
         self._last_started[block.offset] = started_mono
         self._request_count += 1
+        self._retry_block_offset = block.offset
+        self.state = "running"
+        self._request_in_flight = True
+        self._last_action = f"Read core block at offset {block.offset}"
+        # Reserve every outbound attempt durably before touching the socket.
+        self._persist_state()
         request_id = str(uuid4())
         request: dict[str, Any] = {
             "request_id": request_id,
@@ -281,26 +497,69 @@ class Collector:
             self.store.record_cycle(request, observations)
             if counter is not None:
                 self._last_counter = (counter.value, observed)
+            self._next_offset = CORE_PROFILE[
+                (next(i for i, candidate in enumerate(CORE_PROFILE) if candidate.offset == block.offset) + 1)
+                % len(CORE_PROFILE)
+            ].offset
+            expected = CORE_PROFILE[self._successful_blocks_in_cycle].offset
+            if block.offset == expected:
+                self._successful_blocks_in_cycle += 1
+            elif block.offset == CORE_PROFILE[0].offset:
+                self._successful_blocks_in_cycle = 1
+            else:
+                self._successful_blocks_in_cycle = 0
+            if self._successful_blocks_in_cycle == len(CORE_PROFILE):
+                self._successful_core_cycles += 1
+                self._successful_blocks_in_cycle = 0
+                if self._successful_core_cycles >= 3:
+                    self._reconnect_attempts = 0
+                    self._successful_core_cycles = 0
+                    self.error = None
+            if recovery:
+                self._retry_at = None
+                self._retry_delay_seconds = None
+                self._retry_monotonic_deadline = None
+            self.state = "running"
+            self._last_action = f"Next core block at offset {self._next_offset}"
         except (ModbusError, DecodeError) as exc:
             completed = self.now()
             request.update(completed_at=completed.isoformat(), error_class=type(exc).__name__)
             self.store.record_cycle(request, [])
             self.error = str(exc)
+            self._successful_core_cycles = 0
+            self._successful_blocks_in_cycle = 0
             if isinstance(exc, (ProtocolError, IncompleteResponseError)):
-                self.state = "protocol_error"
+                self.state = "stopped_protocol"
+                self._last_action = "Acknowledge after protocol cause is resolved"
             elif isinstance(exc, ModbusConnectionError):
-                self.state = "transport_error"
+                self._retry_block_offset = block.offset
+                if self._reconnect_attempts >= MAX_RECONNECT_ATTEMPTS:
+                    self.state = "stopped_transport"
+                    self._retry_at = None
+                    self._last_action = "Reconnect budget exhausted; acknowledge after cause is resolved"
+                else:
+                    self.state = "reconnect_wait"
+                    delay = RECONNECT_DELAYS_SECONDS[self._reconnect_attempts]
+                    self._retry_delay_seconds = delay
+                    self._retry_at = completed + timedelta(seconds=delay)
+                    self._retry_monotonic_deadline = self.monotonic() + delay
             else:
-                self.state = "data_error"
+                self.state = "stopped_data"
+                self._last_action = "Acknowledge after data cause is resolved"
+            if self.state != "reconnect_wait":
+                self._stop.set()
             self.store.record_event(
-                str(uuid4()), completed.isoformat(), "collector_stopped", "error",
-                "Collector stopped after a read or data error", {"error_class": type(exc).__name__},
+                str(uuid4()), completed.isoformat(), "collector_state_changed", "error",
+                "Collector entered a failure state",
+                {"state": self.state, "error_class": type(exc).__name__},
             )
-            self._stop.set()
         finally:
             self._last_request_end = self.monotonic()
+            self._request_in_flight = False
+            if self._paused.is_set() and self.state in {"running", "reconnect_wait"}:
+                self.state = "paused"
+                self._last_action = "Collection paused"
             self._persist_state()
-
     def _persist_state(self) -> None:
         self.store.save_collector_state(
             {
@@ -310,6 +569,16 @@ class Collector:
                 "max_duration_seconds": self.max_duration_seconds,
                 "error": self.error,
                 "profile_id": PROFILE_ID,
+                "configuration_id": self._endpoint_id,
+                "reconnect_attempts": self._reconnect_attempts,
+                "successful_core_cycles": self._successful_core_cycles,
+                "successful_blocks_in_cycle": self._successful_blocks_in_cycle,
+                "retry_at": self._retry_at.isoformat() if self._retry_at else None,
+                "retry_delay_seconds": self._retry_delay_seconds,
+                "retry_block_offset": self._retry_block_offset,
+                "next_offset": self._next_offset,
+                "next_action": self._last_action,
+                "request_in_flight": self._request_in_flight,
             },
             self.now().isoformat(),
         )
