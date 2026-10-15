@@ -65,14 +65,28 @@ nicht-loopback Ziele. Kein Scan, Modbus-Schreibbefehl oder Diagnosemodus.
 
 | Offset / Anzahl | Tabellenbezeichnung | Stand |
 |---|---|---|
-| 4098 / 2 | Fehler_Min + Leistung_Ist | Statische Zuordnung, ungeprüfte Gerätewerte/Einheiten |
-| 4104 / 1 | Leistung_Soll | Statisch; keine automatische kW-/Prozentannahme |
-| 33408 / 1 | Aussen_Ist | Statisch; eigener plausibler Bereich/Skalierung nötig |
-| 4354 / 1 | Abgasfühler-Kandidat | Optional, Hardware/Skalierung prüfen |
+| 4098 / 2 | Fehler_Min + Leistung_Ist | Zwei statische Einträge im Benutzerbericht-Import; beide ungefragt, Einheit/Decoder/Fehlerwerte/Bereich ungeklärt. |
+| 4104 / 1 | Leistung_Soll | Statischer Eintrag im Benutzerbericht-Import; ungefragt, Einheit/Decoder/Fehlerwerte/Bereich ungeklärt. Keine kW-/Prozentannahme. |
+| 33408 / 1 | Aussen_Ist | Statischer Eintrag im Benutzerbericht-Import; ungefragt, Einheit/Decoder/Fehlerwerte/Bereich ungeklärt. |
+| 4354 / 1 | Abgasfühler-Kandidat | Optionaler statischer Eintrag; ungefragt, Hardware/Einheit/Skalierung ungeklärt. |
 
-Zuerst Semantik und Dekodierung anhand Belegen klären, dann eigener kleiner Read-Plan,
-dann gegebenenfalls Displayabgleich. Nie alle 199 Einträge ungeprüft pollen.
-Ein Fehler beendet den Testdurchgang; nicht zur nächsten Adresse wechseln.
+Diese Statusangaben stammen ausschließlich aus dem bereinigten statischen
+Katalog und der bisherigen Projektdokumentation; die privaten Primärbelege
+wurden für Issue #11 nicht eingesehen. Es gibt für diese Kandidaten weder
+einen neuen Geräteantwort- noch einen Benutzer-/Displayabgleich. Sie bleiben
+außerhalb des ausführbaren `core`-Profils und sind nicht als Messwerte/API-
+Signale verfügbar. Vor einem begründeten privaten FC03-Lauf müssen die
+Primärbelege Semantik und Decoder klären; der private Ziel-/Laufplan und der
+Ausschluss anderer Leser sind hier nicht verfügbar. Daher wurde kein
+Gerätezugriff unternommen und kein Zusatzintervall aktiviert. Der Kernplan
+bleibt unverändert: drei bestätigte Blöcke im 60-s-Raster; die Zusatzwerte
+haben kein eingeplantes Intervall.
+
+Ein erfolgreicher einzelner zukünftiger Read wäre kein Beleg für dauerhaft
+gültige Skalierung oder Betriebsfreigabe.
+
+Die Zuordnungen oben sind Kandidaten, kein bestätigter Zusatzumfang. Nie alle
+199 Einträge ungeprüft pollen. Ein Fehler beendet jeden begrenzten Testdurchgang.
 
 ## Vollkatalog und Grenzen
 
