@@ -14,7 +14,7 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
-## Register-Prüfwerkzeug: Übergabe nach #36
+## Register-Prüfwerkzeug: Übergabe nach #37
 
 Die kanonische Ressource liegt ausschließlich unter
 [`backend/resources/register_catalog.json`](backend/resources/register_catalog.json).
@@ -63,7 +63,7 @@ erhalten Quelle/Rohbelege, aber keine Ziele/Pfade/Fingerprintwerte.
 Wheel-Laufzeitnachweis außerhalb des Checkouts bleibt #39 vorbehalten.
 Offline-Nachweise: [Ergebnisse](reports/RESULTS.md); keine zusätzlichen Live-Belege.
 
-Für #37/#38: verbindliche OpenAPI-Modelle in `backend/diagnostics_api.py`,
+Für #38/#39: verbindliche OpenAPI-Modelle in `backend/diagnostics_api.py`,
 die Oberfläche `frontend/src/Diagnostics.tsx` mit `ReadRuns.tsx` und
 `ControlPlans.tsx` sowie den [HTTP-Vertrag](docs/DATENMODELL.md#diagnose-http-api-issue-35)
 verwenden.
@@ -92,10 +92,19 @@ Pflichtbewertungen, Refresh/Downloads, Neustart/Recovery, Revisionenkonflikt,
 Exception-Stopp und Desktop/390 px. Speicher-/Netzfehleranzeigen zusätzlich
 mit synthetischen Browserantworten geprüft, nicht als echte DB-Ausfälle.
 Details und Grenzen: [Ergebnisse](reports/RESULTS.md).
-Zusätzliche automatisierte Verbraucherprüfung #37 und reproduzierbare
-Screenshot-/Request-/Persistenzabnahme #38 bleiben eigene Pflichtpakete;
-anschließend Paket-/Wheel-Laufzeitabnahme #39. Kein Deployment, Live-Test
-oder Heizungs-Schreibauftrag aus der UI-Abnahme ableiten.
+Die automatisierte Verbraucherabnahme #37 ist bestanden: 644 Tests der
+vereinbarten Gesamtsuite und 63 zusätzliche Steuerplantests auf CPython 3.12.9;
+Ruff und Frontendbuild erfolgreich. Jeder Matrixfall ist im Ergebnisbericht
+konkreten Verhaltenstests zugeordnet. Neue Nachweise umfassen echte
+Zweitprozessbesitzer, gegatete Reservierungs-/Antwort-/Collector-Speicherrennen,
+Fehler am ersten/zweiten Versuch und echte Steuerrevisionen nach Restore.
+Die Runner-Tests isolieren auch geerbte Deploymentvariablen.
+Ein zusätzlicher realer Loopbacklauf mit drei manuellen Reads und echten
+60,050-s-Wartezeiten endete `completed`, ohne neue Kernbeobachtungen.
+Reproduzierbare Screenshot-/Request-/Persistenzabnahme #38 und anschließend
+Paket-/Wheel-Laufzeitabnahme #39 bleiben eigene Pflichtpakete.
+Windows-Sperrnachweise ersetzen keinen Linux-/Unraid-Nachweis.
+Kein Deployment, Live-Test oder Heizungs-Schreibauftrag aus dieser Abnahme ableiten.
 
 
 ## Begrenzter Full-Stack-Test am Gerät

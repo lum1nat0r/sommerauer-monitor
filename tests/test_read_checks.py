@@ -4,12 +4,14 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+from pathlib import Path
 import subprocess
 import sys
 import threading
 import time
 
 import pytest
+from pydantic import ValidationError
 
 from backend.catalog import build_read_blocks, load_catalog
 from backend.collector import Collector
@@ -24,6 +26,20 @@ from backend.modbus import (
 from backend.modbus_simulator import ModbusSimulator
 from backend.read_checks import ReadCheckError, ReadCheckRunner
 from backend.storage import SQLiteStore, StorageError
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings_environment(monkeypatch, tmp_path):
+    """Auch geerbte Prozessvariablen dürfen keine Testziele oder Limits setzen."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MODBUS_HOST", "")
+    monkeypatch.setenv("MODBUS_PORT", "502")
+    monkeypatch.setenv("MODBUS_UNIT_ID", "255")
+    monkeypatch.setenv("REGISTER_PROFILE", "core")
+    monkeypatch.setenv("COLLECTOR_ENABLED", "false")
+    monkeypatch.setenv("COLLECTOR_MAX_REQUESTS", "")
+    monkeypatch.setenv("DIAGNOSTICS_SOURCE", "device")
+    monkeypatch.setenv("DISPLAY_TIMEZONE", "Europe/Vienna")
 
 
 class FakeClock:
@@ -302,35 +318,57 @@ def test_transport_failure_stops_without_retry_and_redacts_exception(
     assert "geheim" not in json.dumps(answer)
     saved = store.get_diagnostic_run(run_id)
     request = saved["requests"][step]
-    assert request["error_class"]
+    assert request["error_class"] == (
+        "transport_error" if state == "stopped_transport" else "protocol_error"
+    )
     assert request["received_bytes"] == received_bytes
     assert saved["requests_reserved"] == step + 1
     assert_error("run_conflict", lambda: runner.read_next(run_id, step))
     assert len(client.calls) == step + 1
 
 
-def test_core_data_error_preserves_raw_words_and_blocks_remaining_plan(setup_runner):
+@pytest.mark.parametrize("step", [0, 1])
+def test_core_data_error_preserves_raw_words_and_blocks_remaining_plan(setup_runner, step):
     runner, store, client, clock, settings = setup_runner
-    run_id = plan_run(store, settings, (4102, 33408))
+    offsets = (4102, 33408) if step == 0 else (4098, 4102, 33408)
+    run_id = plan_run(store, settings, offsets)
     client.values[4102] = (110,)
     runner.start(run_id)
     clock.elapsed = 60
-    answer = runner.read_next(run_id, 0)
+    if step:
+        runner.read_next(run_id, 0)
+        runner.review(run_id, 0, "continue", None)
+        clock.elapsed += 60
+    answer = runner.read_next(run_id, step)
     assert answer["state"] == "stopped_data"
     saved = store.get_diagnostic_run(run_id)
-    assert saved["requests"][0]["raw_words"] == [110]
-    assert saved["requests"][0]["decoded"] is None
+    assert saved["requests_reserved"] == step + 1
+    request = saved["requests"][step]
+    assert request["raw_words"] == [110]
+    assert request["decoded"] is None
+    assert request["error_class"] == "invalid_temperature"
+    assert request["received_bytes"] == 11
     assert store.diagnostic_access_blocker() == run_id
     assert store.count_observations() == 0
-    assert_error("run_conflict", lambda: runner.read_next(run_id, 1))
-    assert len(client.calls) == 1
+    assert_error("run_conflict", lambda: runner.read_next(run_id, step + 1))
+    assert len(client.calls) == step + 1
 
 
-def test_storage_failure_retains_reservation_and_recovery_never_replays(setup_runner, monkeypatch):
+@pytest.mark.parametrize("step", [0, 1])
+@pytest.mark.parametrize("hard_error", [False, True])
+def test_storage_failure_retains_reservation_and_recovery_never_replays(
+    setup_runner, monkeypatch, step, hard_error,
+):
     runner, store, client, clock, settings = setup_runner
     run_id = plan_run(store, settings)
     runner.start(run_id)
     clock.elapsed = 60
+    if step:
+        runner.read_next(run_id, 0)
+        runner.review(run_id, 0, "continue", None)
+        clock.elapsed += 60
+    if hard_error:
+        client.failure = ProtocolError("Synthetischer harter Fehler", received_bytes=9)
 
     def broken(*args, **kwargs):
         raise StorageError("privater/pfad nicht beschreibbar")
@@ -338,12 +376,15 @@ def test_storage_failure_retains_reservation_and_recovery_never_replays(setup_ru
     with monkeypatch.context() as patch:
         patch.setattr(store, "finish_diagnostic_request", broken)
         patch.setattr(store, "set_diagnostic_run_state", broken)
-        error = assert_error("stopped_storage", lambda: runner.read_next(run_id, 0))
+        error = assert_error("stopped_storage", lambda: runner.read_next(run_id, step))
         assert "privater/pfad" not in str(error)
-        assert_error("stopped_storage", lambda: runner.read_next(run_id, 1))
+        assert_error("stopped_storage", lambda: runner.read_next(run_id, step + 1))
     saved = store.get_diagnostic_run(run_id)
-    assert saved["requests_reserved"] == 1
-    assert saved["requests"][0]["outcome"] == "reserved"
+    assert saved["state"] == "running"
+    assert saved["requests_reserved"] == step + 1
+    assert saved["requests"][step]["outcome"] == "reserved"
+    if step:
+        assert saved["requests"][0]["raw_words"] == [0]
     runner.close()
     restored = ReadCheckRunner(
         settings=settings, store=store, collector=None, client=client,
@@ -352,9 +393,9 @@ def test_storage_failure_retains_reservation_and_recovery_never_replays(setup_ru
     try:
         restored.recover_interrupted()
         assert store.get_diagnostic_run(run_id)["state"] == "interrupted"
-        assert store.get_diagnostic_run(run_id)["requests_reserved"] == 1
+        assert store.get_diagnostic_run(run_id)["requests_reserved"] == step + 1
         assert_error("run_conflict", lambda: restored.start(run_id))
-        assert len(client.calls) == 1
+        assert len(client.calls) == step + 1
     finally:
         restored.close()
 
@@ -363,6 +404,8 @@ def test_storage_failure_retains_reservation_and_recovery_never_replays(setup_ru
 def test_crash_recovery_requires_ownership_and_preserves_consumed_attempts(setup_runner, active_state):
     runner, store, client, clock, settings = setup_runner
     run_id = plan_run(store, settings)
+    pending_id = plan_run(store, settings, (4098,))
+    pending_before = store.get_diagnostic_run(pending_id)
     store.set_diagnostic_run_state(run_id, "running", None)
     store.reserve_diagnostic_request(run_id, 0, clock.now().isoformat())
     if active_state == "awaiting_review":
@@ -385,8 +428,17 @@ def test_crash_recovery_requires_ownership_and_preserves_consumed_attempts(setup
     assert saved["requests_reserved"] == 1
     assert saved["requests"][0]["raw_words"] == ([0] if active_state == "awaiting_review" else None)
     assert_error("run_conflict", lambda: runner.start(run_id))
+    assert_error("run_conflict", lambda: runner.start(pending_id))
+    assert store.get_diagnostic_run(pending_id) == pending_before
+    with pytest.raises(StorageError):
+        plan_run(store, settings, (4099,))
+    assert client.calls == []
     store.acknowledge_diagnostic_run(run_id, "Synthetischen Abbruch geklärt")
     assert_error("run_conflict", lambda: runner.start(run_id))
+    assert store.get_diagnostic_run(run_id)["state"] == "interrupted"
+    assert store.get_diagnostic_run(run_id)["requests_reserved"] == 1
+    assert store.get_collector_state() is None
+    assert client.calls == []
     new_id = plan_run(store, settings, (4098,))
     assert runner.start(new_id)["state"] == "running"
     assert client.calls == []
@@ -425,15 +477,19 @@ def test_missing_host_or_wrong_unit_blocks_before_socket(setup_runner, attribute
 @pytest.mark.parametrize("state", [
     {"state": "running"}, {"state": "reconnect_wait"}, {"state": "stopped_data"},
     {"state": "paused", "reconnect_attempts": 1},
+    {"state": "paused", "retry_at": "2026-10-15T00:01:00+00:00"},
+    {"state": "completed", "retry_delay_seconds": 60},
     {"state": "completed", "request_in_flight": True},
     {"state": "paused", "error": "synthetischer Fehler"},
 ])
 def test_persisted_unclean_core_state_blocks_start_without_collector(setup_runner, state):
     runner, store, client, clock, settings = setup_runner
     run_id = plan_run(store, settings)
+    before = store.get_diagnostic_run(run_id)
     store.save_collector_state(state, clock.now().isoformat())
     assert_error("core_blocked", lambda: runner.start(run_id))
     assert store.get_collector_state() == state
+    assert store.get_diagnostic_run(run_id) == before
     assert client.calls == []
 
 
@@ -614,7 +670,7 @@ def test_actual_loopback_service_persists_three_explicit_fc03_answers(tmp_path):
 
 @pytest.mark.parametrize("host", ["localhost", "::1", "192.0.2.1", None])
 def test_simulator_source_requires_exact_ipv4_loopback(tmp_path, host):
-    with pytest.raises(ValueError, match="127.0.0.1"):
+    with pytest.raises(ValidationError):
         Settings(
             _env_file=None, MODBUS_HOST=host, DIAGNOSTICS_SOURCE="simulator",
             DATA_DIR=tmp_path,
@@ -701,57 +757,104 @@ def test_start_waits_for_collector_join_and_rechecks_last_request(
         replacement.close()
 
 
-def test_collector_join_timeout_does_not_open_diagnostics(setup_runner):
-    runner, store, client, clock, settings = setup_runner
-    runner.close()
+def test_collector_join_timeout_does_not_open_diagnostics(setup_runner, monkeypatch):
+    old_runner, store, client, clock, settings = setup_runner
+    old_runner.close()
+    entered, release = threading.Event(), threading.Event()
+    core_calls = []
 
-    class StuckCollector:
-        state = "running"
-        error = None
+    class GatedCoreClient:
+        def read(self, block):
+            core_calls.append(block.offset)
+            entered.set()
+            assert release.wait(5)
+            return RegisterRead(block.offset, (42,))
 
-        def status(self):
-            return {"reconnect_attempts": 0}
-
-        def stop(self):
-            raise TimeoutError("Synthetischer Join-Timeout")
-
+    collector = Collector(
+        host="127.0.0.1", port=502, store=store, data_dir=settings.data_dir,
+        client=GatedCoreClient(), max_requests=1,
+    )
+    stop = collector.stop
+    monkeypatch.setattr(collector, "stop", lambda: stop(timeout=0))
     replacement = ReadCheckRunner(
-        settings=settings, store=store, collector=StuckCollector(), client=client,
+        settings=settings, store=store, collector=collector, client=client,
         monotonic=clock.monotonic, now=clock.now,
     )
+    owner = DeviceLock(settings.data_dir / "collector.lock")
+    run_id = plan_run(store, settings)
+    planned = store.get_diagnostic_run(run_id)
     try:
-        run_id = plan_run(store, settings)
+        collector.start()
+        assert entered.wait(2)
+        core_before = store.get_collector_state()
         assert_error("run_conflict", lambda: replacement.start(run_id))
-        assert store.get_diagnostic_run(run_id)["state"] == "planned"
+        assert store.get_diagnostic_run(run_id) == planned
+        assert store.get_collector_state() == core_before
+        with pytest.raises(DeviceOwnershipError):
+            owner.acquire()
         assert client.calls == []
-        owner = DeviceLock(settings.data_dir / "collector.lock")
-        owner.acquire()
-        owner.release()
+        assert core_calls == [4102]
     finally:
+        release.set()
+        stop(timeout=3)
         replacement.close()
+    owner.acquire()
+    owner.release()
 
 
-@pytest.mark.parametrize("change", ["stop", "target"])
+@pytest.mark.parametrize("change", ["stop", "target", "deadline"])
 def test_reservation_race_consumes_attempt_without_read(setup_runner, monkeypatch, change):
     runner, store, client, clock, settings = setup_runner
     run_id = plan_run(store, settings)
     reserve = store.reserve_diagnostic_request
+    reserved, release = threading.Event(), threading.Event()
 
-    def reserve_then_change(*args, **kwargs):
+    def gated_reserve(*args, **kwargs):
         reserve(*args, **kwargs)
-        if change == "stop":
-            runner.stop_event.set()
-        else:
-            settings.modbus_port += 1
+        reserved.set()
+        assert release.wait(5)
 
-    monkeypatch.setattr(store, "reserve_diagnostic_request", reserve_then_change)
+    monkeypatch.setattr(store, "reserve_diagnostic_request", gated_reserve)
     runner.start(run_id)
     clock.elapsed = 60
-    answer = runner.read_next(run_id, 0)
-    assert answer["state"] == ("cancelled" if change == "stop" else "stopped_data")
+    owner = DeviceLock(settings.data_dir / "collector.lock")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        reading = pool.submit(runner.read_next, run_id, 0)
+        stopping = None
+        try:
+            assert reserved.wait(2)
+            pending = store.get_diagnostic_run(run_id)
+            assert pending["requests_reserved"] == 1
+            assert pending["requests"][0]["outcome"] == "reserved"
+            if change == "stop":
+                stopping = pool.submit(runner.stop, run_id)
+                assert runner.stop_event.wait(2)
+                assert not stopping.done()
+            elif change == "deadline":
+                clock.elapsed = 600
+                assert runner.stop_event.wait(2)
+            else:
+                settings.modbus_port += 1
+            with pytest.raises(DeviceOwnershipError):
+                owner.acquire()
+            assert client.calls == []
+        finally:
+            release.set()
+        answer = reading.result(timeout=3)
+        if stopping is not None:
+            assert stopping.result(timeout=3)["state"] == "cancelled"
+    assert answer["state"] == {
+        "stop": "cancelled", "target": "stopped_data", "deadline": "expired",
+    }[change]
     saved = store.get_diagnostic_run(run_id)
     assert saved["requests_reserved"] == 1
-    assert saved["requests"][0]["outcome"] != "reserved"
+    request = saved["requests"][0]
+    assert request["outcome"] == ("error" if change == "target" else "aborted")
+    assert request["raw_words"] is None
+    assert request["received_bytes"] == 0
+    assert_error("run_conflict", lambda: runner.read_next(run_id, 1))
+    owner.acquire()
+    owner.release()
     assert client.calls == []
 
 
@@ -759,19 +862,42 @@ def test_reservation_race_consumes_attempt_without_read(setup_runner, monkeypatc
 def test_deadline_during_response_keeps_hard_error_and_releases_owner(setup_runner, hard_error):
     runner, store, client, clock, settings = setup_runner
     run_id = plan_run(store, settings)
-    runner.start(run_id)
-    clock.elapsed = 599
-    client.delay = 2
+    entered, release = threading.Event(), threading.Event()
+    original = client.read_catalog
+
+    def gated(block):
+        entered.set()
+        assert release.wait(5)
+        return original(block)
+
+    client.read_catalog = gated
     if hard_error:
         client.failure = ProtocolError("Synthetischer Fehler an der Frist", received_bytes=9)
-    answer = runner.read_next(run_id, 0)
+    runner.start(run_id)
+    clock.elapsed = 599
+    owner = DeviceLock(settings.data_dir / "collector.lock")
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        reading = pool.submit(runner.read_next, run_id, 0)
+        try:
+            assert entered.wait(2)
+            clock.elapsed = 600
+            assert runner.stop_event.wait(2)
+            assert not reading.done()
+            with pytest.raises(DeviceOwnershipError):
+                owner.acquire()
+        finally:
+            release.set()
+        answer = reading.result(timeout=3)
     assert answer["state"] == ("stopped_protocol" if hard_error else "expired")
     saved = store.get_diagnostic_run(run_id)
     assert saved["requests"][0]["raw_words"] == (None if hard_error else [0])
+    assert saved["requests"][0]["received_bytes"] == (9 if hard_error else 11)
     assert saved["requests_reserved"] == 1
-    owner = DeviceLock(settings.data_dir / "collector.lock")
+    assert_error("run_conflict", lambda: runner.read_next(run_id, 1))
     owner.acquire()
     owner.release()
+    assert len(client.calls) == 1
+    assert store.get_collector_state() is None
 
 
 @pytest.mark.parametrize("answer", [
@@ -799,10 +925,21 @@ def test_invalid_injected_response_stops_protocol_without_followup(setup_runner,
 
 
 @pytest.mark.parametrize("hard_error", [False, True])
-def test_real_collector_hands_ownership_to_runner_only_after_final_response(setup_runner, hard_error):
+def test_real_collector_hands_ownership_to_runner_only_after_final_response(
+    setup_runner, monkeypatch, hard_error,
+):
     old_runner, store, client, clock, settings = setup_runner
     old_runner.close()
     entered, release = threading.Event(), threading.Event()
+    processing, finish_processing = threading.Event(), threading.Event()
+    record_cycle = store.record_cycle
+
+    def gated_record_cycle(*args, **kwargs):
+        processing.set()
+        assert finish_processing.wait(5)
+        return record_cycle(*args, **kwargs)
+
+    monkeypatch.setattr(store, "record_cycle", gated_record_cycle)
 
     class GatedCoreClient:
         def read(self, block):
@@ -832,9 +969,17 @@ def test_real_collector_hands_ownership_to_runner_only_after_final_response(setu
                 owner = DeviceLock(settings.data_dir / "collector.lock")
                 with pytest.raises(DeviceOwnershipError):
                     owner.acquire()
+                release.set()
+                assert processing.wait(2)
+                assert not future.done()
+                assert store.get_diagnostic_run(run_id)["state"] == "planned"
+                assert store.count_observations() == 0
+                with pytest.raises(DeviceOwnershipError):
+                    owner.acquire()
                 assert client.calls == []
             finally:
                 release.set()
+                finish_processing.set()
             if hard_error:
                 with pytest.raises(ReadCheckError) as caught:
                     future.result(timeout=3)
@@ -848,8 +993,11 @@ def test_real_collector_hands_ownership_to_runner_only_after_final_response(setu
                 clock.elapsed = 60
                 assert runner.read_next(run_id, 0)["state"] == "awaiting_review"
                 assert len(client.calls) == 1
+            assert collector.state in {"paused", "stopped_protocol"}
+            assert store.count_observations() == (0 if hard_error else 1)
     finally:
         release.set()
+        finish_processing.set()
         runner.close()
         collector.stop()
 
@@ -906,3 +1054,84 @@ def test_detected_binding_change_ends_active_run_even_if_target_is_restored(setu
     assert store.diagnostic_access_blocker() == run_id
     assert_error("run_conflict", lambda: runner.read_next(run_id, 0))
     assert client.calls == []
+
+
+@pytest.mark.parametrize("foreign_state", ["planned", "running", "awaiting_review"])
+def test_runner_rejects_actual_competing_process_without_overwriting_foreign_state(
+    setup_runner, foreign_state,
+):
+    runner, store, client, clock, settings = setup_runner
+    store.save_collector_state(
+        {
+            "state": "paused", "request_count": 7,
+            "reconnect_attempts": 0, "request_in_flight": False,
+        },
+        clock.now().isoformat(),
+    )
+    foreign_id = plan_run(store, settings, (4098,))
+    run_id = plan_run(store, settings, (4099,))
+    if foreign_state != "planned":
+        store.set_diagnostic_run_state(foreign_id, "running", None)
+        store.reserve_diagnostic_request(foreign_id, 0, clock.now().isoformat())
+    if foreign_state == "awaiting_review":
+        store.finish_diagnostic_request(
+            foreign_id, 0,
+            {
+                "outcome": "ok", "raw_words": [0], "decoded": None,
+                "error_class": None, "received_bytes": 11,
+                "completed_at": clock.now().isoformat(),
+            },
+            "awaiting_review",
+        )
+    core_before = store.get_collector_state()
+    foreign_before = store.get_diagnostic_run(foreign_id)
+    planned_before = store.get_diagnostic_run(run_id)
+    code = """
+from pathlib import Path
+import sys
+from backend.device_lock import DeviceLock
+owner = DeviceLock(Path(sys.argv[1]) / "collector.lock")
+owner.acquire()
+print("owned", flush=True)
+try:
+    sys.stdin.readline()
+finally:
+    owner.release()
+"""
+    process = subprocess.Popen(
+        [sys.executable, "-c", code, str(settings.data_dir)],
+        cwd=Path(__file__).resolve().parents[1],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True,
+    )
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        ready = pool.submit(process.stdout.readline)
+        try:
+            assert ready.result(timeout=5).strip() == "owned"
+            if foreign_state == "planned":
+                with pytest.raises(DeviceOwnershipError):
+                    runner.start(run_id)
+            else:
+                assert_error("run_conflict", lambda: runner.start(run_id))
+            with pytest.raises(DeviceOwnershipError):
+                runner.recover_interrupted()
+            assert runner.access_blocker() == "run_conflict"
+            assert_error("run_conflict", lambda: runner.start(run_id))
+            assert store.get_collector_state() == core_before
+            assert store.get_diagnostic_run(foreign_id) == foreign_before
+            assert store.get_diagnostic_run(run_id) == planned_before
+            assert client.calls == []
+            contender = DeviceLock(settings.data_dir / "collector.lock")
+            with pytest.raises(DeviceOwnershipError):
+                contender.acquire()
+            assert process.poll() is None
+        finally:
+            try:
+                _, stderr = process.communicate("\n", timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate(timeout=5)
+                raise
+    assert process.returncode == 0, stderr
+    contender.acquire()
+    contender.release()

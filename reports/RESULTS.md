@@ -1209,3 +1209,119 @@ Paket-/Wheel-Abnahme #39 ebenfalls offen. Eigene API samt Lifespan beendet,
 Simulator/Devserver beendet, synthetische Downloads und temporäre
 Prüfumgebung entfernt. Keine Schreibfunktion, Freigabe, Veröffentlichung
 oder Deployment aktiviert.
+
+## 15.10.2026 – Issue #37: automatisierte Diagnose-Gesamtabnahme
+
+Ausschließlich synthetische Daten, isolierte temporäre Datenverzeichnisse,
+explizite Loopbackziele oder injizierte Clients; keine private Anlagenkonfiguration,
+keine Anlagenzugriffe und keine Schreibtelegramme. Vorhandene Komponentenprüfungen
+werden wiederverwendet statt durch eine zweite Testarchitektur ersetzt.
+
+Ergänzungen: echte konkurrierende Diagnosebesitzer in einem Zweitprozess,
+gegatete Reservierungs-/Antwort-/Collector-Speicherrennen, Daten- und
+Speicherfehler jeweils am ersten und zweiten Versuch, parallele HTTP-Starts,
+negative Steuerplananlagen/-revisionen und unveränderliche Sensor-/Rückfallblocker.
+Keine Produktionsänderung oder Sicherheitsausnahme erforderlich.
+
+Verbindliche Umgebung: **CPython 3.12.9**, **uv 0.12.2**, **Node 26.7.0**,
+**npm 12.0.2**. `uv sync --locked --python 3.12.9` in separater temporärer
+Projektumgebung erfolgreich; das Umschalten der bestehenden `.venv` war wegen
+gesperrter Windows-Dateien nicht möglich. Die bestehende Standardumgebung wurde
+mit `uv sync --locked` wieder synchronisiert. `npm ci` erfolgreich; npm meldete
+wie zuvor ein blockiertes esbuild-Installationsskript.
+
+Die erste vollständige Suite meldete **1 failed, 643 passed, 1 warning in
+82.50s**. Ursache war geerbtes `COLLECTOR_ENABLED=true` in einem
+Runner-Settings-Test, nicht eine Geräteantwort. Die Tests isolieren jetzt alle
+Deploymentvariablen nach bestehendem App-Testmuster. Der betroffene Test prüft
+die Ablehnung ungültiger Simulatorziele statt eines bestimmten Fehlerwortlauts.
+
+Final tatsächlich ausgeführt in dieser Python-3.12.9-Umgebung:
+
+```sh
+uv run pytest tests/test_read_checks.py tests/test_diagnostics_api.py tests/test_modbus.py tests/test_collector.py tests/test_storage.py tests/test_registers.py tests/test_app.py tests/test_end_to_end.py
+uv run pytest tests/test_control_plans.py
+uv run ruff check .
+npm run build
+```
+
+Ausgabe der Prüfungen:
+
+```text
+644 passed, 1 warning in 83.81s (0:01:23)
+63 passed in 0.35s
+All checks passed!
+✓ 33 modules transformed.
+✓ built in 905ms
+```
+
+Die Warnung stammt aus Starlette und betrifft das veraltete
+`anyio.abc.BlockingPortal`-Alias; keine Unterdrückung eingeführt.
+Im Sammelaufruf für Ruff/Steuerplantests/Build scheiterte zusätzlich die
+PowerShell-Exitcode-Verkettung; die drei Werkzeuge liefen dennoch mit den
+obigen Ergebnissen. Ruff wurde nach der Isolationskorrektur separat erfolgreich
+ausgeführt. Es wurde keine fehlgeschlagene Fachprüfung verschwiegen.
+Keine neue Browserabhängigkeit, keine Produktions-Testoption, keine Änderungen
+an Kernprofil, Messwertsemantik, Budgets oder öffentlich sichtbaren Verträgen.
+
+Zusätzlicher tatsächlicher Laufzeitnachweis außerhalb von pytest: unveränderter
+Runner mit echter monotoner Uhr, SQLite und echtem Loopback-Katalogsimulator.
+Start sendete nichts; drei ausdrücklich aufgerufene Reads nach jeweils gemessenen
+**60,050 s** Wartezeit lieferten exakt
+`((255,3,4098,1),(255,3,4099,1),(255,3,33408,1))`,
+Rohworte **[0] / [173] / [65526]**, Zustand **completed**,
+**null Kernbeobachtungen**. Lauf samt Simulator kontrolliert beendet.
+Dies ist kein Browser-, Geräteverträglichkeits- oder Dauerbetriebsnachweis.
+
+### Zuordnung der vollständigen Abnahmematrix
+
+Testnamen beziehen sich auf `tests/`; die parametrierten Fälle gehören zum
+jeweiligen Nachweis. `R` = `test_read_checks.py`, `A` =
+`test_diagnostics_api.py`, `T` = `test_modbus.py`, `C` =
+`test_collector.py`, `S` = `test_storage.py`.
+
+| Matrixfall aus #37 | Konkreter Verhaltensnachweis |
+|---|---|
+| Drei Rohregister, Reihenfolge, unbekannte Einheit, keine Kernbeobachtungen | A: `test_loopback_complete_route_cycle_preserves_raw_evidence_and_minute_history`; zusätzlicher realer Loopbacklauf oben |
+| Nur 28689, vollständiger Zählerblock und 6079 min | A: `test_loopback_complete_route_cycle_preserves_raw_evidence_and_minute_history` |
+| Überlappende Kernwortauswahl ohne doppelte Blöcke | A: `test_selection_is_resolved_deduplicated_and_sorted_without_merging_raw_neighbors` |
+| Unbekannte ID, 4103 und vier Blöcke vor Socket abgewiesen | A: `test_invalid_selection_is_rejected_before_any_device_effect` |
+| Manipulierte HTTP-Transport-/Budgetfelder | A: `test_plan_rejects_transport_and_execution_injection_without_echoing_values` |
+| Direkter Transport mit ungültigem Block; unveränderte Kerngrenze | T: `test_catalog_rejects_noncanonical_blocks_before_any_socket`, `test_core_boundary_remains_exact_before_any_socket` |
+| Doppelstart/-read, zwei Verbraucher, alte Schritte, Refresh während Anfrage | A: `test_two_parallel_starts_do_not_reset_first_read_deadline_or_budget`, `test_two_parallel_http_reads_reserve_and_send_once`, `test_cancelled_http_consumer_and_reload_cannot_replay_reserved_read` |
+| Start ohne Read; erste 59,999-/60-s-Schranke | R: `test_first_read_is_due_at_exactly_sixty_seconds_without_waiting`; A: `test_read_due_boundary_old_steps_and_reviews_never_replay` |
+| Folgefrist ab abgeschlossener Antwortspeicherung | R: `test_interval_starts_after_response_and_storage_complete`; A: `test_next_interval_includes_transport_and_persistence_time` |
+| Reservierung überschreitet Frist oder Stop/Zielwechsel vor Socket | R: `test_slow_reservation_over_deadline_consumes_budget_without_socket`, `test_reservation_race_consumes_attempt_without_read` |
+| Pflichtbewertung und continue/finish/anomaly | R: `test_review_ends_run_without_changing_device_answer`; A: Loopback-Zyklustest und `test_operator_review_changes_state_not_raw_answer_or_network` |
+| Fehler erster/zweiter Anfrage, kein Retry, Byteanzahl/Rohworte | R: `test_transport_failure_stops_without_retry_and_redacts_exception`, `test_core_data_error_preserves_raw_words_and_blocks_remaining_plan`, `test_storage_failure_retains_reservation_and_recovery_never_replays`; A: `test_transport_errors_keep_previous_answers_and_never_retry` |
+| Fehlerpersistierung fällt aus; Reservierung und Recoveryblockade | R: `test_storage_errors_block_every_following_action`, `test_storage_failure_retains_reservation_and_recovery_never_replays` |
+| Harter Fehler gegen gleichzeitigen Stop/Ablauf | R: `test_stop_sets_event_before_lock_and_preserves_inflight_result`, `test_deadline_during_response_keeps_hard_error_and_releases_owner`; S: `test_concurrent_operator_stop_and_error_finish_never_soften_failure` |
+| Zählerprogression nur bei gleichem Fingerprint | R: `test_counter_progression_checks_previous_run_with_same_fingerprint`, `test_counter_evidence_of_another_target_is_not_compared` |
+| Prozessabbruch, Neustart/Restore, alte ID bleibt gesperrt | R: `test_process_exit_after_runner_reservation_preserves_budget_for_locked_recovery`; A: `test_lifespan_recovery_after_reservation_preserves_budget_and_acknowledgement_starts_nothing`; S: v2-Restoretest unten |
+| Collector-Join einschließlich letzter Antwort und Fehler | R: `test_real_collector_hands_ownership_to_runner_only_after_final_response` |
+| Join-Timeout und konkurrierender echter Prozess | R: `test_collector_join_timeout_does_not_open_diagnostics`, `test_runner_rejects_actual_competing_process_without_overwriting_foreign_state`; C: `test_collector_rejects_actual_competing_process_without_client_access` |
+| Keine Collectorinstanz, verwaister/unsauberer Kernzustand | R: `test_persisted_unclean_core_state_blocks_start_without_collector`, `test_clean_persisted_core_stop_permits_diagnosis_without_restart` |
+| Stop/Ablauf bei laufender Anfrage bzw. ohne Browser | R: `test_stop_sets_event_before_lock_and_preserves_inflight_result`, `test_watchdog_expires_without_any_browser_action_or_read`; A: `test_deadline_without_browser_reads_ends_run_and_never_starts_monitoring` |
+| Alle Collectorstartpfade ohne Budget-/Zustandsänderung blockiert | C: `test_diagnostic_blocker_survives_restart_without_collector_mutation`, `test_diagnostic_blocker_is_checked_under_os_ownership` |
+| Kern-/Diagnosefehler nicht durch Neustart oder neue Aktion umgehen | R: `test_persisted_unclean_core_state_blocks_start_without_collector`; C: vorgenannte Blockadetests; A: Lifespan-Recoverytest |
+| Ursachenquittierung startet weder alten Lauf noch Monitoring | A: `test_data_stop_keeps_invalid_core_raw_words_and_blocks_new_plan_until_acknowledged`, Lifespan-Recoverytest; C: `test_acknowledged_diagnostic_error_stays_terminal_until_explicit_collector_resume` |
+| Collector-Erstfrist nach Diagnose auch in Recovery | C: `test_diagnostic_history_delays_first_read_in_normal_and_recovery_paths` |
+| v1-Migration/Restore erhält Minutenzeilen und Backupquelle | S: `test_v1_upgrade_preserves_every_historical_column`, `test_failed_v1_migration_rolls_back_schema_and_history`, `test_v1_restore_migrates_only_copy_and_preserves_complete_history` |
+| v2-Backup erhält Diagnosen und alle Steuerrevisionen | S: `test_v2_restore_preserves_plans_answers_all_control_revisions_and_blockers`; jetzt echte save/get/list-Steuerdokumente mit unterschiedlichen Vor-/Test-/Rückstellwerten statt SQL-Platzhalterdokumenten |
+| Backupversion 0/zukünftig abgewiesen, Neuaufbau weiter möglich | S: `test_restore_rejects_unsupported_version_without_touching_backup`, `test_fresh_migration_failure_also_rolls_back_v1_tables`; frische Stores in allen Abnahmen |
+| Origin-/Headerpflicht und gültiger Same-Origin-Auftrag | A: `test_every_new_mutation_enforces_csrf_before_any_effect`, `test_valid_same_origin_reaches_domain_validation_not_csrf` |
+| Unvollständiger START und unbewiesene Betreibertexte | A: `test_control_complete_revision_cycle_is_offline_and_never_executable`, `test_operator_fallback_claims_and_blank_evidence_do_not_authorize_control` |
+| Vollständiger synthetischer Steuerentwurf bleibt nicht ausführbar | A: `test_control_complete_revision_cycle_is_offline_and_never_executable` |
+| Sensorblocker bleibt trotz Texten und Revisionen | A: `test_sensor_blocker_survives_operator_approval_and_revision` |
+| Veraltete Steuerrevision überschreibt keine früheren Werte | A: `test_control_complete_revision_cycle_is_offline_and_never_executable`, `test_two_parallel_control_updates_commit_one_immutable_revision` |
+| Ungültiger Steuerkandidat/Felder/FC/Dauer/Budget/Textlänge ohne Speicherung | A: `test_invalid_control_creation_leaves_no_saved_plan_or_device_effect`, `test_nested_control_draft_validation_is_strict_and_keeps_previous_revision`, `test_control_models_forbid_injected_execution_fields` |
+| Ziel-/Quell-/Katalogwechsel invalidiert alten Plan | A: `test_changed_or_invalid_binding_is_rejected_before_socket`; R: `test_detected_binding_change_ends_active_run_even_if_target_is_restored` |
+| Fehlender Host/falsche Unit/Simulator mit anderem Ziel | R: `test_missing_host_or_wrong_unit_blocks_before_socket`, `test_simulator_source_requires_exact_ipv4_loopback`; A: `test_invalid_deployment_target_also_blocks_plan_creation` |
+| Defekter Katalog sperrt Diagnose, nicht Kernsammler | A: `test_broken_catalog_does_not_prevent_real_core_collector_cycle`; T: `test_broken_catalog_blocks_diagnostics_but_not_core_reads` |
+| Private Speicher-/Transportfehler nicht in API/Download | A: `test_storage_errors_use_safe_503_without_exception_or_path`, `test_transport_errors_keep_previous_answers_and_never_retry`, Loopback-Zyklustest mit Exportprojektion |
+| Alter Inventarbeleg mit anderer Zielbindung bleibt historisch sichtbar | A: `test_catalog_latest_response_marks_changed_target_without_disclosing_binding`, `test_latest_evidence_ignores_unread_plans_and_updates_both_core_words` |
+
+Die Tabelle bezeichnet synthetische Verbraucherabnahmen, keine unabhängige
+Prüfung privater Originalquellen. Die zusätzliche reproduzierbare
+Browser-/Screenshotabnahme **#38** und Paket-/Wheel-Laufzeitabnahme **#39**
+bleiben offen. Windows-Prozesssperren belegen nicht den Linux-/Unraid-Pfad.
