@@ -280,3 +280,40 @@ Anlagenverträglichkeit oder Live-API-/Deployment-Funktion.
 Grenzen: keine Gerätezugriffe; Zusatzregister bleiben inaktiv. Ein Browser-/
 Gerätetest mit realen Messdaten und Deployment ist nicht Teil dieser Offline-
 Implementierung. Keine unabhängige Geräte-/Herstellerprüfung.
+
+## 15.10.2026 – Issue #10: Docker-Paket und Unraid-Template
+
+Ergänzt wurden ein mehrstufiges `Dockerfile` (Node-Frontendbuild, Python-
+Runtime), `compose.yaml`, `unraid-template.xml` und Build-Context-Ausschlüsse.
+Das Image bindet das Vite-Frontend in FastAPI ein, läuft standardmäßig mit UID
+99/GID 100, enthält `/api/version` und prüft API-/SQLite-Erreichbarkeit per
+Healthcheck. Compose begrenzt es auf `linux/amd64`, Bridge-Netzwerk,
+read-only Root-Dateisystem, Capability-Drop, Init-Prozess und geordneten
+SIGTERM-Shutdown. Persistenter Zustand bleibt unter `/data`; Collector und
+Modbus sind standardmäßig deaktiviert. Das Unraid-Template bleibt auf ein noch
+nicht veröffentlichtes Image verwiesen; kein Release-Tag wird behauptet.
+
+Tatsächlich geprüft:
+
+- `uv run --locked pytest -q` – 63 bestanden; ein vorhandenes
+  Starlette/AnyIO-DeprecationWarning.
+- `uv run --locked ruff check .` – bestanden.
+- `npm run build` – TypeScript-Prüfung und Vite-Produktionsbuild bestanden.
+- Lokaler FastAPI-Smoke mit dem gebauten `dist`: UI-Einstieg, JavaScript-Bundle,
+  `/api/health` und `/api/version` lieferten HTTP 200; Version/Revision und
+  Datenbankstatus geprüft. Keine Containerverifikation.
+- `docker compose config --quiet` – Compose-Konfiguration gültig.
+- `uv run --locked python -c "import xml.etree.ElementTree as ET; ET.parse('unraid-template.xml')"`
+  – Template-XML wohlgeformt.
+- Loopback-Simulator gestartet und über `ModbusTcpClient` Offset 4102 abgefragt:
+  synthetische Antwort `RegisterRead(offset=4102, words=(42,), unit_id=255, function_code=3)`.
+- `docker compose build --progress=plain` scheiterte vor Buildstart: Docker-CLI
+  konnte keine Verbindung zum Docker-Engine-Pipe
+  `//./pipe/dockerDesktopLinuxEngine` öffnen.
+
+Grenzen und offene Abnahme: Die lokale Docker-Engine war nicht verfügbar. Daher
+wurden Image-Build, Nicht-root-Prozess im Container, Volume-Schreibrechte,
+Containerersatz/Persistenz, Healthcheck, Container-Shutdown, harte Stopps im
+Container und Start ohne Hostkonfiguration nicht verifiziert. `docker compose
+config` und synthetische Python-Tests ersetzen diese Containerprüfungen nicht.
+Keine Unraid-7.3.2-Installation, keine Gerätezugriffe und kein Release-Tag.

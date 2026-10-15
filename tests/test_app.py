@@ -54,6 +54,16 @@ def test_health_endpoint_does_not_require_device_configuration() -> None:
 
     assert response.json() == {"status": "ok", "database": "ok"}
 
+def test_version_endpoint_reports_build_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_VERSION", "0.1.0")
+    monkeypatch.setenv("BUILD_REVISION", "synthetic-revision")
+
+    with TestClient(app) as client:
+        response = client.get("/api/version")
+
+    assert response.status_code == 200
+    assert response.json() == {"version": "0.1.0", "revision": "synthetic-revision"}
+
 
 def test_collector_status_reports_saved_runtime_state_without_configuration_fingerprint() -> None:
     with TestClient(app) as client:

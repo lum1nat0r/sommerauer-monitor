@@ -41,6 +41,10 @@ flowchart LR
   sind Modbus-unabhängig. Mutierende Browser-Requests verlangen Same-Origin-Header;
   die API-Konfiguration kann nur die Anzeigezeitzone ändern. Modbus-Endpunkt und
   Datenpfad bleiben private Deployment-Konfiguration.
+  Der Container liefert das gebaute Frontend über `StaticFiles`, `/api/version`
+  gibt App-Version und Buildrevision aus. `Dockerfile` baut UI/Python getrennt;
+  Runtime läuft nicht-root, schreibt persistent nach `/data` und startet per
+  SIGTERM kontrolliert herunter.
 - Ausgabeadapter später: MQTT unabhängig von der Verfügbarkeit des Brokers;
   Prognose und Steuerung bleiben getrennte Module und Datentypen.
 

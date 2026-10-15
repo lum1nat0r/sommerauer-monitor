@@ -52,6 +52,17 @@ Anwendungsstart startet weder Sammler noch Simulator und führt keine Gerätezug
 Den Simulator lokal mit `uv run python -m backend.modbus_simulator` starten
 (Standardbindung `127.0.0.1:1502`); Faults sind per `--fault` wählbar.
 
+## Docker und Unraid
+
+Das lokale Containerpaket und die Anleitung stehen in [docs/UNRAID.md](docs/UNRAID.md).
+Mit `cp .env.example .env` lokale Defaults anlegen, dort einen beschreibbaren
+`DATA_PATH` setzen und mit `docker compose up --build -d` lokal bauen. Der Container
+läuft als UID 99/GID 100, bindet Port 8000, persistiert ausschließlich in `/data`
+und startet ohne Hostadresse oder aktivierte Erfassung. `/api/version` meldet
+Buildversion und Revision. Der Unraid-Template-Imageverweis ist ein erwarteter
+Registrypfad, kein veröffentlichtes Image; es gibt noch keinen Release-Tag.
+Lokale Docker-Prüfungen belegen keine Installation auf Unraid oder Gerätefunktion.
+
 Lizenz: noch nicht festgelegt. Vor einem Software-Release muss der Betreiber entscheiden;
 der MIT-Vorschlag ist keine erteilte Lizenz.
 
