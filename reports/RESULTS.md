@@ -1087,3 +1087,125 @@ Capabilities ohne Referenzprovider). Kein Frontend geändert und keine
 Browser-/Linux-/Live-/Unraid-Abnahme in diesem Paket. Keine private `.env` als
 Testziel, keine neuen Gerätebelege, unabhängigen Primärquellenprüfungen,
 Schreibbefehle, Releases oder Deployments. Diagnoseoberfläche bleibt #36.
+
+## 15.10.2026 – Issue #36: Diagnosebedienung im vorhandenen Dashboard
+
+Umgesetzt: Bereichswahl ohne Router, vollständiger Katalog mit 50er-Seiten,
+Such-/Belegfiltern und Details, getrennte nicht lesbare START-/SOLL-Kandidaten,
+manuelle Prüfläufe einschließlich Historie/Review/Stopp/Quittierung sowie
+vollständige Offline-Steuerentwürfe mit Revisionen und JSON-Export.
+Gemeinsame Fetch-/Datumshelfer sind aus der Übersicht migriert; bestehende
+Fehlermeldungen behalten `HTTP <Status>`. Keine zusätzlichen Bibliotheken,
+Backendpfade, Gerätefunktionen oder automatische Diagnoseaktionen.
+
+Tatsächlich ausgeführt, ausschließlich offline:
+
+- CPython **3.12.9** in separater uv-Projektumgebung, uv **0.12.2**,
+  Node **26.7.0**, npm **12.0.2**; bestehende Locks verwendet.
+  Die vorhandene Standardumgebung bleibt auf 3.12.13 und wurde abschließend
+  mit `uv sync --locked` wieder vollständig synchronisiert.
+- `pytest`: **649 bestanden**, eine bestehende Starlette/AnyIO-
+  DeprecationWarning. `ruff check .`: bestanden.
+- `npm ci`: erfolgreich, wie bisher Hinweis auf blockiertes
+  esbuild-Installationsskript. Finales `npm run build`: TypeScript und
+  Vite-Produktion erfolgreich, 33 Module.
+- Eigene Chrome-Bedienung gegen echten Vite-Devserver, echte Uvicorn-API und
+  echten Loopback-Katalogsimulator, temporäres DATA_DIR, Collector deaktiviert,
+  Quelle ausdrücklich `simulator`. Private `.env` unverändert; Umgebungswerte
+  überschrieben das Ziel ausschließlich auf Loopback.
+- Erster Browser-POST reproduzierte HTTP 403 im bisherigen Vite-Stringproxy:
+  dessen `changeOrigin:true` änderte den Hostheader. Mit explizitem
+  `changeOrigin:false` funktionieren reale Browsermutationen unter dem
+  unveränderten Same-Origin-/`X-Requested-With`-Vertrag.
+
+Katalog-/Darstellungsprüfung:
+
+- Seiten tatsächlich bedient: **50 / 50 / 50 / 49** Einträge.
+  `Aussen_Ist`, `33408` und `8280` treffen denselben Eintrag;
+  Filter ergeben fünf bestätigte bzw. 194 dokumentierte Register und
+  zunächst leere Ergebnisansicht. START/SOLL zeigen `read_block=null`,
+  unbekannte Schreibfähigkeit und nur potenzielle Offsets, ohne Lesecheckbox.
+- 33408 bleibt „Einheit ungeklärt“, `documented_raw`, `static_only_unqueried`,
+  auch nach erfolgreicher Antwort. 65526 bleibt 65526/0xFFF6, kein −10-°C-Wert.
+  Synthetische Kennzeichnung, Alter und Rohbelege bleiben nach Refresh,
+  Bereichswechsel und API-Neustart sichtbar. Neustart mit geändertem
+  Loopback-Zielport zeigt Zielabweichung, ohne die historische Simulatorquelle
+  umzudeuten; dabei keine Geräteanfrage.
+- Desktop **1360 px** und **390 px** mit echten Screenshots geprüft.
+  Bei 390 px gemessene Dokumentbreite 375 px einschließlich Platz für die
+  Browser-Scrollbar, kein Seitenüberlauf; Katalogtabelle scrollt innerhalb
+  ihres Bereichs. Details und Formular stehen darunter. Kopf/Status und
+  bestehende Übersicht/Verlauf bleiben nutzbar, Bereichswechsel erhält Eingaben.
+
+Echter manueller Dreischrittlauf:
+
+- Auswahl 4098/4099/33408 liefert ausschließlich 4098/1, 4099/1, 33408/1.
+  Vor Planung/Start und nach Start ohne Read null Simulatoranfragen.
+  Erststart ohne Leserbestätigung gesperrt; erster Leseknopf vor Fälligkeit
+  gesperrt. Countdown sendet selbst keinen Request.
+- Genau drei bewusste Reads mit Rohworten **[0]**, **[173]**, **[65526]**;
+  Budget 1/3 → 2/3 → 3/3, jeweils `awaiting_review` vor „Geprüft, weiter“.
+  Endzustand `completed`, keine automatische Monitoringfortsetzung.
+  Gespeicherte UTC-Zeitstempel ergeben folgende tatsächliche Abstände:
+
+| Abstand | Sekunden |
+|---|---:|
+| Start bis erste Anfrage | 66,763494 |
+| Erste Antwortspeicherung bis zweite Anfrage | 86,567921 |
+| Zweite Antwortspeicherung bis dritte Anfrage | 79,128046 |
+
+- Refresh zwischen Schritten/nach Abschluss, GET-Export und Neustart erzeugen
+  keine zusätzliche Simulatoranfrage. Heruntergeladener JSON-Laufbeleg und
+  gespeicherter Export haben denselben Antwortzeitstempel. Keine privaten
+  Ziel-/Pfad-/Fingerprintfelder im Export.
+- Zusätzliche Kernwortauswahl 28688/28689/36865 wird vor Start exakt zu
+  28688/2 und 36864/2 dedupliziert. Dieser Lauf wurde nach kurzem sichtbarem
+  Countdown sicher abgebrochen: `cancelled`, null Reads.
+- Geöffneter Lauf ohne Read wurde durch eigenen API-Prozessabbruch unterbrochen;
+  Recovery im selben DATA_DIR zeigt `interrupted`, Budget 0, Quittierung
+  startet weder alte ID noch Monitoring.
+- Separater echter Simulatorlauf mit Fault `exception`: genau ein expliziter
+  FC03-Versuch, `stopped_protocol`, `protocol_error`, neun empfangene Bytes,
+  keine Ersatzrohworte und keine Folgeanfrage. Quittierung erhält den terminalen
+  Zustand. Insgesamt über alle eigenen Läufe **vier FC03/255-Anfragen**.
+- SQLite-Integrität `ok`, **null Kernbeobachtungen**, beide quittierten
+  Fehlerzustände und abgeschlossener/abgebrochener Lauf dauerhaft gespeichert.
+
+Formular-/Fehlerprüfung:
+
+- START-Entwurf nur mit ID/Zweck als Revision 1 gespeichert: fehlende Quellen,
+  Rückstellwert und übrige Nullfelder vollständig sichtbar. Alle 20 Felder
+  synthetisch ausgefüllt, Revision 2 gespeichert und nach API-Neustart geladen;
+  weitere Revision 3 erhalten. Nur `ready_for_review`, niemals ausführbar.
+- Zweite unabhängige Browsersitzung speichert veraltete Basisrevision:
+  sichtbarer `revision_conflict`; Eingabe bleibt erhalten, Serverrevision
+  separat sichtbar und nur ausdrücklich übernehmbar. Vier gespeicherte
+  Revisionen insgesamt einschließlich separatem Sensorentwurf.
+- Echter heruntergeladener START-JSON-Export: Revision 3,
+  `execution_enabled:false`, Betreiberquelle nicht unabhängig verifiziert,
+  keine fehlenden Felder, sämtliche fünf Blocker einschließlich ungeklärtem
+  autonomen Rückfall. Separater Kesselsensorentwurf behält
+  `sensor_value_must_not_be_overridden`.
+- `ApiError` mit echter HTTP-404-Antwort im Browser geprüft:
+  Klasse/Status/Detail vorhanden, `message === "HTTP 404"`.
+  Gemeinsame Formatierung liefert dieselbe Wiener/UTC-Zeit und Altersangabe.
+- **Zusätzlich synthetische Browserantworten, keine realen DB-/Netzausfälle:**
+  503 `storage_unavailable` und abgebrochener GET zeigen Fehler, behalten aber
+  die drei gespeicherten Rohbelege. Anzeige von `expired`, `stopped_transport`,
+  `stopped_data`, `stopped_storage` anhand abgeänderter GET-Zustände geprüft:
+  kein weiterer Read, Fehler verlangen Quittierung, Ablauf nicht.
+- Für den `read_not_due`-Bedienfehler wurde ausschließlich die vom Browser
+  empfangene GET-Warteanzeige synthetisch auf null gesetzt; Serveruhr und
+  Produktionsgrenzen blieben unverändert. Der bewusste vorzeitige Read erhält
+  echten HTTP 409, deutsche Fachmeldung, keine Warteschlange/Retry und keine
+  zusätzliche Simulatoranfrage. Gespeicherte Antworten bleiben erhalten.
+
+Nachweise sind eigene Offline-Bedienprüfungen, keine unabhängigen
+Primärquellen-, Geräte-, Langzeit-, Unraid- oder Live-Nachweise.
+Keine neue Browser-Testabhängigkeit oder Source-only-Abnahme eingeführt.
+Die zusätzlichen automatisierten Verbraucherprüfungen #37 und reproduzierbare
+Screenshot-/Request-/Persistenzabnahme #38 bleiben getrennte Pflichtpakete;
+Paket-/Wheel-Abnahme #39 ebenfalls offen. Eigene API samt Lifespan beendet,
+Simulator/Devserver beendet, synthetische Downloads und temporäre
+Prüfumgebung entfernt. Keine Schreibfunktion, Freigabe, Veröffentlichung
+oder Deployment aktiviert.

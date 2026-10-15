@@ -245,3 +245,47 @@ Downloads bleiben privat: Rohbelege und Freitexte sind keine öffentlichen
 Berichte. Vertrauenswürdiges LAN/Tailscale plus CSRF ist **keine**
 Authentisierung, Benutzeridentität oder Geräte-Schreibfreigabe.
 Keine neue Benutzerverwaltung oder `/execute`-Route.
+
+### Diagnosebedienung im Dashboard (Issue #36)
+
+`App` behält Kopf, Erfassungsstatus und die bestehende Übersicht einschließlich
+Verlauf und Zeitzoneneinstellung. Die Bereichswahl blendet die gemounteten
+Ansichten nur aus; gespeicherte Belege und ungespeicherte Eingaben gehen beim
+Wechsel nicht verloren. Ein vollständiger Browserreload lädt gespeicherten
+Zustand ausschließlich per GET. Nicht gespeicherte Formulareingaben sind keine
+Revision und werden nicht über einen vollständigen Browserreload gesichert.
+
+`Diagnostics` konsumiert den Katalog ohne Zusatzabfrage am Gerät, mit 50
+Einträgen je Seite, Name-/Dezimal-/Hexsuche und Belegfiltern. Auswahl umfasst
+nur Register-IDs; START/SOLL bleiben getrennte nicht lesbare Kandidaten.
+Unbekannte Einheiten bleiben ungeklärt. Diagnosebelege zeigen gespeicherte
+Quellart, Alter und Zielabweichung; synthetische Herkunft wird auch bei alten
+Läufen nie aus Hostname oder aktueller Konfiguration umgedeutet.
+
+`ReadRuns` verwendet nur den vorhandenen HTTP-Zustandsautomaten. Planung und
+Start senden keinen Read. Der aufgelöste Serverplan, Leserbestätigung,
+60-s-Schranke einschließlich Speicherung, 3-s-Deadline und 600-s-Gesamtgrenze
+werden vor dem Start gezeigt. Der lokale Countdown ist nur Anzeige, ohne
+Diagnosepolling oder automatische Aktion. Ein expliziter Read je Schritt,
+danach Pflichtbewertung; kein POST-Retry. Bei unklarem Ausgang bleiben Belege
+sichtbar, Aktionen bis zum bewussten GET gesperrt. Serverkonflikte bleiben
+ausdrücklich als Fehler sichtbar. Stopp/Quittierung setzen Monitoring nicht fort.
+
+`ControlPlans` bildet alle 20 Entwurfsfelder ab. Leerangaben werden `null`;
+Vor-/Test-/Rückstellwerte bleiben Text. Ein Update bindet `expected_revision`.
+Konflikte erhalten Eingaben und bisherige Bewertung; der aktuelle Serverstand
+wird separat geladen und erst nach ausdrücklichem Übernehmen ins Formular
+gesetzt. Vor dem Verwerfen geänderter Eingaben ist eine Checkboxbestätigung
+erforderlich. Export liefert die aktuelle Serverrevision, nicht zwingend die
+noch angezeigte Basisrevision. Bewertung, Quellenstatus und sämtliche
+unveränderlichen Blocker bleiben sichtbar; `ready_for_review` bedeutet nur
+„formal bereit zur fachlichen Prüfung“, niemals ausführbar.
+
+`api.ts` enthält den einzigen `requestJson`-Helfer. `ApiError.status` und
+`detail` ergänzen den bisherigen Vertrag; `message` bleibt `HTTP <Status>`.
+Nur die Diagnose zeigt die sichere serverseitige Fachmeldung aus `detail`.
+Alle Mutationen verwenden unverändert den Same-Origin-/`X-Requested-With`-
+Vertrag. Der lokale Vite-Proxy erhält dazu den ursprünglichen Hostheader;
+Browser-Origin und CSRF-Schutz werden nicht auf das Backendziel umgeschrieben.
+`format.ts` teilt ausschließlich `formatDate`/`ageLabel` mit der Übersicht,
+ohne deren Zeitzonen- oder Verlaufslogik zu verändern.
