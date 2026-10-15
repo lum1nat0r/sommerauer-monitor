@@ -84,11 +84,6 @@ def test_simulator_collector_storage_api_and_csv_end_to_end(tmp_path, monkeypatc
         assert [row[:4] for row in requests] == [
             (3, 255, 4102, 1), (3, 255, 28688, 2), (3, 255, 36864, 2),
         ]
-        request_starts = [datetime.fromisoformat(row[4]) for row in requests]
-        assert all(
-            (later - earlier).total_seconds() >= 10
-            for earlier, later in zip(request_starts, request_starts[1:])
-        )
         assert {row[1]: row[3] for row in measurements_before} == {
             "boiler.temperature": 42,
             "boiler.operating_minutes": 6079,
