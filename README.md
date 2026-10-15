@@ -31,6 +31,13 @@ höchstens drei explizite Reads, 60 s Abstand einschließlich Speicherung,
 Recovery und Lifespan sicher an. Issue #36 ergänzt die Bedienung im Dashboard:
 Katalog/Details, manuelle Prüfläufe und nicht ausführbare Steuerentwürfe.
 Keine zusätzliche Live-Abnahme.
+Issue #37 belegt die automatisierte Sicherheits-/Verbraucherabnahme einschließlich
+echter Zweitprozesssperren, gegateter Stop-/Reservierungs-/Joinrennen,
+unveränderter Backupquellen und nicht ausführbarer Steuerrevisionen.
+Vollständige Matrixzuordnung und tatsächlich ausgeführte Prüfungen:
+[Ergebnisse](reports/RESULTS.md#15102026--issue-37-automatisierte-diagnose-gesamtabnahme).
+Die zusätzliche Browserabnahme #38 und Paket-/Wheel-Laufzeitabnahme #39 bleiben offen.
+
 
 Issue #34 ergänzt rein offline bewertete Steuerentwürfe mit atomaren,
 unveränderlichen SQLite-Revisionen und privater Exportprojektion. Auch vollständig

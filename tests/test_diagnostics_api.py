@@ -1299,6 +1299,10 @@ def test_completed_budget_cannot_be_reused_by_reload_start_or_extra_step(api):
     ("function_code", True), ("function_code", "6"), ("max_write_requests", 2.0),
     ("max_write_requests", True), ("max_duration_seconds", True), ("before_value", 42),
     ("host", PRIVATE_ERROR), ("execute", True),
+    ("candidate_id", "register:4103"), ("function_code", 0), ("function_code", 128),
+    ("max_duration_seconds", 0), ("max_duration_seconds", -1),
+    ("max_write_requests", 0), ("max_write_requests", -1),
+    *((field, "x" * 4001) for field in CONTROL_TEXT_FIELDS),
 ])
 def test_nested_control_draft_validation_is_strict_and_keeps_previous_revision(api, field, value):
     first = mutate(api, "/control-plans", complete_draft())
@@ -1351,3 +1355,89 @@ def test_saved_control_documents_do_not_revalidate_against_current_catalog(api, 
         assert document == created
     assert load(api, "/control-plans") == {"items": [created]}
     assert api.device.calls == []
+
+
+@pytest.mark.parametrize("field,value", [
+    ("candidate_id", "control:unknown"), ("function_code", 0), ("function_code", 128),
+    ("max_duration_seconds", 0), ("max_write_requests", -1),
+    *((field, "x" * 4001) for field in CONTROL_TEXT_FIELDS),
+])
+def test_invalid_control_creation_leaves_no_saved_plan_or_device_effect(api, field, value):
+    response = api.http.post(
+        f"{BASE}/control-plans", headers=HEADERS, json=complete_draft(**{field: value}),
+    )
+    assert_error(response, 422)
+    assert_safe(response.json(), api.settings)
+    assert load(api, "/control-plans") == {"items": []}
+    assert api.store.count_observations() == 0
+    assert api.device.calls == []
+
+
+@pytest.mark.parametrize("candidate", ["control:buffer.start", "control:buffer.target"])
+def test_operator_fallback_claims_and_blank_evidence_do_not_authorize_control(api, candidate):
+    created = mutate(api, "/control-plans", complete_draft(
+        candidate_id=candidate, source_reference=" \t ", restore_value=" \n ",
+        host_loss_behavior="Betreiber behauptet autonomen Rückfall",
+        network_loss_behavior="Betreiber behauptet sicheren Python-Timer",
+    ))
+    assert created["assessment"]["status"] == "draft"
+    assert set(created["assessment"]["missing_fields"]) == {"source_reference", "restore_value"}
+    assert created["draft"]["source_reference"] is None
+    assert created["draft"]["restore_value"] is None
+    exported = load(api, f"/control-plans/{created['plan_id']}/export")
+    assert exported == created
+    assert exported["source_status"]["independently_verified"] is False
+    assert "autonomous_fallback_on_host_or_network_loss_unverified" in exported["assessment"]["blockers"]
+    assert exported["execution_enabled"] is False
+    assert api.device.calls == []
+
+
+def test_sensor_blocker_survives_operator_approval_and_revision(api):
+    first = mutate(api, "/control-plans", {
+        "candidate_id": "register:4102", "purpose": "Synthetische Sensorkanalprüfung",
+    })
+    second = mutate(api, f"/control-plans/{first['plan_id']}", {
+        "expected_revision": 1,
+        "draft": complete_draft(
+            candidate_id="register:4102",
+            operator_approval_reference="Betreiber behauptet Freigabe zum Überschreiben",
+        ),
+    }, method="PUT")
+    assert first["assessment"]["status"] == "draft"
+    assert second["assessment"]["status"] == "ready_for_review"
+    for document in (first, second, load(api, f"/control-plans/{first['plan_id']}/export")):
+        assert "sensor_value_must_not_be_overridden" in document["assessment"]["blockers"]
+        assert document["execution_enabled"] is False
+    assert api.store.get_control_plan(first["plan_id"], 1) == first
+    assert api.device.calls == []
+
+
+def test_two_parallel_starts_do_not_reset_first_read_deadline_or_budget(api):
+    run_id = plan(api, (4098,))["run_id"]
+    barrier = threading.Barrier(2)
+
+    def click():
+        barrier.wait(timeout=5)
+        return api.http.post(
+            f"{BASE}/runs/{run_id}/start", headers=HEADERS,
+            json={"other_readers_stopped": True},
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(click) for _ in range(2)]
+        responses = [future.result(timeout=10) for future in futures]
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    assert_error(next(response for response in responses if response.status_code == 409), 409, "run_conflict")
+    assert load(api, f"/runs/{run_id}")["requests_reserved"] == 0
+    assert api.device.calls == []
+    api.clock.elapsed = 59.999
+    repeated = api.http.post(
+        f"{BASE}/runs/{run_id}/start", headers=HEADERS,
+        json={"other_readers_stopped": True},
+    )
+    assert_error(repeated, 409, "run_conflict")
+    assert load(api, f"/runs/{run_id}")["requests_reserved"] == 0
+    assert api.device.calls == []
+    api.clock.elapsed = 60
+    assert read(api, run_id, 0)["requests_reserved"] == 1
+    assert api.device.calls == [(4098, 1, 60)]

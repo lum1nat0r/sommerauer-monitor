@@ -664,13 +664,18 @@ def test_v2_restore_preserves_plans_answers_all_control_revisions_and_blockers(t
     reserve(store, active_id)
     if active_state == "awaiting_review":
         store.finish_diagnostic_request(active_id, 0, diagnostic_result(), "awaiting_review")
-    revisions = [
-        ("synthetic-control", 1, DIAGNOSTIC_TIME, '{"value":1}'),
-        ("synthetic-control", 2, DIAGNOSTIC_TIME, '{"value":2}'),
-        ("other-control", 1, DIAGNOSTIC_TIME, '{"value":3}'),
-    ]
-    with sqlite3.connect(store.path) as connection:
-        connection.executemany("INSERT INTO control_plans VALUES (?, ?, ?, ?)", revisions)
+    first_control = store.save_control_plan(
+        None, None, control_draft(before_value="Vorwert 1", test_value="Versuch 1",
+                                  restore_value="Rückstellwert 1"),
+    )
+    second_control = store.save_control_plan(
+        first_control["plan_id"], 1,
+        control_draft(before_value="Vorwert 2", test_value="Versuch 2",
+                      restore_value="Rückstellwert 2"),
+    )
+    other_control = store.save_control_plan(
+        None, None, control_draft(candidate_id="control:buffer.target"),
+    )
     before = {run["run_id"]: run for run in store.list_diagnostic_runs(20, 0)}
     historical = database_rows(store.path)
     backup = tmp_path / "v2-backup.sqlite3"
@@ -693,10 +698,16 @@ def test_v2_restore_preserves_plans_answers_all_control_revisions_and_blockers(t
             reserve(restored, candidate, 0 if candidate == planned_id else 1)
     with pytest.raises(StorageError):
         restored.create_diagnostic_run(diagnostic_plan())
-    with sqlite3.connect(restored.path) as connection:
-        assert connection.execute(
-            "SELECT * FROM control_plans ORDER BY rowid"
-        ).fetchall() == revisions
+    assert restored.get_control_plan(first_control["plan_id"], 1) == first_control
+    assert restored.get_control_plan(first_control["plan_id"]) == second_control
+    assert restored.get_control_plan(other_control["plan_id"]) == other_control
+    assert {item["plan_id"]: item for item in restored.list_control_plans()} == {
+        item["plan_id"]: item for item in (second_control, other_control)
+    }
+    assert all(
+        document["execution_enabled"] is False
+        for document in (first_control, second_control, other_control)
+    )
     restored.acknowledge_diagnostic_run(active_id, "Restore geprüft, kein Neustart")
     assert restored.get_diagnostic_run(active_id)["state"] == "interrupted"
     assert restored.get_diagnostic_run(active_id)["requests_reserved"] == 1
