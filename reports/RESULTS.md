@@ -1797,3 +1797,50 @@ Main-Commit der vorgesehene Auslöser für die vorhandene Image-Pipeline.
 Kein neuer Container-, Unraid-, Browser- oder Live-Nachweis; keine Erfassung
 oder Geräteänderung aktiviert. Der dokumentierte Vite-Sicherheitsbefund
 bleibt unverändert.
+
+## 15.10.2026 – Domainaktionen hinter einem Reverse-Proxy
+
+Betreiberbefund: Aktionen funktionieren beim IP-Zugriff, nicht über die eigene
+Domain. Die reale Proxy-Konfiguration wurde nicht eingesehen; der TLS-/Host-
+Unterschied ist lokal als passende Fehlerursache reproduziert, kein Befund
+aus einem Zugriff auf das Deployment.
+
+Vorher: In-process-Anfrage mit synthetischer HTTPS-Browser-Origin und interner
+HTTP-Request-Adresse ergibt HTTP 403 `Same-origin request required`.
+Korrektur: optionale private `PUBLIC_ORIGIN`, strikt als HTTP(S)-Origin ohne
+Zugangsdaten, Pfad, Query, Fragment oder Wildcard validiert. Diese Freigabe
+ergänzt den direkten Originzugriff; Schutzheader bleiben Pflicht. Compose-
+Varianten, `.env.example` und Unraid-Template enthalten die Einstellung.
+Keine neue CORS-Freigabe und kein ungeprüftes Vertrauen in Forwarded-Header.
+
+Tatsächlich ausgeführte Offline-Prüfungen auf CPython 3.12.9:
+
+- Gesamtes `pytest`: **727 bestanden**, eine bekannte
+  Starlette-/AnyIO-DeprecationWarning. Regressionen prüfen erfolgreiche
+  persistente Konfigurationsänderung über Proxy-Origin und Direktzugriff,
+  Fremd-Origin/Scheme-/Port-/Suffix-Verwechslungen, fehlende Schutzheader,
+  manipulierte Forwarded-Header, fehlende Freigabe und ungültige Konfiguration.
+- `ruff check .`: **All checks passed!**
+- Echter Uvicorn-Loopbackserver mit `--no-proxy-headers`, temporärem `DATA_DIR`,
+  leerem Modbus-Ziel und deaktiviertem Collector: HTTPS-Browser-Origin bei
+  internem HTTP-Host speichert die Anzeigezeitzone mit HTTP **200**; direkte
+  Request-Origin ebenfalls **200**. Fremde Origin trotz gefälschter
+  Forwarded-Header und fehlender Custom-Header jeweils **403**.
+  Anschließendes GET bestätigt gespeichertes UTC, `host_configured:false`,
+  `collector_enabled:false` und Collector `unconfigured`; die freigegebene
+  Domain erscheint nicht in der API-Konfiguration.
+- Beide Compose-Dateien als YAML sowie das Unraid-Template als XML geparst:
+  gültig, `PUBLIC_ORIGIN` wird als optionale Containervariable weitergereicht.
+
+Prüfungen in separater temporärer Pythonumgebung; der erste Versuch, die
+bestehende Umgebung auf die vorgeschriebene Pythonversion umzustellen,
+scheiterte an einem gesperrten Windows-Scripts-Verzeichnis. Anschließend die
+lokalen Abhängigkeiten mit `uv sync --locked` wiederhergestellt; Python 3.12.13
+und Imports von FastAPI/Uvicorn erfolgreich geprüft. Keine private
+Deploymentkonfiguration verändert.
+
+Grenzen: kein Zugriff auf die reale Domain, kein Browser-, Container-,
+Unraid- oder Heizungsnachweis und keine Geräteanfrage für diese Korrektur.
+Kein Tag/Release erstellt. Ein Image mit der Korrektur und die private
+Originvariable müssen vor dem Einsatz auf Unraid bereitgestellt werden;
+der bestehende Image-Tag wird nicht stillschweigend ersetzt.

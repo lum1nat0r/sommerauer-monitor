@@ -166,9 +166,13 @@ bleiben als gespeicherte ISO-8601-UTC-Werte erhalten; Rohworte, Qualität und
 Decoderherkunft sind enthalten. Fehlerdetails aus Transport und Speicher werden
 nicht öffentlich ausgegeben.
 
-Mutierende Requests benötigen eine exakt gleiche `Origin`-Quelle, dürfen nicht
-als `cross-site` markiert sein und müssen `X-Requested-With: SommerauerMonitor`
-setzen. Dadurch werden formularbasierte und cross-origin Browseraktionen abgewiesen.
+Mutierende Requests benötigen die direkt erkannte Request-Origin oder die explizit
+über `PUBLIC_ORIGIN` konfigurierte Browser-Origin des Reverse-Proxys. Sie dürfen
+nicht als `cross-site` markiert sein und müssen
+`X-Requested-With: SommerauerMonitor` setzen. Ohne `PUBLIC_ORIGIN` bleibt nur die
+direkte Request-Origin erlaubt; fremde Browser-Origins bleiben abgewiesen.
+Schema, Host und Port gehören zur Origin. Keine Wildcards, URL-Pfade oder
+Zugangsdaten; die private Freigabe erscheint nicht in `/api/config`.
 Dies ist CSRF-Schutz, kein Ersatz für Netzwerk-/Betriebssystem-Zugriffsschutz:
 App nur im vertrauenswürdigen LAN/Tailscale bereitstellen.
 

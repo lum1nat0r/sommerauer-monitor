@@ -146,6 +146,10 @@ Build. Einrichtung von `.env`, persistentem Datenpfad und Start:
 [Unraid-Anleitung](docs/UNRAID.md#unraid-veröffentlichtes-image-verwenden).
 Der Container läuft standardmäßig als UID 99/GID 100, bindet Port 8000,
 persistiert in `/data` und startet ohne Hostadresse oder aktivierte Erfassung.
+Beim Zugriff über eine HTTPS-Domain hinter einem Reverse-Proxy die private
+Containervariable `PUBLIC_ORIGIN` setzen; direkte Zugriffe bleiben möglich.
+Die Korrektur benötigt ein entsprechend neu gebautes Image, nicht nur eine
+Variable im bisherigen Image. [Proxy-Konfiguration](docs/UNRAID.md#domain-und-https-reverse-proxy).
 
 Die bisherige `compose.yaml` bleibt für lokale Builds:
 `cp .env.example .env`, beschreibbaren `DATA_PATH` setzen und

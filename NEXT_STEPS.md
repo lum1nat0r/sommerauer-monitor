@@ -14,6 +14,21 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
+## Domainaktionen hinter einem Reverse-Proxy
+
+Die Originprüfung unterstützt jetzt die optionale private Deploymentvariable
+`PUBLIC_ORIGIN` zusätzlich zum direkten Zugriff. Compose-Dateien und
+Unraid-Template reichen sie weiter; kein CORS-Wildcard und keine pauschale
+Proxy-Headerfreigabe. Konfiguration und sichere App-Prüfung:
+[Unraid-Anleitung](docs/UNRAID.md#domain-und-https-reverse-proxy).
+Offline reproduziert und mit laufender Loopback-API geprüft; die reale
+Domain-/Unraid-Konfiguration wurde nicht verändert oder geprüft.
+Vor Nutzung ein Image mit dieser Korrektur bauen/veröffentlichen, dann den
+privaten tatsächlichen Browser-Origin setzen und den Container unter Erhalt
+von Datenvolume und Erfassungseinstellungen neu erstellen.
+Keine Geräteanfrage für die Proxyprüfung nötig; Ergebnisse im
+[Ergebnisbericht](reports/RESULTS.md#15102026--domainaktionen-hinter-einem-reverse-proxy).
+
 ## Register-Prüfwerkzeug: Abschluss von Epic #29
 
 Die Pakete #30–#39 sind zusammengeführt. Die

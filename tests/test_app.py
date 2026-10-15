@@ -44,6 +44,7 @@ def isolated_database(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setenv("DIAGNOSTICS_SOURCE", "device")
     monkeypatch.setenv("REGISTER_PROFILE", "core")
     monkeypatch.setenv("DISPLAY_TIMEZONE", "Europe/Vienna")
+    monkeypatch.setenv("PUBLIC_ORIGIN", "")
     monkeypatch.setattr("backend.main.get_settings", lambda: Settings(_env_file=None))
     get_settings.cache_clear()
     yield
@@ -261,6 +262,67 @@ def test_mutating_routes_require_same_origin_custom_header_and_log_config_change
     assert changed.status_code == 200
     assert config["display_timezone"] == "Europe/Vienna"
     assert "configuration_changed" in {event["kind"] for event in events["items"]}
+
+
+@pytest.mark.parametrize("origin", [
+    "https://monitor.example.invalid",
+    "http://testserver",
+])
+def test_proxy_origin_and_direct_access_can_save_configuration(monkeypatch, origin) -> None:
+    monkeypatch.setenv("PUBLIC_ORIGIN", "https://monitor.example.invalid")
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/config", json={"display_timezone": "UTC"},
+            headers={**MUTATION_HEADERS, "Origin": origin},
+        )
+        assert response.status_code == 200
+        assert client.get("/api/config").json()["display_timezone"] == "UTC"
+        assert "monitor.example.invalid" not in client.get("/api/config").text
+
+
+@pytest.mark.parametrize("headers", [
+    {"Origin": "https://foreign.example.invalid"},
+    {"Origin": "http://monitor.example.invalid"},
+    {"Origin": "https://monitor.example.invalid:8443"},
+    {"Origin": "https://monitor.example.invalid.foreign.invalid"},
+    {"Origin": "null"},
+    {"Origin": ""},
+    {"Sec-Fetch-Site": "cross-site"},
+    {"X-Requested-With": ""},
+    {"Origin": "https://foreign.example.invalid",
+     "X-Forwarded-Host": "foreign.example.invalid", "X-Forwarded-Proto": "https"},
+])
+def test_proxy_origin_rejects_untrusted_mutations_without_effect(monkeypatch, headers) -> None:
+    monkeypatch.setenv("PUBLIC_ORIGIN", "https://monitor.example.invalid")
+    with TestClient(app) as client:
+        before = client.get("/api/config").json()
+        response = client.put(
+            "/api/config", json={"display_timezone": "UTC"},
+            headers={**MUTATION_HEADERS, "Origin": "https://monitor.example.invalid", **headers},
+        )
+        assert response.status_code == 403
+        assert client.get("/api/config").json() == before
+        assert client.get("/api/events").json()["items"] == []
+
+
+def test_proxy_origin_requires_explicit_deployment_configuration() -> None:
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/config", json={"display_timezone": "UTC"},
+            headers={**MUTATION_HEADERS, "Origin": "https://monitor.example.invalid"},
+        )
+        assert response.status_code == 403
+        assert client.get("/api/config").json()["display_timezone"] == "Europe/Vienna"
+
+
+@pytest.mark.parametrize("origin", [
+    "*", "https://*.example.invalid", "file:///tmp/monitor", "monitor.example.invalid",
+    "https://user:password@monitor.example.invalid", "https://monitor.example.invalid/app",
+    "https://monitor.example.invalid?query=1", "https://monitor.example.invalid#fragment",
+])
+def test_public_origin_rejects_non_origin_configuration(origin) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, PUBLIC_ORIGIN=origin)
 
 
 def test_history_rejects_naive_or_reversed_ranges() -> None:

@@ -17,6 +17,7 @@ services:
       COLLECTOR_MAX_REQUESTS: ${COLLECTOR_MAX_REQUESTS:-}
       DATA_DIR: /data
       DISPLAY_TIMEZONE: ${DISPLAY_TIMEZONE:-Europe/Vienna}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
     volumes:
       - type: bind
         source: ${DATA_PATH:?DATA_PATH auf ein vorhandenes lokales Unraid-Datenverzeichnis setzen}
