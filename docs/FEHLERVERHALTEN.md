@@ -1,10 +1,9 @@
 # Erfassung, Fehler und Wiederaufnahme
 
-Entwurfswerte aus dem besprochenen Plan, vor Live-Betrieb offline prüfen.
-Ein Client, eine Anfrage; Kernblöcke jeweils mindestens 60 s auseinander,
-mindestens 10 s nach Ende der vorherigen Anfrage. Maximal zwei Register, 3 s
-Gesamtdeadline einschließlich Verbindungsaufbau/Antwort. Kein Nachholen in Bursts.
-Zusatzgruppen zunächst 300 s, genaue Reihenfolge nach Prüfung/Kapazitätsrechnung.
+Ein Client, eine Anfrage; Kernblöcke jeweils mindestens 60 s auseinander.
+Maximal zwei Register, 3 s Gesamtdeadline einschließlich Verbindungsaufbau/
+Antwort. Kein Nachholen in Bursts. Zusatzgruppen zunächst 300 s, genaue
+Reihenfolge nach Prüfung/Kapazitätsrechnung.
 
 ## Zustände und Übergänge
 

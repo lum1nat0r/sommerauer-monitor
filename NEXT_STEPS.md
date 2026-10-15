@@ -18,8 +18,8 @@ Einzeltestplan (noch nicht ausgeführt): Ziel ausschließlich aus der privaten
 Laufzeitkonfiguration `MODBUS_HOST`; Port 502, Unit 255, Modbus TCP/FC03.
 Zweck: neue Verbindung und die drei historisch bestätigten Kernblöcke prüfen:
 4102/1, 28688/2, 36864/2. Höchstens drei Anfragen insgesamt, je Anfrage
-maximal zwei Register und feste 3-s-Gesamtdeadline; seriell, mindestens
-10 s Abstand nach jeder Antwort, keinerlei Retry. Nach erster Verbindung,
+maximal zwei Register und feste 3-s-Gesamtdeadline; seriell, ohne zusätzliche
+Wartezeit zwischen Antworten und keinerlei Retry. Nach erster Verbindung,
 Protokoll- oder Datenabweichung sofort stoppen; keine zusätzlichen Register.
 Voraussetzung: andere Modbus-Leser einschließlich Altlogger sind beendet.
 Ergebnisse sind pro Block zu prüfen; ein Einzeltest belegt weder Dauerbetrieb
