@@ -1,16 +1,10 @@
 from datetime import datetime, timedelta, timezone
-import hashlib
-import json
-from pathlib import Path
-import subprocess
-import sys
 import threading
 import time
 
 import pytest
 
-from backend.collector import Collector, CollectorStopped
-from backend.device_lock import DeviceLock, DeviceOwnershipError
+from backend.collector import Collector, CollectorOwnershipError, _ProcessLock
 from backend.modbus import (
     ConnectionError as ModbusConnectionError,
     IncompleteResponseError,
@@ -73,50 +67,6 @@ def make_collector(
         retry_on_transport_error=retry_on_transport_error,
     )
     return collector, client, clock
-
-
-def diagnostic_run(store, state, *, reserve_request=True):
-    binding = {
-        "host": "127.0.0.1", "port": 1502, "unit_id": 255,
-        "source": "simulator", "catalog_sha256": "a" * 64,
-    }
-    plan = {
-        "schema_version": 1,
-        "catalog_sha256": binding["catalog_sha256"],
-        "register_ids": ["register:4098"],
-        "blocks": [{"offset": 4098, "count": 1}],
-        "purpose": "Synthetische Collector-Sperrprüfung",
-        "source": "simulator",
-        "target": {"host": binding["host"], "port": binding["port"]},
-        "target_fingerprint": hashlib.sha256(
-            json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest(),
-        "function_code": 3,
-        "unit_id": 255,
-        "deadline_seconds": 3,
-        "request_budget": 1,
-        "min_interval_seconds": 60,
-        "max_duration_seconds": 600,
-        "stop_conditions": ["transport", "protocol", "data", "storage", "operator", "expired"],
-    }
-    run_id = store.create_diagnostic_run(plan)["run_id"]
-    if reserve_request:
-        store.reserve_diagnostic_request(run_id, 0, "2026-10-15T12:00:00+00:00")
-    elif state != "planned":
-        store.set_diagnostic_run_state(run_id, "running", None)
-    if state == "awaiting_review":
-        store.finish_diagnostic_request(
-            run_id, 0,
-            {
-                "outcome": "ok", "raw_words": [0], "decoded": None,
-                "error_class": None, "received_bytes": 11,
-                "completed_at": "2026-10-15T12:00:01+00:00",
-            },
-            "awaiting_review",
-        )
-    elif state not in {"planned", "running"}:
-        store.set_diagnostic_run_state(run_id, state, "Synthetischer Diagnoseabschluss")
-    return run_id
 
 
 def test_budgeted_run_records_core_observations_and_stops(tmp_path):
@@ -196,11 +146,11 @@ def test_completed_finite_run_does_not_resume_after_restart(tmp_path):
     assert client.starts == []
 
 def test_second_owner_for_same_deployment_is_rejected(tmp_path):
-    first = DeviceLock(tmp_path / "collector.lock")
-    second = DeviceLock(tmp_path / "collector.lock")
+    first = _ProcessLock(tmp_path / "collector.lock")
+    second = _ProcessLock(tmp_path / "collector.lock")
     first.acquire()
     try:
-        with pytest.raises(DeviceOwnershipError, match="lock is held"):
+        with pytest.raises(CollectorOwnershipError, match="lock is held"):
             second.acquire()
     finally:
         first.release()
@@ -238,9 +188,6 @@ def test_pause_prevents_following_read_and_shutdown_wakes_paused_collector(tmp_p
     collector.start()
     assert client.entered.wait(1)
     collector.pause()
-    contender = DeviceLock(tmp_path / "collector.lock")
-    with pytest.raises(DeviceOwnershipError):
-        contender.acquire()
     client.release.set()
     deadline = time.monotonic() + 1
     while collector.state != "paused" and time.monotonic() < deadline:
@@ -249,8 +196,6 @@ def test_pause_prevents_following_read_and_shutdown_wakes_paused_collector(tmp_p
     assert collector.state == "paused"
     assert len(client.starts) == 1
     collector.stop()
-    contender.acquire()
-    contender.release()
 
 
 def test_shutdown_waits_for_inflight_read_then_prevents_another_request(tmp_path):
@@ -280,22 +225,12 @@ def test_shutdown_waits_for_inflight_read_then_prevents_another_request(tmp_path
         wait=clock.wait,
         now=clock.now,
     )
-    with collector.mode_lock:
-        collector.start()
-        assert client.entered.wait(1)
-        with pytest.raises(DeviceOwnershipError, match="lock is held"):
-            collector.run()
-        assert len(client.starts) == 1
-        assert collector._request_in_flight
-        with pytest.raises(TimeoutError, match="did not stop"):
-            collector.stop(timeout=0.01)
-        contender = DeviceLock(tmp_path / "collector.lock")
-        with pytest.raises(DeviceOwnershipError):
-            contender.acquire()
-        client.release.set()
-        collector.stop(timeout=1)
-    contender.acquire()
-    contender.release()
+    collector.start()
+    assert client.entered.wait(1)
+    with pytest.raises(TimeoutError, match="did not stop"):
+        collector.stop(timeout=0.01)
+    client.release.set()
+    collector.stop(timeout=1)
 
     assert len(client.starts) == 1
 
@@ -588,172 +523,3 @@ def test_changed_target_cannot_resume_saved_retry_state(tmp_path):
     assert restarted.state == "paused"
     assert restarted.error == "Saved state belongs to a different target or profile"
     assert client.starts == []
-
-
-@pytest.mark.parametrize("action", ["start", "run", "resume", "acknowledge_and_start"])
-@pytest.mark.parametrize(
-    "diagnostic_state",
-    [
-        "running", "awaiting_review", "interrupted", "stopped_transport",
-        "stopped_protocol", "stopped_data", "stopped_storage",
-    ],
-)
-def test_diagnostic_blocker_survives_restart_without_collector_mutation(
-    tmp_path, action, diagnostic_state,
-):
-    original, _, _ = make_collector(tmp_path)
-    original.error = "Synthetischer Kernfehler"
-    original._request_count = 7
-    original._reconnect_attempts = 3
-    original._successful_core_cycles = 1
-    original._successful_blocks_in_cycle = 2
-    original._persist_state()
-    run_id = diagnostic_run(original.store, diagnostic_state)
-    collector, client, _ = make_collector(tmp_path, store=original.store)
-    collector._stop.set()
-    collector._wake.set()
-    before_fields = collector.__dict__.copy()
-    before_state = collector.store.get_collector_state()
-    before_run = collector.store.get_diagnostic_run(run_id)
-
-    with pytest.raises(CollectorStopped, match="diagnostic"):
-        getattr(collector, action)()
-
-    assert collector.__dict__ == before_fields
-    assert collector._stop.is_set()
-    assert collector._wake.is_set()
-    assert collector._paused.is_set()
-    assert collector.store.get_collector_state() == before_state
-    assert collector.store.get_diagnostic_run(run_id) == before_run
-    assert client.starts == []
-    contender = DeviceLock(tmp_path / "collector.lock")
-    contender.acquire()
-    contender.release()
-
-
-@pytest.mark.parametrize("action", ["start", "run"])
-def test_diagnostic_blocker_is_checked_under_os_ownership(tmp_path, monkeypatch, action):
-    collector, client, _ = make_collector(tmp_path)
-    contender = DeviceLock(tmp_path / "collector.lock")
-
-    def blocker():
-        with pytest.raises(DeviceOwnershipError):
-            contender.acquire()
-        return "synthetic-blocker"
-
-    monkeypatch.setattr(collector.store, "diagnostic_access_blocker", blocker)
-    with pytest.raises(CollectorStopped, match="diagnostic"):
-        getattr(collector, action)()
-
-    assert collector.state == "paused"
-    assert collector.store.get_collector_state() is None
-    assert client.starts == []
-    contender.acquire()
-    contender.release()
-
-
-@pytest.mark.parametrize(
-    ("history", "recovery_delay", "first_delay"),
-    [
-        (True, None, 60.0),
-        (False, None, 0.0),
-        (True, -10.0, 60.0),
-        (True, 10.0, 60.0),
-        (True, 90.0, 90.0),
-        (False, -10.0, 0.0),
-        (False, 10.0, 10.0),
-    ],
-)
-def test_diagnostic_history_delays_first_read_in_normal_and_recovery_paths(
-    tmp_path, history, recovery_delay, first_delay,
-):
-    collector, client, clock = make_collector(tmp_path, limit=1)
-    diagnostic_run(
-        collector.store, "cancelled" if history else "planned",
-        reserve_request=history,
-    )
-    clock.elapsed = 100.0
-    if recovery_delay is not None:
-        collector.state = "reconnect_wait"
-        collector._retry_at = clock.now() + timedelta(seconds=recovery_delay)
-        collector._retry_monotonic_deadline = clock.monotonic() + recovery_delay
-        collector._retry_delay_seconds = 60.0
-    waits = []
-
-    def boundary_wait(event, seconds):
-        assert not event.is_set()
-        assert client.starts == []
-        waits.append(seconds)
-        if len(waits) == 1:
-            assert seconds == pytest.approx(first_delay)
-            clock.elapsed += seconds - 0.001
-        else:
-            assert seconds == pytest.approx(0.001)
-            clock.elapsed += seconds
-        return False
-
-    collector.wait = boundary_wait
-    collector.run()
-
-    assert collector.state == "completed"
-    assert client.starts == [(4102, pytest.approx(100.0 + first_delay))]
-    assert len(waits) == (2 if first_delay else 0)
-
-
-def test_acknowledged_diagnostic_error_stays_terminal_until_explicit_collector_resume(tmp_path):
-    collector, client, _ = make_collector(tmp_path, limit=1)
-    run_id = diagnostic_run(collector.store, "stopped_data")
-    with pytest.raises(CollectorStopped):
-        collector.acknowledge_and_start()
-
-    collector.store.acknowledge_diagnostic_run(run_id, "Synthetische Ursache geprüft")
-    assert client.starts == []
-    assert collector.store.get_diagnostic_run(run_id)["state"] == "stopped_data"
-    collector.resume()
-    collector._thread.join(1)
-
-    assert not collector._thread.is_alive()
-    assert collector.state == "completed"
-    assert client.starts == [(4102, 60.0)]
-    collector.stop()
-
-
-def test_collector_rejects_actual_competing_process_without_client_access(tmp_path):
-    code = (
-        "from pathlib import Path\n"
-        "import sys\n"
-        "from backend.device_lock import DeviceLock\n"
-        "lock = DeviceLock(Path(sys.argv[1]) / 'collector.lock')\n"
-        "lock.acquire()\n"
-        "print('owned', flush=True)\n"
-        "try:\n"
-        "    sys.stdin.readline()\n"
-        "finally:\n"
-        "    lock.release()\n"
-    )
-    process = subprocess.Popen(
-        [sys.executable, "-c", code, str(tmp_path)],
-        cwd=Path(__file__).resolve().parents[1],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    collector, client, _ = make_collector(tmp_path)
-    try:
-        assert process.stdout.readline().strip() == "owned"
-        for action in (collector.start, collector.run):
-            with pytest.raises(DeviceOwnershipError, match="lock is held"):
-                action()
-        assert client.starts == []
-        assert collector.store.get_collector_state() is None
-    finally:
-        try:
-            _, stderr = process.communicate("\n", timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.communicate(timeout=5)
-            raise
-    assert process.returncode == 0, stderr
-    collector._lock.acquire()
-    collector._lock.release()

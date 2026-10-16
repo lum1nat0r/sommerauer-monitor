@@ -1,37 +1,20 @@
-from concurrent.futures import ThreadPoolExecutor
-import multiprocessing
-from pathlib import Path
-import threading
 import time
 
 from fastapi.testclient import TestClient
 import pytest
 from pydantic import ValidationError
 
-from backend.collector import Collector
 from backend.config import Settings, get_settings
-from backend.device_lock import DeviceLock, DeviceOwnershipError
 from backend.main import app
 from backend.modbus import RegisterRead
-from backend.read_checks import ReadCheckError, ReadCheckRunner
-from backend.storage import SQLiteStore, StorageError, utc_now
+from backend.storage import StorageError
+
 
 MUTATION_HEADERS = {
     "Origin": "http://testserver",
     "Sec-Fetch-Site": "same-origin",
     "X-Requested-With": "SommerauerMonitor",
 }
-
-
-def _hold_device_lock(path: str, ready, release) -> None:
-    owner = DeviceLock(Path(path))
-    owner.acquire()
-    try:
-        ready.set()
-        release.wait(15)
-    finally:
-        owner.release()
-
 
 @pytest.fixture(autouse=True)
 def isolated_database(monkeypatch: pytest.MonkeyPatch, tmp_path):
@@ -41,7 +24,6 @@ def isolated_database(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setenv("MODBUS_PORT", "1502")
     monkeypatch.setenv("MODBUS_UNIT_ID", "255")
     monkeypatch.setenv("COLLECTOR_MAX_REQUESTS", "")
-    monkeypatch.setenv("DIAGNOSTICS_SOURCE", "device")
     monkeypatch.setenv("REGISTER_PROFILE", "core")
     monkeypatch.setenv("DISPLAY_TIMEZONE", "Europe/Vienna")
     monkeypatch.setenv("PUBLIC_ORIGIN", "")
@@ -373,243 +355,3 @@ def test_history_distinguishes_repeated_local_hour_at_dst_fallback() -> None:
 
     assert response.status_code == 200
     assert [item["value"] for item in response.json()["items"]] == [40, 41]
-
-
-@pytest.mark.parametrize("action", ["pause", "resume", "acknowledge-and-start"])
-def test_collector_actions_wait_for_runner_mode_lock(
-    monkeypatch: pytest.MonkeyPatch, action: str,
-) -> None:
-    monkeypatch.setenv("MODBUS_HOST", "127.0.0.1")
-    monkeypatch.setenv("COLLECTOR_ENABLED", "true")
-    monkeypatch.setattr(Collector, "start", lambda collector: None)
-    invoked = threading.Event()
-    entered = threading.Event()
-    with TestClient(app) as client:
-        collector = app.state.collector
-        method = action.replace("-", "_")
-        monkeypatch.setattr(collector, method, invoked.set)
-
-        def request_action():
-            entered.set()
-            return client.post(f"/api/collector/{action}", headers=MUTATION_HEADERS)
-
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            with app.state.runner.mode_lock:
-                response = pool.submit(request_action)
-                assert entered.wait(2)
-                assert not invoked.wait(0.05)
-            assert response.result(timeout=3).status_code == 200
-        assert invoked.is_set()
-
-
-@pytest.mark.parametrize(("failure", "code", "status"), [
-    (StorageError("private synthetic storage path"), "storage_unavailable", 503),
-    (ReadCheckError("run_conflict"), "run_conflict", 409),
-])
-def test_recovery_failure_keeps_read_api_and_blocks_every_collector_action(
-    monkeypatch: pytest.MonkeyPatch, failure: Exception, code: str, status: int,
-) -> None:
-    monkeypatch.setenv("MODBUS_HOST", "127.0.0.1")
-    monkeypatch.setenv("COLLECTOR_ENABLED", "true")
-    starts = []
-    stops = []
-
-    def fail_recovery(runner):
-        raise failure
-
-    monkeypatch.setattr(ReadCheckRunner, "recover_interrupted", fail_recovery)
-    monkeypatch.setattr(Collector, "start", lambda collector: starts.append(True))
-    monkeypatch.setattr(Collector, "stop", lambda collector: stops.append(True))
-    with TestClient(app) as client:
-        assert app.state.diagnostics_blocker == code
-        assert client.get("/api/health").status_code == 200
-        assert client.get("/api/history/boiler.temperature").status_code == 200
-        catalog = client.get("/api/diagnostics/catalog")
-        assert catalog.status_code == 200
-        assert catalog.json()["blockade"] == code
-        for action in ("pause", "resume", "acknowledge-and-start"):
-            denied = client.post(f"/api/collector/{action}", headers=MUTATION_HEADERS)
-            assert denied.status_code == status
-            assert denied.json()["detail"]["code"] == code
-            assert "private synthetic" not in denied.text
-
-    assert starts == stops == []
-
-
-def _persist_abandoned_run(client: TestClient) -> tuple[str, dict]:
-    created = client.post(
-        "/api/diagnostics/runs",
-        json={"register_ids": ["register:4098"], "purpose": "Synthetische Recoveryprüfung"},
-        headers=MUTATION_HEADERS,
-    )
-    assert created.status_code == 201
-    run_id = created.json()["run_id"]
-    store = app.state.storage
-    store.set_diagnostic_run_state(run_id, "running", None)
-    store.reserve_diagnostic_request(run_id, 0, utc_now())
-    return run_id, store.get_diagnostic_run(run_id)
-
-
-def test_foreign_os_owner_preserves_active_run_and_keeps_read_api_available(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-) -> None:
-    monkeypatch.setenv("MODBUS_HOST", "127.0.0.1")
-    with TestClient(app) as client:
-        run_id, original = _persist_abandoned_run(client)
-
-    starts = []
-    requests = []
-
-    class NoDeviceClient:
-        def __init__(self, host, port):
-            pass
-
-        def read(self, block):
-            requests.append(block)
-            raise AssertionError("No device request is allowed during recovery conflict")
-
-    monkeypatch.setattr("backend.collector.ModbusTcpClient", NoDeviceClient)
-    monkeypatch.setattr(Collector, "start", lambda collector: starts.append(True))
-    monkeypatch.setenv("COLLECTOR_ENABLED", "true")
-    context = multiprocessing.get_context("spawn")
-    ready, release = context.Event(), context.Event()
-    owner = context.Process(
-        target=_hold_device_lock,
-        args=(str(tmp_path / "collector.lock"), ready, release),
-    )
-    owner.start()
-    try:
-        assert ready.wait(5), "synthetic foreign owner did not acquire the OS lock"
-        with TestClient(app) as client:
-            assert app.state.diagnostics_blocker == "run_conflict"
-            assert app.state.storage.get_diagnostic_run(run_id) == original
-            assert client.get("/api/health").status_code == 200
-            assert client.get("/api/history/boiler.temperature").json()["total"] == 0
-            assert client.get("/api/diagnostics/catalog").json()["blockade"] == "run_conflict"
-            assert client.get(f"/api/diagnostics/runs/{run_id}").json()["state"] == "running"
-            assert client.get(f"/api/diagnostics/runs/{run_id}/export").status_code == 200
-            for action in ("pause", "resume", "acknowledge-and-start"):
-                denied = client.post(f"/api/collector/{action}", headers=MUTATION_HEADERS)
-                assert denied.status_code == 409
-                assert denied.json()["detail"]["code"] == "run_conflict"
-            denied = client.post(
-                f"/api/diagnostics/runs/{run_id}/start",
-                json={"other_readers_stopped": True}, headers=MUTATION_HEADERS,
-            )
-            assert denied.status_code == 409
-            assert denied.json()["detail"]["code"] == "run_conflict"
-        store = SQLiteStore(tmp_path / "monitor.sqlite3")
-        assert store.get_diagnostic_run(run_id) == original
-        assert store.get_collector_state() is None
-        assert starts == requests == []
-    finally:
-        release.set()
-        owner.join(5)
-        if owner.is_alive():
-            owner.terminate()
-            owner.join(5)
-    assert owner.exitcode == 0
-
-
-def test_recovered_reservation_requires_acknowledgement_without_collector_restart(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("MODBUS_HOST", "127.0.0.1")
-    with TestClient(app) as client:
-        run_id, _ = _persist_abandoned_run(client)
-
-    monkeypatch.setenv("COLLECTOR_ENABLED", "true")
-    requests = []
-
-    class NoDeviceClient:
-        def __init__(self, host, port):
-            pass
-
-        def read(self, block):
-            requests.append(block)
-            raise AssertionError("Recovery and acknowledgement must not read the device")
-
-    monkeypatch.setattr("backend.collector.ModbusTcpClient", NoDeviceClient)
-    with TestClient(app) as client:
-        saved = app.state.storage.get_diagnostic_run(run_id)
-        assert saved["state"] == "interrupted"
-        assert saved["requests_reserved"] == 1
-        assert saved["requests"][0]["raw_words"] is None
-        assert app.state.diagnostics_blocker is None
-        for action in ("resume", "acknowledge-and-start"):
-            denied = client.post(f"/api/collector/{action}", headers=MUTATION_HEADERS)
-            assert denied.status_code == 409
-            assert denied.json()["detail"]["code"] == "diagnostic_stop_unacknowledged"
-        acknowledged = client.post(
-            f"/api/diagnostics/runs/{run_id}/acknowledge",
-            json={"resolution": "Synthetischen Prozessabbruch geprüft"},
-            headers=MUTATION_HEADERS,
-        )
-        assert acknowledged.status_code == 200
-        assert acknowledged.json()["state"] == "interrupted"
-        assert client.get("/api/collector/status").json()["state"] == "paused"
-        assert requests == []
-
-
-def test_disabled_collector_still_has_runner_and_shutdown_releases_active_diagnosis(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-) -> None:
-    monkeypatch.setenv("MODBUS_HOST", "127.0.0.1")
-    monkeypatch.setenv("DIAGNOSTICS_SOURCE", "simulator")
-    with TestClient(app) as client:
-        assert app.state.collector is None
-        runner = app.state.runner
-        assert isinstance(runner, ReadCheckRunner)
-        assert client.get("/api/config").json()["diagnostics_source"] == "simulator"
-        created = client.post(
-            "/api/diagnostics/runs",
-            json={"register_ids": ["register:4098"], "purpose": "Synthetischer Shutdown"},
-            headers=MUTATION_HEADERS,
-        )
-        assert created.status_code == 201
-        run_id = created.json()["run_id"]
-        started = client.post(
-            f"/api/diagnostics/runs/{run_id}/start",
-            json={"other_readers_stopped": True}, headers=MUTATION_HEADERS,
-        )
-        assert started.status_code == 200
-        assert started.json()["state"] == "running"
-        assert runner.client is None
-        owner = DeviceLock(tmp_path / "collector.lock")
-        with pytest.raises(DeviceOwnershipError):
-            owner.acquire()
-
-    assert runner.stop_event.is_set()
-    assert all(not worker.is_alive() for worker in runner._workers)
-    assert runner.store.get_diagnostic_run(run_id)["state"] == "cancelled"
-    assert runner.store.get_diagnostic_run(run_id)["requests_reserved"] == 0
-    owner.acquire()
-    owner.release()
-
-
-def test_collector_started_explicitly_after_recovery_is_stopped_on_shutdown(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("MODBUS_HOST", "127.0.0.1")
-    with TestClient(app) as client:
-        run_id, _ = _persist_abandoned_run(client)
-
-    monkeypatch.setenv("COLLECTOR_ENABLED", "true")
-    calls = []
-    with TestClient(app) as client:
-        collector = app.state.collector
-        assert app.state.collector_started is False
-        monkeypatch.setattr(collector, "start", lambda: calls.append("start"))
-        monkeypatch.setattr(collector, "stop", lambda: calls.append("stop"))
-        acknowledged = client.post(
-            f"/api/diagnostics/runs/{run_id}/acknowledge",
-            json={"resolution": "Synthetische Ursache geklärt"},
-            headers=MUTATION_HEADERS,
-        )
-        assert acknowledged.status_code == 200
-        assert calls == []
-        started = client.post("/api/collector/acknowledge-and-start", headers=MUTATION_HEADERS)
-        assert started.status_code == 200
-        assert calls == ["start"]
-
-    assert calls == ["start", "stop"]

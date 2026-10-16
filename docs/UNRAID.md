@@ -110,7 +110,7 @@ Deploymentkonfiguration und wird nicht von `/api/config` ausgegeben.
 
 Nach dem Update zuerst eine reine App-Aktion über die Domain prüfen, etwa die
 Anzeigezeitzone speichern, und den Collectorstatus unverändert kontrollieren.
-Keinen Diagnose-Read oder Erfassungsstart als Proxytest verwenden. Domainzugang
+Keinen Erfassungsstart als Proxytest verwenden. Domainzugang
 ersetzt keine Authentisierung: weiterhin nur vertrauenswürdiges LAN/Tailscale,
 keine öffentliche Freigabe der ungeschützten Verwaltungs-API.
 
