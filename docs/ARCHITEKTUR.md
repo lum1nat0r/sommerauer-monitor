@@ -20,12 +20,10 @@ flowchart LR
 - Registerprofil: versionierte, freigegebene Gruppen; öffentliche Vollreferenz ist
   keine ausführbare Konfiguration. Das implementierte Erstprofil `core` enthält
   ausschließlich die drei bestätigten Blöcke in `backend/registers.py`.
-- Transport: `backend/modbus.py` verwendet für `read(RegisterBlock)` ausschließlich
-  exakte `core`-Blöcke; `read_catalog(CatalogReadBlock)` validiert getrennt gegen
-  die kanonische Paketressource. Beide teilen denselben privaten FC03-Pfad,
-  immer Unit 255, höchstens zwei Register und 3 s Gesamtdeadline. Keine Retries.
-  MBAP/PDU, Protokoll-ID, Länge, Transaktion, Unit, Funktion und Byteanzahl werden
-  geprüft; Fehler enthalten empfangene Bytezahl.
+- Transport: `backend/modbus.py` erzeugt ausschließlich FC03-Anfragen zu den exakten
+  `core`-Blöcken, immer Unit 255, höchstens zwei Register und mit 3-s-Gesamtdeadline.
+  Keine Wiederholungen. MBAP/PDU, Protokoll-ID, Länge, Transaktion, Unit, Funktion
+  und Byteanzahl werden geprüft; Fehler enthalten empfangene Bytezahl.
 - Decoder: reine Funktionen, Signalherkunft und Gültigkeit. Kein I/O und keine
   stillschweigende Skalierung unbekannter Einträge.
 - Sammler (`backend/collector.py`): zentraler sequenzieller Kernprofil-Leser mit
@@ -35,20 +33,7 @@ flowchart LR
   sperren neue Reads.
   Ein OS-Dateilock im Datenverzeichnis verhindert konkurrierende Prozesse mit
   gemeinsamem Deployment-Volume. Die FastAPI-Lifespan startet ihn nur bei
-  `COLLECTOR_ENABLED=true` nach Diagnose-Recovery und Besitzprüfung.
-  Lesende HTTP-Aufrufe starten keine Reads; nur ein expliziter zulässiger
-  Diagnose-Read führt genau einen reservierten Versuch aus.
-- Manueller Prüfdienst (`backend/read_checks.py`): ein gemeinsamer `mode_lock`
-  (`RLock`) für Modusaktionen, Stop-Event vor Lockwartezeit, fester endlicher
-  Prüfplan und persistent reservierte Einzelversuche. Er übernimmt den
-  Gerätebesitz erst nach Collector-Stop/Join; `start()` selbst liest nichts.
-  `backend/device_lock.py` stellt dieselbe plattformabhängige OS-Sperre unter
-  `DATA_DIR/collector.lock` bereit. Diagnosehistorie verschiebt den nächsten
-  Collector-Lesebeginn konservativ um 60 s, auch bei Recovery.
-  Ein Watchdog prüft ausschließlich Stop/Gesamtfrist, niemals Register.
-  Rohworte und Betreiberbewertungen bleiben im Diagnosejournal; Kernbeobachtungen
-  entstehen hier nicht. Nur exakte Kernblöcke werden interpretiert; der letzte
-  Diagnose-Zählerbeleg desselben Ziel-Fingerprints dient der Verlaufskontrolle.
+  `COLLECTOR_ENABLED=true`; HTTP-Aufrufe starten keine Reads.
 - Repository (`backend/storage.py`): versioniertes SQLite-Schema, atomare und
   idempotente Erfassungszyklen, Ereignis-/Zustands-/Konfigurationsspeicherung,
   begrenzte Chronologieabfragen, Online-Backup/Restore und Speicherfehler als
@@ -70,29 +55,19 @@ flowchart LR
 Die lokale Schnittstelle ist in `backend/config.py` umgesetzt; `.env.example` enthält
 nur sichere Standardwerte. Unterstützte Variablen: `MODBUS_HOST` (optional),
 `MODBUS_PORT`, `MODBUS_UNIT_ID`, `REGISTER_PROFILE`, `COLLECTOR_ENABLED`,
-`COLLECTOR_MAX_REQUESTS`, `DIAGNOSTICS_SOURCE`, `DATA_DIR` und `DISPLAY_TIMEZONE`. `COLLECTOR_ENABLED` ist
+`COLLECTOR_MAX_REQUESTS`, `DATA_DIR` und `DISPLAY_TIMEZONE`. `COLLECTOR_ENABLED` ist
 standardmäßig `false`; bei aktivierter Erfassung ohne Host startet die Anwendung mit
 Konfigurationsfehler. `COLLECTOR_MAX_REQUESTS` begrenzt die Gesamtzahl der Reads und
 deaktiviert automatische Wiederaufnahmen bei Transportfehlern für diesen endlichen
 Lauf. Ohne Wert bleibt der reguläre Sammlerbetrieb unverändert. `/api/config` gibt nur
 `host_configured` statt des Hostwerts zurück und veröffentlicht keinen privaten Datenpfad.
-`DIAGNOSTICS_SOURCE` ist standardmäßig `device`; `simulator` verlangt exakt
-`MODBUS_HOST=127.0.0.1`. Loopback allein stuft keine Quelle als synthetisch ein.
-Der Runner bindet den gespeicherten Plan an aktuelles Ziel, Quelle und Kataloghash;
-Host/Port-Snapshot und Fingerprint bleiben privat.
-
-Diagnose-Lifespan und HTTP-Routen sind seit #35 integriert:
-Recovery nur nach eigener OS-Besitzübernahme und vor möglichem Collectorstart;
-bei Besitzkonflikt Status `run_conflict`, lesende API bleibt verfügbar.
-Collector-Mutationen benutzen denselben `runner.mode_lock`; Shutdown beendet
-zuerst den Runner, danach den Collector. Diagnoseende und Quittierung starten
-keinen Sammler. Fremde Leser außerhalb des Datenvolumens benötigen vor Live-Start
-die ausdrückliche Betreiberangabe, dass sie angehalten sind.
 
 `uv.lock` sperrt Python-Abhängigkeiten; `package-lock.json` sperrt Frontendpakete.
-Entwicklungsbasis: CPython 3.12.9, uv 0.12.2, Node.js 26.x und npm 12.x.
-CI und Lockdateien fixieren reproduzierbare Eingaben. Änderungen dieser
-Versionen erfolgen bewusst und zusammen mit aktualisierten Locks.
+Entwicklungsbasis: CPython 3.12.9, Node.js 22.14.0 und npm 10.9.2. Python 3.12
+wird als konservative, von den benötigten Bibliotheken unterstützte Laufzeitreihe
+verwendet; Node 22 ist die LTS-Reihe für den React/Vite-Build. CI und Lockdateien
+fixieren reproduzierbare Eingaben. Änderungen dieser Versionen erfolgen bewusst
+und zusammen mit aktualisierten Locks.
 
 Der FC03-Transport ist eine synchrone Socket-Implementierung ohne Bibliotheks-Retry.
 Der Offline-Simulator (`python -m backend.modbus_simulator`) bindet ausschließlich an
@@ -117,18 +92,3 @@ prozesslokaler Mutex als hinreichende Lösung behaupten.
 Testbarkeit: Clock, Transport und Speichergrenzen injizierbar; Tests können Minuten
 simulieren, ohne in Echtzeit zu warten. Änderungen an Laufzeiten erfolgen zusammen
 mit aktualisierten Python-/npm-Locks und CI-Versionen.
-
-## Paket- und Auslieferungsgrenze
-
-`backend/resources/register_catalog.json` ist die einzige Katalogressource;
-`backend.catalog.load_catalog()` lädt sie über `importlib.resources`, nicht
-aus CWD oder `config/`. Der Wheel-Nachweis #39 umfasst 199 Einträge und
-byteidentische Ressource aus installiertem `site-packages` außerhalb des Checkouts.
-Das Wheel enthält das Backend, nicht die gebaute UI. `npm run build` erzeugt
-`dist`; das vorhandene Dockerfile kopiert dessen Inhalt nach `/app/static`.
-`backend.main` mountet das Geschwisterverzeichnis `static` über `StaticFiles`.
-Dieser Pfad wurde hostlos mit installiertem Wheel und kopiertem Build bedient,
-nicht mit Vite. Containerlauf lokal ungeprüft: Docker nicht verfügbar.
-API und Diagnose bleiben innerhalb der unveränderten LAN-/Tailscale-Grenze;
-Same-Origin ist keine Authentisierung. Schema-/Restore- und Projektionsverträge:
-[Datenmodell](DATENMODELL.md#diagnosejournal-issue-31).

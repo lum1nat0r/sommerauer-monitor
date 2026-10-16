@@ -11,69 +11,9 @@ und vom Betreiber bestätigtem Displayabgleich belegt
 ([Ergebnisse](reports/RESULTS.md), [Betriebsplan](docs/INBETRIEBNAHME.md)).
 Offen: tatsächliches Unraid-Deployment und Langzeitbetrieb. Kein Dauerbetrieb aktiviert.
 
-Issue #30 ergänzt die isolierte Katalogreferenz für das Register-Prüfwerkzeug:
-199 unveränderte Zuordnungen als validierte Paketressource, unveränderlicher
-Prozesssnapshot und Auswahl von 1–3 engen Leseblöcken.
-Vertrag und Grenzen: [Modbus/Katalog](docs/MODBUS.md#diagnoseauswahl-issue-30).
-
-Issue #31 ergänzt ein getrenntes SQLite-Diagnosejournal mit unveränderlichen
-Prüfplänen, dauerhaften Anfrage-Reservierungen, quittierungspflichtigen Stopps und
-Schema-v2-Migration/Restore. Keine Geräte-I/O; Steuerrevisionen erhalten nur ihre
-Tabelle. Interner Speichervertrag und Datenschutz:
-[Datenmodell](docs/DATENMODELL.md#diagnosejournal-issue-31).
-
-Issue #32 ergänzt `read_catalog()` über denselben strikten FC03-Telegrammpfad
-wie Kernreads und den expliziten synthetischen Simulator-Katalogmodus
-(`--catalog`). Issue #33 ergänzt den endlichen manuellen `ReadCheckRunner` mit
-gemeinsamem Gerätebesitz, persistenten Stopps und gesperrter Recovery:
-höchstens drei explizite Reads, 60 s Abstand einschließlich Speicherung,
-600 s Laufzeit; keine zusätzlichen Kernmessungen. Issue #35 bindet Diagnose-API,
-Recovery und Lifespan sicher an. Issue #36 ergänzt die Bedienung im Dashboard:
-Katalog/Details, manuelle Prüfläufe und nicht ausführbare Steuerentwürfe.
-Keine zusätzliche Live-Abnahme.
-Issue #37 belegt die automatisierte Sicherheits-/Verbraucherabnahme einschließlich
-echter Zweitprozesssperren, gegateter Stop-/Reservierungs-/Joinrennen,
-unveränderter Backupquellen und nicht ausführbarer Steuerrevisionen.
-Vollständige Matrixzuordnung und tatsächlich ausgeführte Prüfungen:
-[Ergebnisse](reports/RESULTS.md#15102026--issue-37-automatisierte-diagnose-gesamtabnahme).
-Die Browser-/Persistenzabnahme #38 ist mit echten Wartezeiten, bereinigten
-Screenshots, Download-/SQLite-Abgleich und hartem Exception-Stopp belegt:
-[Ergebnisse und Oberflächenbelege](reports/RESULTS.md#15102026--issue-38-reale-offline-browserabnahme).
-Issue #39 belegt das installierte Wheel außerhalb des Checkouts (199 Einträge,
-identische Ressourcenbytes) und die tatsächlich bediente gebaute StaticFiles-UI.
-Containerlauf lokal ungeprüft: Docker nicht verfügbar.
-[Paketabnahme und Grenzen](reports/RESULTS.md#15102026--issue-39-wheel-und-gebaute-laufzeitoberfläche).
-
-
-Issue #34 ergänzt rein offline bewertete Steuerentwürfe mit atomaren,
-unveränderlichen SQLite-Revisionen und privater Exportprojektion. Auch vollständig
-ausgefüllte Pläne bleiben nicht ausführbar; Sensorblocker und ungeklärter
-autonomer START-/SOLL-Rückfall bleiben sichtbar.
-[Vertrag](docs/DATENMODELL.md#steuerentwürfe-und-revisionen-issue-34).
-
-Die Diagnose-API unter `/api/diagnostics` liefert bereinigtes Inventar, endliche
-Prüfpläne und private JSON-Belege sowie revisionierte Offline-Steuerentwürfe.
-GETs lösen keine Geräteanfrage aus; Start verlangt ausdrücklich
-`other_readers_stopped:true` und sendet ebenfalls nichts. Nur ein zulässiger,
-expliziter `/read` führt genau einen FC03-Versuch aus. Monitoring startet nach
-Diagnoseende oder Quittierung nicht automatisch erneut.
-[HTTP-Vertrag und Vertrauensgrenze](docs/DATENMODELL.md#diagnose-http-api-issue-35).
-
-Im Dashboard zwischen **Übersicht** und **Diagnose** wechseln. Kopf und
-Erfassungsstatus bleiben sichtbar; der Bereichswechsel erhält geladene Belege
-und Formulareingaben. Die Diagnose bietet 50er-Katalogseiten, Suche nach Name,
-Dezimaloffset oder Hexcode und getrennte START-/SOLL-Kandidaten ohne Leseauswahl.
-Ein Prüfplan zeigt vor dem Start die tatsächlich aufgelösten Serverblöcke.
-Nur „Nächste Anfrage lesen“ sendet nach der serverseitigen Wartefrist eine
-einzelne Anfrage; jede Antwort benötigt eine ausdrückliche Bewertung.
-Countdown, Refresh und JSON-Export starten nichts. Fehlerquittierung und
-Diagnoseende setzen das Monitoring nicht fort.
-
-Steuerpläne speichern ausschließlich Offline-Entwürfe mit Revisionsprüfung.
-Bei einem Konflikt bleiben Eingaben erhalten; der neue Serverstand muss
-ausdrücklich übernommen werden. „Formal bereit zur fachlichen Prüfung“ ist
-keine Freigabe. Auch vollständige Exporte bleiben `execution_enabled:false`.
-JSON-Belege und Betreiberfreitexte sind privat, nicht für öffentliche Issues.
+**Rückbau 16.10.2026:** Diagnosefunktion und Offline-Steuerentwürfe wurden
+entfernt; die App dient dem Monitoring. Die Git-Historie bleibt erhalten.
+Vorhandene Datenbanken und Minutenhistorien nicht löschen.
 
 ## Hier mit der Arbeit beginnen
 
@@ -127,9 +67,7 @@ Beispiele, Logs oder CI übernehmen.
 `/api/config` enthält weder Hostwert noch lokalen Datenpfad. Der Host wird nur als
 gesetzt/nicht gesetzt ausgewiesen. Der enge FC03-Client und Offline-Simulator sind
 unter `backend/modbus.py` und `backend/modbus_simulator.py` verfügbar; der
-Standardstart ohne aktivierte Erfassung führt keine Gerätezugriffe aus und startet
-keinen Simulator. Ein konfigurierter aktivierter Sammler startet erst nach
-erfolgreicher Diagnose-Recovery und Besitzprüfung.
+Anwendungsstart startet weder Sammler noch Simulator und führt keine Gerätezugriffe aus.
 Den Simulator lokal mit `uv run python -m backend.modbus_simulator` starten
 (Standardbindung `127.0.0.1:1502`); Faults sind per `--fault` wählbar.
 
@@ -165,7 +103,7 @@ Lizenz: eigener App-Code unter [MIT](LICENSE), vom Betreiber am 15.10.2026 best�
 |---|---|
 | [Architektur](docs/ARCHITEKTUR.md) | Bausteine, Zuständigkeiten und Konfiguration |
 | [Modbus](docs/MODBUS.md) | Offsets, Decoder, Prüfstatus und bekannte Grenzen |
-| [Registerkatalog](backend/resources/register_catalog.json) | Alle 199 dokumentierten Projektzuordnungen; kein aktives Pollingprofil |
+| [Registerkatalog](docs/register_catalog.json) | Statische Referenz aller 199 dokumentierten Projektzuordnungen; kein aktives Pollingprofil |
 | [Datenmodell](docs/DATENMODELL.md) | Signalnamen, Historie, Qualität, Zeitstempel, API-Vertrag |
 | [Fehlerverhalten](docs/FEHLERVERHALTEN.md) | Zustände, Wiederverbindungsbudget und harter Stopp |
 | [Inbetriebnahme](docs/INBETRIEBNAHME.md) | Begrenzte Lesetests und Übergang zum Dauerbetrieb |

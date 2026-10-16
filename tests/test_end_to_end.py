@@ -6,31 +6,12 @@ from threading import Event
 import sqlite3
 
 from fastapi.testclient import TestClient
-import pytest
 
 from backend.collector import Collector
-from backend.config import Settings, get_settings
 from backend.main import app
 from backend.modbus import ModbusTcpClient
 from backend.modbus_simulator import ModbusSimulator
 from backend.storage import SQLiteStore
-
-
-@pytest.fixture(autouse=True)
-def isolated_settings(monkeypatch, tmp_path):
-    monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("COLLECTOR_ENABLED", "false")
-    monkeypatch.setenv("MODBUS_HOST", "")
-    monkeypatch.setenv("MODBUS_PORT", "1502")
-    monkeypatch.setenv("MODBUS_UNIT_ID", "255")
-    monkeypatch.setenv("COLLECTOR_MAX_REQUESTS", "")
-    monkeypatch.setenv("DIAGNOSTICS_SOURCE", "device")
-    monkeypatch.setenv("REGISTER_PROFILE", "core")
-    monkeypatch.setenv("DISPLAY_TIMEZONE", "Europe/Vienna")
-    monkeypatch.setattr("backend.main.get_settings", lambda: Settings(_env_file=None))
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
 
 
 class VirtualClock:

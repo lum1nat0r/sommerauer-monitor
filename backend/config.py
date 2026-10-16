@@ -21,9 +21,6 @@ class Settings(BaseSettings):
     register_profile: Literal["core"] = Field(default="core", alias="REGISTER_PROFILE")
     collector_enabled: bool = Field(default=False, alias="COLLECTOR_ENABLED")
     collector_max_requests: int | None = Field(default=None, alias="COLLECTOR_MAX_REQUESTS", ge=1)
-    diagnostics_source: Literal["device", "simulator"] = Field(
-        default="device", alias="DIAGNOSTICS_SOURCE",
-    )
 
     data_dir: Path = Field(default=Path("/data"), alias="DATA_DIR")
     display_timezone: str = Field(default="Europe/Vienna", alias="DISPLAY_TIMEZONE")
@@ -71,8 +68,6 @@ class Settings(BaseSettings):
     def require_host_for_enabled_collector(self) -> "Settings":
         if self.collector_enabled and self.modbus_host is None:
             raise ValueError("MODBUS_HOST is required when COLLECTOR_ENABLED=true")
-        if self.diagnostics_source == "simulator" and self.modbus_host != "127.0.0.1":
-            raise ValueError("DIAGNOSTICS_SOURCE=simulator requires MODBUS_HOST=127.0.0.1")
         return self
 
     def public_summary(self) -> dict[str, str | int | bool]:

@@ -1,17 +1,11 @@
-from concurrent.futures import ThreadPoolExecutor
-from copy import deepcopy
-from datetime import datetime, timedelta
-import hashlib
-import json
-from threading import Barrier
-from uuid import UUID
+from contextlib import closing
+from datetime import datetime, timedelta, timezone
 
 import sqlite3
 
 import pytest
-from pydantic import ValidationError
 
-from backend.storage import SCHEMA_VERSION, RevisionConflict, SQLiteStore, StorageError
+from backend.storage import SCHEMA_VERSION, SQLiteStore, StorageError
 
 
 def make_store(tmp_path):
@@ -96,10 +90,158 @@ def test_migration_reopen_preserves_rows_and_rejects_newer_schema(tmp_path):
     assert SQLiteStore(path).history("boiler.temperature") == store.history("boiler.temperature")
     with sqlite3.connect(path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
-        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+        connection.execute("PRAGMA user_version = 3")
 
     with pytest.raises(StorageError, match="newer than supported"):
         SQLiteStore(path)
+    with pytest.raises(StorageError, match="Backup schema 3 is not supported"):
+        SQLiteStore.restore_from(path, tmp_path / "unsupported-restore.sqlite3")
+
+
+def test_new_database_creates_only_monitoring_tables(tmp_path):
+    store = make_store(tmp_path)
+    with closing(sqlite3.connect(store.path)) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert {
+            row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        } == {
+            "profiles", "signals", "requests", "observations", "events",
+            "config_versions", "collector_state", "schema_migrations",
+        }
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_legacy_database_preserves_minute_values_and_extra_tables_on_restore(tmp_path, version):
+    path = tmp_path / "legacy.sqlite3"
+    store = SQLiteStore(path)
+    start = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
+
+    def write_minute(target, minute):
+        timestamp = (start + timedelta(minutes=minute)).isoformat()
+        for signal_id, offset, value in (
+            ("boiler.temperature", 4102, 62 + minute),
+            ("buffer.top_temperature", 36864, 48 + minute),
+        ):
+            cycle = request(f"{signal_id}-minute-{minute}")
+            cycle.update(started_at=timestamp, completed_at=timestamp, offset=offset)
+            row = observation(f"{signal_id}-{minute}")
+            row.update(
+                signal_id=signal_id, observed_at=timestamp,
+                value=value, raw_words=[value],
+            )
+            assert target.record_cycle(cycle, [row]) is True
+
+    def dump(database):
+        with closing(sqlite3.connect(database)) as connection:
+            return list(connection.iterdump())
+
+    for minute in range(3):
+        write_minute(store, minute)
+    state = {"state": "running", "attempts": 2}
+    store.save_collector_state(state, start.isoformat())
+    if version == 2:
+        # Synthetische additive Alttabellen dürfen weder migriert noch gelöscht werden.
+        with closing(sqlite3.connect(path)) as connection:
+            with connection:
+                connection.executescript(
+                    """
+                    CREATE TABLE diagnostic_runs (
+                        run_id TEXT PRIMARY KEY NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        plan_json TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        requests_reserved INTEGER NOT NULL,
+                        started_at TEXT NULL,
+                        ended_at TEXT NULL,
+                        stop_reason TEXT NULL,
+                        acknowledged_at TEXT NULL,
+                        resolution_note TEXT NULL
+                    );
+                    CREATE UNIQUE INDEX diagnostic_one_active
+                        ON diagnostic_runs ((1))
+                        WHERE state IN ('running', 'awaiting_review');
+                    CREATE TABLE diagnostic_requests (
+                        run_id TEXT REFERENCES diagnostic_runs,
+                        step_index INTEGER,
+                        outcome TEXT,
+                        started_at TEXT,
+                        completed_at TEXT NULL,
+                        raw_words_json TEXT NULL,
+                        decoded_json TEXT NULL,
+                        error_class TEXT NULL,
+                        received_bytes INTEGER,
+                        review_json TEXT NULL,
+                        PRIMARY KEY (run_id, step_index)
+                    );
+                    CREATE TABLE control_plans (
+                        plan_id TEXT NOT NULL,
+                        revision INTEGER NOT NULL,
+                        created_at TEXT NOT NULL,
+                        document_json TEXT NOT NULL,
+                        PRIMARY KEY (plan_id, revision)
+                    );
+                    INSERT INTO diagnostic_runs VALUES (
+                        'synthetic-run', '2026-10-14T11:00:00+00:00',
+                        '2026-10-14T11:01:00+00:00', '{"synthetic":true}', 'completed', 1,
+                        '2026-10-14T11:00:00+00:00', '2026-10-14T11:01:00+00:00',
+                        NULL, NULL, NULL
+                    );
+                    INSERT INTO diagnostic_requests VALUES (
+                        'synthetic-run', 0, 'ok', '2026-10-14T11:00:00+00:00',
+                        '2026-10-14T11:00:01+00:00', '[62]', '{"synthetic":true}',
+                        NULL, 7, NULL
+                    );
+                    INSERT INTO control_plans VALUES (
+                        'synthetic-plan', 1, '2026-10-14T11:00:00+00:00',
+                        '{"synthetic":true}'
+                    );
+                    INSERT INTO schema_migrations
+                        VALUES (2, '2026-10-14T11:00:00+00:00');
+                    PRAGMA user_version = 2;
+                    """
+                )
+
+    original = dump(path)
+    original_measurements = list(store.stream_observations())
+    reopened = SQLiteStore(path)
+    assert dump(path) == original
+    assert list(reopened.stream_observations()) == original_measurements
+    write_minute(reopened, 3)
+    measurements = list(reopened.stream_observations())
+    assert len(measurements) == 8
+    assert measurements[:6] == original_measurements
+    assert [row["value"] for row in measurements] == [62, 48, 63, 49, 64, 50, 65, 51]
+
+    source_dump = dump(path)
+    backup = tmp_path / "backup.sqlite3"
+    reopened.backup_to(backup)
+    assert dump(backup) == source_dump
+    backup_bytes = backup.read_bytes()
+    restored = SQLiteStore.restore_from(backup, tmp_path / "restored.sqlite3")
+
+    assert backup.read_bytes() == backup_bytes
+    assert dump(backup) == source_dump
+    assert dump(path) == source_dump
+    assert reopened.get_collector_state() == state
+    assert list(restored.stream_observations()) == measurements
+    assert restored.get_collector_state() == {"state": "paused", "attempts": 2}
+    assert [
+        line for line in dump(restored.path)
+        if not line.startswith('INSERT INTO "collector_state"')
+    ] == [
+        line for line in source_dump
+        if not line.startswith('INSERT INTO "collector_state"')
+    ]
+    for database in (path, backup, restored.path):
+        with closing(sqlite3.connect(database)) as connection:
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == version
+    write_minute(restored, 4)
+    assert restored.count_observations() == 10
+    assert dump(path) == source_dump
+    assert backup.read_bytes() == backup_bytes
 
 
 def test_history_uses_half_open_bounds_and_enforces_point_limit(tmp_path):
@@ -184,942 +326,3 @@ def test_restore_rejects_unversioned_empty_file(tmp_path):
 
     with pytest.raises(StorageError, match="Backup schema 0 is not supported"):
         SQLiteStore.restore_from(backup, tmp_path / "restore" / "monitor.sqlite3")
-
-
-DIAGNOSTIC_TIME = "2026-10-15T12:00:00+00:00"
-HISTORY_TABLES = (
-    "profiles", "signals", "requests", "observations", "events",
-    "config_versions", "collector_state",
-)
-
-
-def diagnostic_plan(steps=2):
-    offsets = [4102, 33408, 4098][:steps]
-    binding = {
-        "host": "offline.invalid",
-        "port": 502,
-        "unit_id": 255,
-        "source": "simulator",
-        "catalog_sha256": "a" * 64,
-    }
-    return {
-        "schema_version": 1,
-        "catalog_sha256": binding["catalog_sha256"],
-        "register_ids": [f"register:{offset}" for offset in offsets],
-        "blocks": [{"offset": offset, "count": 1} for offset in offsets],
-        "purpose": "Synthetische Offline-Prüfung",
-        "source": "simulator",
-        "target": {"host": binding["host"], "port": binding["port"]},
-        "target_fingerprint": hashlib.sha256(
-            json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest(),
-        "function_code": 3,
-        "unit_id": 255,
-        "deadline_seconds": 3,
-        "request_budget": steps,
-        "min_interval_seconds": 60,
-        "max_duration_seconds": 600,
-        "stop_conditions": [
-            "transport", "protocol", "data", "storage", "operator", "anomaly", "expired",
-        ],
-    }
-
-
-def diagnostic_result(**changes):
-    result = {
-        "outcome": "ok",
-        "raw_words": [110],
-        "decoded": None,
-        "error_class": None,
-        "received_bytes": 11,
-        "completed_at": "2026-10-15T12:00:01+00:00",
-    }
-    result.update(changes)
-    return result
-
-
-def reserve(store, run_id, step=0):
-    store.reserve_diagnostic_request(run_id, step, DIAGNOSTIC_TIME)
-
-
-def answered_run(store, steps=2):
-    run = store.create_diagnostic_run(diagnostic_plan(steps))
-    reserve(store, run["run_id"])
-    store.finish_diagnostic_request(
-        run["run_id"], 0,
-        diagnostic_result(raw_words=[42], decoded={"boiler.temperature": 42}),
-        "awaiting_review",
-    )
-    return run["run_id"]
-
-
-def database_rows(path, tables=HISTORY_TABLES):
-    with sqlite3.connect(path) as connection:
-        return {
-            table: connection.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall()
-            for table in tables
-        }
-
-
-def synthetic_v1(path):
-    """Eine echte v1-Datei samt vollständiger historischer Nutzdaten herstellen."""
-    store = SQLiteStore(path)
-    store.record_cycle(request(), [observation()])
-    store.record_cycle(request("request-2"), [observation("observation-2", "invalid")])
-    store.record_event("historic-event", DIAGNOSTIC_TIME, "connected", "info", "synthetisch")
-    store.save_config(1, {"collector_enabled": False}, DIAGNOSTIC_TIME)
-    store.save_collector_state({"state": "paused", "attempts": 7}, DIAGNOSTIC_TIME)
-    with sqlite3.connect(path) as connection:
-        connection.execute(
-            "UPDATE signals SET definition_json = ?",
-            ('{"signal_id":"boiler.temperature","synthetic":"unverändert"}',),
-        )
-        connection.execute(
-            "UPDATE profiles SET definition_json = ?",
-            ('{"profile_id":"core","version":"1","synthetic":[1,2]}',),
-        )
-        connection.execute("DROP INDEX diagnostic_one_active")
-        connection.execute("DROP TABLE diagnostic_requests")
-        connection.execute("DROP TABLE diagnostic_runs")
-        connection.execute("DROP TABLE control_plans")
-        connection.execute("DELETE FROM schema_migrations WHERE version = 2")
-        connection.execute("PRAGMA user_version = 1")
-    return database_rows(path)
-
-
-def assert_utc(value):
-    assert datetime.fromisoformat(value.replace("Z", "+00:00")).utcoffset() == timedelta(0)
-
-
-def test_v1_upgrade_preserves_every_historical_column(tmp_path):
-    path = tmp_path / "v1.sqlite3"
-    before = synthetic_v1(path)
-    upgraded = SQLiteStore(path)
-    assert database_rows(path) == before
-    run = upgraded.create_diagnostic_run(diagnostic_plan())
-    reserve(upgraded, run["run_id"])
-    assert upgraded.get_diagnostic_run(run["run_id"])["requests_reserved"] == 1
-    with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
-        assert connection.execute(
-            "SELECT version FROM schema_migrations ORDER BY version"
-        ).fetchall() == [(1,), (2,)]
-        connection.execute(
-            "INSERT INTO control_plans VALUES ('offline-control', 1, ?, '{}')",
-            (DIAGNOSTIC_TIME,),
-        )
-    assert database_rows(path) == before
-
-
-def test_failed_v1_migration_rolls_back_schema_and_history(tmp_path):
-    path = tmp_path / "collision.sqlite3"
-    before = synthetic_v1(path)
-    with sqlite3.connect(path) as connection:
-        connection.execute("CREATE TABLE control_plans (sentinel TEXT)")
-        connection.execute("INSERT INTO control_plans VALUES ('unverändert')")
-        schema_before = connection.execute(
-            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
-        ).fetchall()
-    with pytest.raises(StorageError):
-        SQLiteStore(path)
-    assert database_rows(path) == before
-    with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
-        assert connection.execute("SELECT version FROM schema_migrations").fetchall() == [(1,)]
-        assert connection.execute("SELECT * FROM control_plans").fetchall() == [("unverändert",)]
-        assert connection.execute(
-            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
-        ).fetchall() == schema_before
-
-
-def test_private_plan_snapshot_uuid_utc_and_pagination(tmp_path):
-    store = make_store(tmp_path)
-    original = diagnostic_plan()
-    expected = deepcopy(original)
-    first = store.create_diagnostic_run(original)
-    run_id = first["run_id"]
-    assert UUID(run_id).version == 4
-    assert first["state"] == "planned"
-    assert first["requests_reserved"] == 0
-    assert first["requests"] == []
-    assert first["plan"] == expected
-    for field in ("created_at", "updated_at"):
-        assert_utc(first[field])
-    original["target"]["host"] = "changed.invalid"
-    original["blocks"][0]["offset"] = 999
-    first["plan"]["target"]["port"] = 999
-    assert store.get_diagnostic_run(run_id)["plan"] == expected
-    assert store.get_diagnostic_run("missing-run") is None
-    for _ in range(4):
-        store.create_diagnostic_run(diagnostic_plan(1))
-    all_runs = store.list_diagnostic_runs(20, 0)
-    assert len({run["run_id"] for run in all_runs}) == 5
-    assert store.list_diagnostic_runs(2, 0) + store.list_diagnostic_runs(2, 2) == all_runs[:4]
-    assert store.list_diagnostic_runs(2, 4) == all_runs[4:]
-    assert store.list_diagnostic_runs(2, 5) == []
-    listed = next(run for run in all_runs if run["run_id"] == run_id)
-    assert listed["plan"] == expected
-    listed["plan"]["blocks"].clear()
-    reserve(store, run_id)
-    stored = store.get_diagnostic_run(run_id)
-    assert stored["plan"] == expected
-    assert_utc(stored["started_at"])
-    assert_utc(stored["requests"][0]["started_at"])
-
-
-def simultaneous(*operations):
-    barrier = Barrier(len(operations))
-
-    def attempt(operation):
-        barrier.wait(timeout=10)
-        try:
-            operation()
-        except StorageError:
-            return False
-        return True
-
-    with ThreadPoolExecutor(max_workers=len(operations)) as executor:
-        futures = [executor.submit(attempt, operation) for operation in operations]
-        return [future.result(timeout=15) for future in futures]
-
-
-def test_two_store_starts_allow_only_one_volume_owner(tmp_path):
-    first = make_store(tmp_path)
-    second = SQLiteStore(first.path)
-    runs = [first.create_diagnostic_run(diagnostic_plan()) for _ in range(2)]
-    outcomes = simultaneous(
-        lambda: first.set_diagnostic_run_state(runs[0]["run_id"], "running", None),
-        lambda: second.set_diagnostic_run_state(runs[1]["run_id"], "running", None),
-    )
-    assert sorted(outcomes) == [False, True]
-    saved = first.list_diagnostic_runs(10, 0)
-    assert sorted(run["state"] for run in saved) == ["planned", "running"]
-    assert first.diagnostic_access_blocker() is not None
-    loser = next(run for run in saved if run["state"] == "planned")
-    with pytest.raises(StorageError):
-        reserve(second, loser["run_id"])
-    with pytest.raises(StorageError):
-        second.create_diagnostic_run(diagnostic_plan())
-
-
-def test_two_stores_reserve_same_step_exactly_once(tmp_path):
-    first = make_store(tmp_path)
-    second = SQLiteStore(first.path)
-    run_id = first.create_diagnostic_run(diagnostic_plan())["run_id"]
-    assert first.has_diagnostic_requests() is False
-    outcomes = simultaneous(
-        lambda: reserve(first, run_id),
-        lambda: reserve(second, run_id),
-    )
-    assert sorted(outcomes) == [False, True]
-    saved = second.get_diagnostic_run(run_id)
-    assert saved["requests_reserved"] == 1
-    assert len(saved["requests"]) == 1
-    row = saved["requests"][0]
-    assert row["outcome"] == "reserved"
-    assert row["received_bytes"] == 0
-    assert row["completed_at"] is None
-    assert row["raw_words"] is None
-    assert row["decoded"] is None
-    assert row["review"] is None
-    assert first.has_diagnostic_requests() is True
-    for step in (-1, 0, 1, 2):
-        with pytest.raises(StorageError):
-            reserve(first, run_id, step)
-    assert first.get_diagnostic_run(run_id)["requests_reserved"] == 1
-
-
-@pytest.mark.parametrize("awaiting_review", [False, True])
-def test_restart_recovery_preserves_consumed_budget_and_answer(tmp_path, awaiting_review):
-    store = make_store(tmp_path)
-    run_id = store.create_diagnostic_run(diagnostic_plan())["run_id"]
-    reserve(store, run_id)
-    if awaiting_review:
-        store.finish_diagnostic_request(run_id, 0, diagnostic_result(), "awaiting_review")
-    before = store.get_diagnostic_run(run_id)
-    del store
-    reopened = SQLiteStore(tmp_path / "monitor.sqlite3")
-    assert reopened.get_diagnostic_run(run_id) == before
-    reopened.interrupt_active_diagnostic_runs()
-    saved = reopened.get_diagnostic_run(run_id)
-    assert saved["state"] == "interrupted"
-    assert saved["requests"] == before["requests"]
-    assert saved["requests_reserved"] == 1
-    assert reopened.has_diagnostic_requests() is True
-    assert reopened.diagnostic_access_blocker() is not None
-    for operation in (
-        lambda: reserve(reopened, run_id, 1),
-        lambda: reopened.set_diagnostic_run_state(run_id, "running", None),
-        lambda: reopened.create_diagnostic_run(diagnostic_plan()),
-    ):
-        with pytest.raises(StorageError):
-            operation()
-    reopened.acknowledge_diagnostic_run(run_id, "Ursache offline geklärt")
-    assert reopened.diagnostic_access_blocker() is None
-    assert reopened.get_diagnostic_run(run_id)["requests_reserved"] == 1
-    with pytest.raises(StorageError):
-        reopened.set_diagnostic_run_state(run_id, "running", None)
-    next_id = reopened.create_diagnostic_run(diagnostic_plan())["run_id"]
-    reserve(reopened, next_id)
-    assert reopened.get_diagnostic_run(next_id)["requests_reserved"] == 1
-
-
-@pytest.mark.parametrize("steps", [1, 2])
-@pytest.mark.parametrize(
-    ("verdict", "expected"), [("continue", None), ("finish", "cancelled"), ("anomaly", "stopped_data")]
-)
-def test_review_is_separate_and_controls_next_manual_step(tmp_path, steps, verdict, expected):
-    store = make_store(tmp_path)
-    run_id = answered_run(store, steps)
-    before = store.get_diagnostic_run(run_id)
-    assert before["state"] == "awaiting_review"
-    with pytest.raises(StorageError):
-        reserve(store, run_id, 1)
-    review = {"verdict": verdict, "observation": "Synthetische Sichtprüfung"}
-    expected = expected or ("completed" if steps == 1 else "running")
-    store.review_diagnostic_request(run_id, 0, review, expected)
-    saved = store.get_diagnostic_run(run_id)
-    assert saved["state"] == expected
-    assert saved["plan"] == before["plan"]
-    answer = saved["requests"][0]
-    assert answer["review"] == review
-    assert {key: value for key, value in answer.items() if key != "review"} == {
-        key: value for key, value in before["requests"][0].items() if key != "review"
-    }
-    with pytest.raises(StorageError):
-        store.review_diagnostic_request(run_id, 0, review, expected)
-    with pytest.raises(StorageError):
-        store.finish_diagnostic_request(run_id, 0, diagnostic_result(raw_words=[999]), expected)
-    if expected == "running":
-        reserve(store, run_id, 1)
-        store.finish_diagnostic_request(run_id, 1, diagnostic_result(), "awaiting_review")
-        store.review_diagnostic_request(
-            run_id, 1, {"verdict": "continue", "observation": None}, "completed"
-        )
-        assert store.get_diagnostic_run(run_id)["requests_reserved"] == steps
-    else:
-        assert_utc(saved["ended_at"])
-    with pytest.raises(StorageError):
-        reserve(store, run_id, steps)
-    assert store.get_diagnostic_run(run_id)["requests_reserved"] == (
-        steps if expected == "running" else 1
-    )
-    assert (store.diagnostic_access_blocker() is not None) == (verdict == "anomaly")
-
-
-def test_decoder_failure_keeps_exact_raw_110_without_core_observations(tmp_path):
-    store = make_store(tmp_path)
-    store.record_cycle(request(), [observation()])
-    before = database_rows(store.path)
-    run_id = store.create_diagnostic_run(diagnostic_plan())["run_id"]
-    reserve(store, run_id)
-    result = diagnostic_result(outcome="error", decoded=None, error_class="DecoderError")
-    store.finish_diagnostic_request(run_id, 0, result, "stopped_data")
-    result["raw_words"][0] = 999
-    saved = store.get_diagnostic_run(run_id)
-    assert saved["requests"][0]["raw_words"] == [110]
-    assert saved["requests"][0]["decoded"] is None
-    assert saved["requests"][0]["review"] is None
-    assert saved["requests"][0]["error_class"] == "DecoderError"
-    assert saved["requests"][0]["received_bytes"] == 11
-    assert database_rows(store.path) == before
-    assert_utc(saved["requests"][0]["completed_at"])
-
-
-@pytest.mark.parametrize("state", [
-    "interrupted", "stopped_transport", "stopped_protocol", "stopped_data", "stopped_storage",
-])
-def test_hard_stop_requires_nonempty_ack_and_never_reactivates_old_id(tmp_path, state):
-    store = make_store(tmp_path)
-    waiting = store.create_diagnostic_run(diagnostic_plan())["run_id"]
-    run_id = store.create_diagnostic_run(diagnostic_plan())["run_id"]
-    reserve(store, run_id)
-    store.set_diagnostic_run_state(run_id, state, "Synthetische Ursache")
-    before = store.get_diagnostic_run(run_id)
-    for resolution in ("", "   "):
-        with pytest.raises(StorageError):
-            store.acknowledge_diagnostic_run(run_id, resolution)
-    assert store.get_diagnostic_run(run_id) == before
-    assert store.diagnostic_access_blocker() is not None
-    for operation in (
-        lambda: store.create_diagnostic_run(diagnostic_plan()),
-        lambda: reserve(store, waiting),
-        lambda: store.set_diagnostic_run_state(waiting, "running", None),
-    ):
-        with pytest.raises(StorageError):
-            operation()
-    store.acknowledge_diagnostic_run(run_id, "Ursache geprüft")
-    after = store.get_diagnostic_run(run_id)
-    assert_utc(after["acknowledged_at"])
-    assert after["resolution_note"] == "Ursache geprüft"
-    assert after["state"] == state
-    assert after["requests_reserved"] == 1
-    assert after["requests"] == before["requests"]
-    assert store.diagnostic_access_blocker() is None
-    for target in ("planned", "running", "awaiting_review"):
-        with pytest.raises(StorageError):
-            store.set_diagnostic_run_state(run_id, target, None)
-    reserve(store, waiting)
-
-
-@pytest.mark.parametrize("soft_stop", ["cancelled", "expired"])
-@pytest.mark.parametrize("hard_first", [False, True])
-def test_late_finish_keeps_hard_failure_over_stop_or_expiry(tmp_path, soft_stop, hard_first):
-    store = make_store(tmp_path)
-    run_id = store.create_diagnostic_run(diagnostic_plan())["run_id"]
-    reserve(store, run_id)
-
-    def finish():
-        store.finish_diagnostic_request(
-            run_id, 0, diagnostic_result(outcome="error", decoded=None, error_class="ProtocolError"),
-            "stopped_protocol",
-        )
-
-    if hard_first:
-        finish()
-    try:
-        store.set_diagnostic_run_state(run_id, soft_stop, "Betreiberstopp oder Ablauf")
-    except StorageError:
-        assert hard_first
-    if not hard_first:
-        finish()
-    saved = store.get_diagnostic_run(run_id)
-    assert saved["state"] == "stopped_protocol"
-    assert saved["requests_reserved"] == 1
-    assert saved["requests"][0]["error_class"] == "ProtocolError"
-    assert saved["requests"][0]["raw_words"] == [110]
-    assert store.diagnostic_access_blocker() is not None
-
-
-@pytest.mark.parametrize("table", ["diagnostic_runs", "diagnostic_requests"])
-@pytest.mark.parametrize("operation", ["reserve", "finish", "review"])
-def test_sql_write_failure_rolls_back_entire_diagnostic_operation(tmp_path, operation, table):
-    store = make_store(tmp_path)
-    run_id = store.create_diagnostic_run(diagnostic_plan())["run_id"]
-    if operation in ("finish", "review"):
-        reserve(store, run_id)
-    if operation == "review":
-        store.finish_diagnostic_request(run_id, 0, diagnostic_result(), "awaiting_review")
-    before = store.get_diagnostic_run(run_id)
-    # Beide Schreibrichtungen prüfen: keine halbe Reservierung/Antwort/Bewertung.
-    action = "INSERT" if table == "diagnostic_requests" and operation == "reserve" else "UPDATE"
-    with sqlite3.connect(store.path) as connection:
-        connection.execute(
-            f"""CREATE TRIGGER synthetic_disk_failure BEFORE {action} ON {table}
-            BEGIN SELECT RAISE(ABORT, 'synthetic disk full'); END"""
-        )
-    with pytest.raises(StorageError):
-        if operation == "reserve":
-            reserve(store, run_id)
-        elif operation == "finish":
-            store.finish_diagnostic_request(run_id, 0, diagnostic_result(), "awaiting_review")
-        else:
-            store.review_diagnostic_request(
-                run_id, 0, {"verdict": "continue", "observation": None}, "running"
-            )
-    assert store.get_diagnostic_run(run_id) == before
-    assert store.has_diagnostic_requests() == (operation != "reserve")
-    if operation != "reserve":
-        assert store.diagnostic_access_blocker() is not None
-        with pytest.raises(StorageError):
-            reserve(store, run_id, 1)
-    with sqlite3.connect(store.path) as connection:
-        connection.execute("DROP TRIGGER synthetic_disk_failure")
-    if operation == "reserve":
-        reserve(store, run_id)
-    elif operation == "finish":
-        store.finish_diagnostic_request(run_id, 0, diagnostic_result(), "awaiting_review")
-    else:
-        store.review_diagnostic_request(
-            run_id, 0, {"verdict": "continue", "observation": None}, "running"
-        )
-    assert store.get_diagnostic_run(run_id)["requests_reserved"] == 1
-
-
-def test_v1_restore_migrates_only_copy_and_preserves_complete_history(tmp_path):
-    backup = tmp_path / "v1-backup.sqlite3"
-    before = synthetic_v1(backup)
-    digest = hashlib.sha256(backup.read_bytes()).hexdigest()
-    restored = SQLiteStore.restore_from(backup, tmp_path / "v1-restored.sqlite3")
-    assert hashlib.sha256(backup.read_bytes()).hexdigest() == digest
-    assert database_rows(restored.path) == before
-    with sqlite3.connect(backup) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
-    run_id = restored.create_diagnostic_run(diagnostic_plan())["run_id"]
-    reserve(restored, run_id)
-    assert restored.get_diagnostic_run(run_id)["requests_reserved"] == 1
-
-
-@pytest.mark.parametrize("active_state", ["running", "awaiting_review"])
-def test_v2_restore_preserves_plans_answers_all_control_revisions_and_blockers(tmp_path, active_state):
-    store = make_store(tmp_path)
-    store.record_cycle(request(), [observation()])
-    planned_id = store.create_diagnostic_run(diagnostic_plan())["run_id"]
-    stopped_id = answered_run(store)
-    store.review_diagnostic_request(
-        stopped_id, 0, {"verdict": "anomaly", "observation": "synthetisch"}, "stopped_data"
-    )
-    store.acknowledge_diagnostic_run(stopped_id, "Vor Backup quittiert")
-    active_id = store.create_diagnostic_run(diagnostic_plan(3))["run_id"]
-    reserve(store, active_id)
-    if active_state == "awaiting_review":
-        store.finish_diagnostic_request(active_id, 0, diagnostic_result(), "awaiting_review")
-    first_control = store.save_control_plan(
-        None, None, control_draft(before_value="Vorwert 1", test_value="Versuch 1",
-                                  restore_value="Rückstellwert 1"),
-    )
-    second_control = store.save_control_plan(
-        first_control["plan_id"], 1,
-        control_draft(before_value="Vorwert 2", test_value="Versuch 2",
-                      restore_value="Rückstellwert 2"),
-    )
-    other_control = store.save_control_plan(
-        None, None, control_draft(candidate_id="control:buffer.target"),
-    )
-    before = {run["run_id"]: run for run in store.list_diagnostic_runs(20, 0)}
-    historical = database_rows(store.path)
-    backup = tmp_path / "v2-backup.sqlite3"
-    store.backup_to(backup)
-    digest = hashlib.sha256(backup.read_bytes()).hexdigest()
-    restored = SQLiteStore.restore_from(backup, tmp_path / "v2-restored.sqlite3")
-    assert hashlib.sha256(backup.read_bytes()).hexdigest() == digest
-    assert database_rows(restored.path) == historical
-    assert restored.get_diagnostic_run(planned_id) == before[planned_id]
-    assert restored.get_diagnostic_run(stopped_id) == before[stopped_id]
-    active = restored.get_diagnostic_run(active_id)
-    assert active["state"] == "interrupted"
-    assert active["plan"] == before[active_id]["plan"]
-    assert active["requests"] == before[active_id]["requests"]
-    assert active["requests_reserved"] == 1
-    assert restored.has_diagnostic_requests() is True
-    assert restored.diagnostic_access_blocker() is not None
-    for candidate in (active_id, planned_id):
-        with pytest.raises(StorageError):
-            reserve(restored, candidate, 0 if candidate == planned_id else 1)
-    with pytest.raises(StorageError):
-        restored.create_diagnostic_run(diagnostic_plan())
-    assert restored.get_control_plan(first_control["plan_id"], 1) == first_control
-    assert restored.get_control_plan(first_control["plan_id"]) == second_control
-    assert restored.get_control_plan(other_control["plan_id"]) == other_control
-    assert {item["plan_id"]: item for item in restored.list_control_plans()} == {
-        item["plan_id"]: item for item in (second_control, other_control)
-    }
-    assert all(
-        document["execution_enabled"] is False
-        for document in (first_control, second_control, other_control)
-    )
-    restored.acknowledge_diagnostic_run(active_id, "Restore geprüft, kein Neustart")
-    assert restored.get_diagnostic_run(active_id)["state"] == "interrupted"
-    assert restored.get_diagnostic_run(active_id)["requests_reserved"] == 1
-    assert restored.diagnostic_access_blocker() is None
-    reserve(restored, planned_id)
-
-
-@pytest.mark.parametrize("version", [0, SCHEMA_VERSION + 1])
-def test_restore_rejects_unsupported_version_without_touching_backup(tmp_path, version):
-    backup = tmp_path / "unsupported.sqlite3"
-    with sqlite3.connect(backup) as connection:
-        connection.execute("CREATE TABLE synthetic (value TEXT)")
-        connection.execute("INSERT INTO synthetic VALUES ('unverändert')")
-        connection.execute(f"PRAGMA user_version = {version}")
-    before = backup.read_bytes()
-    with pytest.raises(StorageError):
-        SQLiteStore.restore_from(backup, tmp_path / "rejected.sqlite3")
-    assert backup.read_bytes() == before
-
-
-def test_restore_refuses_existing_volume_without_mutating_it(tmp_path):
-    source = SQLiteStore(tmp_path / "source.sqlite3")
-    backup = tmp_path / "backup.sqlite3"
-    source.backup_to(backup)
-    target = SQLiteStore(tmp_path / "in-use.sqlite3")
-    run_id = target.create_diagnostic_run(diagnostic_plan())["run_id"]
-    reserve(target, run_id)
-    before = target.get_diagnostic_run(run_id)
-    backup_before = backup.read_bytes()
-    with pytest.raises(StorageError):
-        SQLiteStore.restore_from(backup, target.path)
-    assert target.get_diagnostic_run(run_id) == before
-    assert target.diagnostic_access_blocker() is not None
-    assert backup.read_bytes() == backup_before
-
-
-def test_three_step_budget_survives_reopening_without_reset(tmp_path):
-    store = make_store(tmp_path)
-    plan = diagnostic_plan(3)
-    run_id = store.create_diagnostic_run(plan)["run_id"]
-    for step in range(3):
-        store = SQLiteStore(store.path)
-        assert store.get_diagnostic_run(run_id)["requests_reserved"] == step
-        reserve(store, run_id, step)
-        store.finish_diagnostic_request(run_id, step, diagnostic_result(), "awaiting_review")
-        store.review_diagnostic_request(
-            run_id, step, {"verdict": "continue", "observation": None},
-            "completed" if step == 2 else "running",
-        )
-    saved = SQLiteStore(store.path).get_diagnostic_run(run_id)
-    assert saved["state"] == "completed"
-    assert saved["requests_reserved"] == 3
-    assert saved["plan"] == plan
-    assert [row["step_index"] for row in saved["requests"]] == [0, 1, 2]
-    for step in (0, 1, 2, 3):
-        with pytest.raises(StorageError):
-            reserve(store, run_id, step)
-    assert store.get_diagnostic_run(run_id) == saved
-    assert store.has_diagnostic_requests() is True
-    assert store.diagnostic_access_blocker() is None
-
-
-def test_timestamp_offsets_normalize_to_utc_and_missing_finish_time_is_generated(tmp_path):
-    store = make_store(tmp_path)
-    run_id = store.create_diagnostic_run(diagnostic_plan())["run_id"]
-    store.reserve_diagnostic_request(run_id, 0, "2026-10-15T14:00:00+02:00")
-    result = diagnostic_result()
-    del result["completed_at"]
-    store.finish_diagnostic_request(run_id, 0, result, "awaiting_review")
-    row = store.get_diagnostic_run(run_id)["requests"][0]
-    assert datetime.fromisoformat(row["started_at"]) == datetime.fromisoformat(DIAGNOSTIC_TIME)
-    assert_utc(row["started_at"])
-    assert_utc(row["completed_at"])
-
-
-@pytest.mark.parametrize("soft_stop", ["cancelled", "expired"])
-def test_concurrent_operator_stop_and_error_finish_never_soften_failure(tmp_path, soft_stop):
-    first = make_store(tmp_path)
-    second = SQLiteStore(first.path)
-    run_id = first.create_diagnostic_run(diagnostic_plan())["run_id"]
-    reserve(first, run_id)
-    results = simultaneous(
-        lambda: first.finish_diagnostic_request(
-            run_id, 0, diagnostic_result(outcome="error", decoded=None, error_class="TransportError"),
-            "stopped_transport",
-        ),
-        lambda: second.set_diagnostic_run_state(run_id, soft_stop, "Synthetischer Stopp"),
-    )
-    assert results[0] is True
-    saved = second.get_diagnostic_run(run_id)
-    assert saved["state"] == "stopped_transport"
-    assert saved["requests_reserved"] == 1
-    assert saved["requests"][0]["error_class"] == "TransportError"
-    assert second.diagnostic_access_blocker() is not None
-
-
-def test_fresh_migration_failure_also_rolls_back_v1_tables(tmp_path):
-    path = tmp_path / "fresh-collision.sqlite3"
-    with sqlite3.connect(path) as connection:
-        connection.execute("CREATE TABLE control_plans (original TEXT)")
-        connection.execute("INSERT INTO control_plans VALUES ('erhalten')")
-        before = connection.execute(
-            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
-        ).fetchall()
-    with pytest.raises(StorageError):
-        SQLiteStore(path)
-    with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
-        assert connection.execute(
-            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
-        ).fetchall() == before
-        assert connection.execute("SELECT * FROM control_plans").fetchall() == [("erhalten",)]
-
-
-def test_unconfirmed_raw_block_cannot_persist_interpreted_measurement(tmp_path):
-    store = make_store(tmp_path)
-    plan = diagnostic_plan(1)
-    plan["register_ids"] = ["register:33408"]
-    plan["blocks"] = [{"offset": 33408, "count": 1}]
-    run_id = store.create_diagnostic_run(plan)["run_id"]
-    reserve(store, run_id)
-    before = store.get_diagnostic_run(run_id)
-    with pytest.raises(StorageError):
-        store.finish_diagnostic_request(
-            run_id, 0, diagnostic_result(decoded={"temperature": 42}), "awaiting_review"
-        )
-    assert store.get_diagnostic_run(run_id) == before
-    store.finish_diagnostic_request(run_id, 0, diagnostic_result(), "awaiting_review")
-    assert store.get_diagnostic_run(run_id)["requests"][0]["decoded"] is None
-    assert store.count_observations() == 0
-
-
-def test_late_hard_error_requires_new_acknowledgement_after_recovery_ack(tmp_path):
-    store = make_store(tmp_path)
-    run_id = store.create_diagnostic_run(diagnostic_plan())["run_id"]
-    reserve(store, run_id)
-    store.interrupt_active_diagnostic_runs()
-    store.acknowledge_diagnostic_run(run_id, "Unterbrechung geprüft")
-    waiting = store.create_diagnostic_run(diagnostic_plan())["run_id"]
-    store.finish_diagnostic_request(
-        run_id, 0, diagnostic_result(outcome="error", error_class="ProtocolError"),
-        "stopped_protocol",
-    )
-    saved = store.get_diagnostic_run(run_id)
-    assert saved["state"] == "stopped_protocol"
-    assert saved["acknowledged_at"] is None
-    assert saved["resolution_note"] is None
-    with pytest.raises(StorageError):
-        reserve(store, waiting)
-    store.acknowledge_diagnostic_run(run_id, "Protokollfehler zusätzlich geklärt")
-    reserve(store, waiting)
-    assert store.get_diagnostic_run(run_id)["requests_reserved"] == 1
-
-
-def control_draft(**changes):
-    draft = {
-        "candidate_id": "control:buffer.start",
-        "purpose": "Synthetischer Offline-Rückstellversuch",
-        "source_reference": None,
-        "address_evidence": None,
-        "function_code": None,
-        "encoding_evidence": None,
-        "before_value": None,
-        "test_value": None,
-        "restore_value": None,
-        "value_unit": None,
-        "allowed_range_evidence": None,
-        "max_duration_seconds": None,
-        "max_write_requests": None,
-        "stop_conditions": None,
-        "verification_steps": None,
-        "restore_steps": None,
-        "host_loss_behavior": None,
-        "network_loss_behavior": None,
-        "device_restart_behavior": None,
-        "operator_approval_reference": None,
-    }
-    draft.update(changes)
-    return draft
-
-
-def test_control_revisions_preserve_documents_values_and_reopen(tmp_path):
-    store = make_store(tmp_path)
-    draft = control_draft(before_value="synthetisch vorher", test_value="synthetisch Versuch",
-                          restore_value="synthetisch zurück")
-    expected = deepcopy(draft)
-    first = store.save_control_plan(None, None, draft)
-    plan_id = first["plan_id"]
-    assert UUID(plan_id).version == 4
-    assert first["revision"] == 1
-    assert_utc(first["created_at"])
-    assert first["draft"] == expected
-    assert first["execution_enabled"] is False
-    assert first["assessment"]["status"] == "draft"
-    with sqlite3.connect(store.path) as connection:
-        original_json = connection.execute(
-            "SELECT document_json FROM control_plans WHERE plan_id = ? AND revision = 1",
-            (plan_id,),
-        ).fetchone()[0]
-    draft["before_value"] = "synthetisch neuer Vorwert"
-    draft["test_value"] = "synthetisch neuer Versuch"
-    draft["restore_value"] = "synthetisch neuer Rückstellwert"
-    second = store.save_control_plan(plan_id, 1, draft)
-    assert second["revision"] == 2
-    assert second["draft"] == draft
-    assert second["execution_enabled"] is False
-    with pytest.raises(RevisionConflict) as conflict:
-        store.save_control_plan(plan_id, 1, expected)
-    assert conflict.value.code == "revision_conflict"
-    first["draft"]["restore_value"] = "nur Rückgabewert verändert"
-    draft["test_value"] = "nur Eingabewert verändert"
-    reopened = SQLiteStore(store.path)
-    historical = reopened.get_control_plan(plan_id, 1)
-    assert historical["draft"] == expected
-    assert historical["execution_enabled"] is False
-    assert historical["source_status"] == first["source_status"]
-    assert historical["assessment"] == first["assessment"]
-    assert reopened.get_control_plan(plan_id) == second
-    assert reopened.get_control_plan(plan_id, 2) == second
-    with sqlite3.connect(store.path) as connection:
-        rows = connection.execute(
-            "SELECT revision, document_json FROM control_plans WHERE plan_id = ? ORDER BY revision",
-            (plan_id,),
-        ).fetchall()
-    assert [row[0] for row in rows] == [1, 2]
-    assert rows[0][1] == original_json
-
-
-def test_concurrent_control_updates_commit_exactly_one_revision(tmp_path):
-    first = make_store(tmp_path)
-    second = SQLiteStore(first.path)
-    original = first.save_control_plan(None, None, control_draft())
-    plan_id = original["plan_id"]
-    barrier = Barrier(2)
-
-    def update(store, value):
-        barrier.wait(timeout=10)
-        try:
-            return store.save_control_plan(plan_id, 1, control_draft(test_value=value))
-        except RevisionConflict as exc:
-            return exc
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [
-            executor.submit(update, first, "synthetischer Versuch A"),
-            executor.submit(update, second, "synthetischer Versuch B"),
-        ]
-        outcomes = [future.result(timeout=15) for future in futures]
-    successes = [result for result in outcomes if isinstance(result, dict)]
-    conflicts = [result for result in outcomes if isinstance(result, RevisionConflict)]
-    assert len(successes) == len(conflicts) == 1
-    assert conflicts[0].code == "revision_conflict"
-    assert first.get_control_plan(plan_id) == successes[0]
-    assert first.get_control_plan(plan_id)["revision"] == 2
-    assert first.get_control_plan(plan_id, 1) == original
-    assert first.get_control_plan(plan_id, 3) is None
-
-
-@pytest.mark.parametrize("expected_revision", [None, True, False, 0, -1, 1.0, "1", [], {}])
-def test_control_updates_require_strict_positive_expected_revision(tmp_path, expected_revision):
-    store = make_store(tmp_path)
-    original = store.save_control_plan(None, None, control_draft())
-    with pytest.raises(StorageError):
-        store.save_control_plan(original["plan_id"], expected_revision, control_draft())
-    assert store.get_control_plan(original["plan_id"]) == original
-    assert store.get_control_plan(original["plan_id"], 2) is None
-
-
-@pytest.mark.parametrize("expected_revision", [1, 0, -1, True, 1.0, "1"])
-def test_new_control_plan_rejects_any_expected_revision(tmp_path, expected_revision):
-    store = make_store(tmp_path)
-    with pytest.raises(StorageError):
-        store.save_control_plan(None, expected_revision, control_draft())
-    assert store.list_control_plans() == []
-
-
-def test_control_missing_id_or_revision_never_creates_a_plan(tmp_path):
-    store = make_store(tmp_path)
-    assert store.get_control_plan("missing-plan") is None
-    assert store.get_control_plan("missing-plan", 1) is None
-    with pytest.raises(StorageError, match="nicht gefunden"):
-        store.save_control_plan("missing-plan", 1, control_draft())
-    assert store.list_control_plans() == []
-    original = store.save_control_plan(None, None, control_draft())
-    assert store.get_control_plan(original["plan_id"], 2) is None
-    with pytest.raises(RevisionConflict):
-        store.save_control_plan(original["plan_id"], 2, control_draft())
-    assert store.get_control_plan(original["plan_id"]) == original
-
-
-@pytest.mark.parametrize("plan_id", ["", "   ", False, 1, []])
-def test_control_invalid_update_ids_are_not_new_plans(tmp_path, plan_id):
-    store = make_store(tmp_path)
-    with pytest.raises(StorageError):
-        store.save_control_plan(plan_id, 1, control_draft())
-    with pytest.raises(StorageError):
-        store.get_control_plan(plan_id)
-    assert store.list_control_plans() == []
-
-
-@pytest.mark.parametrize("revision", [True, False, 0, -1, 1.0, "1"])
-def test_control_get_rejects_invalid_revision(tmp_path, revision):
-    store = make_store(tmp_path)
-    original = store.save_control_plan(None, None, control_draft())
-    with pytest.raises(StorageError):
-        store.get_control_plan(original["plan_id"], revision)
-
-
-def test_control_list_returns_latest_revisions_in_stable_order(tmp_path, monkeypatch):
-    store = make_store(tmp_path)
-    assert store.list_control_plans() == []
-    monkeypatch.setattr("backend.storage.utc_now", lambda: "2026-10-15T10:00:00+00:00")
-    first = store.save_control_plan(None, None, control_draft(purpose="Plan A"))
-    second = store.save_control_plan(None, None, control_draft(purpose="Plan B"))
-    third = store.save_control_plan(None, None, control_draft(purpose="Plan C"))
-    monkeypatch.setattr("backend.storage.utc_now", lambda: "2026-10-15T11:00:00+00:00")
-    latest = store.save_control_plan(second["plan_id"], 1, control_draft(purpose="Plan B neu"))
-    expected = [latest, *sorted([first, third], key=lambda item: item["plan_id"])]
-    assert store.list_control_plans() == expected
-    assert SQLiteStore(store.path).list_control_plans() == expected
-    listed = store.list_control_plans()
-    listed[0]["draft"]["purpose"] = "nur Ausgabe verändert"
-    assert store.get_control_plan(second["plan_id"]) == latest
-    assert store.get_control_plan(second["plan_id"], 1) == second
-
-
-@pytest.mark.parametrize("changes", [
-    {"candidate_id": "register:4103"},
-    {"candidate_id": "control:unknown"},
-    {"unexpected": "verbotenes Zusatzfeld"},
-    {"purpose": ""},
-    {"purpose": "x" * 4001},
-    {"source_reference": "x" * 4001},
-    {"function_code": 0},
-    {"function_code": 128},
-    {"max_duration_seconds": 0},
-    {"max_duration_seconds": -1},
-    {"max_write_requests": 0},
-    {"max_write_requests": -1},
-])
-def test_invalid_control_draft_creates_no_plan_or_revision(tmp_path, changes):
-    store = make_store(tmp_path)
-    invalid = control_draft(**changes)
-    with pytest.raises(ValidationError):
-        store.save_control_plan(None, None, invalid)
-    assert store.list_control_plans() == []
-    original = store.save_control_plan(None, None, control_draft())
-    with pytest.raises(ValidationError):
-        store.save_control_plan(original["plan_id"], 1, invalid)
-    assert store.get_control_plan(original["plan_id"]) == original
-    assert store.get_control_plan(original["plan_id"], 2) is None
-    assert store.list_control_plans() == [original]
-
-
-@pytest.mark.parametrize("updating", [False, True])
-def test_control_insert_failure_rolls_back_and_redacts_private_error(tmp_path, updating):
-    store = make_store(tmp_path)
-    original = store.save_control_plan(None, None, control_draft()) if updating else None
-    plan_id = original["plan_id"] if original else None
-    expected_revision = 1 if original else None
-    with sqlite3.connect(store.path) as connection:
-        connection.execute(
-            """CREATE TRIGGER synthetic_control_failure AFTER INSERT ON control_plans
-            BEGIN SELECT RAISE(FAIL, 'private-host.invalid/private/path'); END"""
-        )
-    with pytest.raises(StorageError) as error:
-        store.save_control_plan(plan_id, expected_revision, control_draft(test_value="synthetisch"))
-    assert str(error.value) == "Steuerplan konnte nicht gespeichert werden"
-    assert "private-host" not in str(error.value)
-    assert store.list_control_plans() == ([original] if original else [])
-    with sqlite3.connect(store.path) as connection:
-        assert connection.execute("SELECT COUNT(*) FROM control_plans").fetchone()[0] == int(updating)
-        connection.execute("DROP TRIGGER synthetic_control_failure")
-    saved = store.save_control_plan(plan_id, expected_revision, control_draft(test_value="synthetisch"))
-    assert saved["revision"] == (2 if updating else 1)
-    if updating:
-        assert store.get_control_plan(plan_id, 1) == original
-
-
-@pytest.mark.parametrize("operation", ["save", "get", "list"])
-def test_control_connection_errors_are_safe_storage_errors(tmp_path, monkeypatch, operation):
-    store = make_store(tmp_path)
-
-    def fail_connection():
-        raise sqlite3.OperationalError("private-host.invalid/private/path")
-
-    monkeypatch.setattr(store, "_connect", fail_connection)
-    with pytest.raises(StorageError) as error:
-        if operation == "save":
-            store.save_control_plan(None, None, control_draft())
-        elif operation == "get":
-            store.get_control_plan("synthetic-id")
-        else:
-            store.list_control_plans()
-    assert "private-host" not in str(error.value)
-    assert "private/path" not in str(error.value)
-
-
-
-@pytest.mark.parametrize("operation", ["get", "list"])
-def test_corrupt_control_json_is_a_safe_storage_error(tmp_path, operation):
-    store = make_store(tmp_path)
-    original = store.save_control_plan(None, None, control_draft())
-    with sqlite3.connect(store.path) as connection:
-        connection.execute(
-            "UPDATE control_plans SET document_json = ? WHERE plan_id = ?",
-            ("private-host.invalid/private/path", original["plan_id"]),
-        )
-    with pytest.raises(StorageError) as error:
-        if operation == "get":
-            store.get_control_plan(original["plan_id"])
-        else:
-            store.list_control_plans()
-    assert "private-host" not in str(error.value)
-    assert "private/path" not in str(error.value)

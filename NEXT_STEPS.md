@@ -29,118 +29,13 @@ von Datenvolume und Erfassungseinstellungen neu erstellen.
 Keine Geräteanfrage für die Proxyprüfung nötig; Ergebnisse im
 [Ergebnisbericht](reports/RESULTS.md#15102026--domainaktionen-hinter-einem-reverse-proxy).
 
-## Register-Prüfwerkzeug: Übergabe nach #39
+## Rückbau der Diagnosefunktion
 
-Die kanonische Ressource liegt ausschließlich unter
-[`backend/resources/register_catalog.json`](backend/resources/register_catalog.json).
-`backend.catalog.load_catalog()` liefert einen validierten, unveränderlichen
-Snapshot mit Dateibytes-Hash; `build_read_blocks()` löst nur Katalog-IDs in
-1–3 enge Blöcke auf. 194 Rohregister bleiben uninterpretierte Diagnosekandidaten,
-START/SOLL getrennte Steuerkandidaten ohne Leseblock oder Schreibfähigkeit.
-Kein neues Polling und keine Geräteabfrage durch Import, Laden oder Auswahl.
-
-Paket #31 ergänzt Schema 2, Diagnosejournal und transaktionale Reservierungen
-ohne Geräte-I/O. Aktive/unquittierte Fehlerläufe sperren Planung und Ausführung;
-eine Quittierung reaktiviert niemals eine alte ID. Restore übernimmt Budget,
-Antworten, Bewertungen und Steuerrevisionen in ein neues Offline-Ziel und
-unterbricht dort aktive Diagnosen. [Speichervertrag](docs/DATENMODELL.md#diagnosejournal-issue-31).
-
-Paket #32 ergänzt den gemeinsamen privaten FC03-Pfad, katalogvalidierte
-Einzelreads und den expliziten synthetischen Simulator-Katalogmodus. Standard-
-Kernreads bleiben katalogunabhängig; keine automatische Folgeanfrage.
-Paket #33 ergänzt `ReadCheckRunner`, `DeviceLock` und `DIAGNOSTICS_SOURCE`
-(Standard `device`; `simulator` nur exakt mit Loopback `127.0.0.1`). Start stoppt
-den sauberen Collector einschließlich Join, übernimmt denselben `collector.lock`
-und sendet noch keine Anfrage. Jede manuelle Anfrage braucht eine dauerhafte
-Reservierung; 60 s vor dem ersten Read und ab abgeschlossener Speicherung,
-600 s Gesamtfrist, kein Retry. Diagnosefehler sperren auch alle Kernstartpfade.
-Der frühere ungesperrte Direktleser ist entfernt.
-
-Paket #35 erzeugt den Runner in der Lifespan und führt zuerst
-`runner.recover_interrupted()` unter gemeinsamer OS-Sperre aus, erst danach
-einen möglichen Collectorstart. Fremder Gerätebesitz/Recoveryfehler sperrt
-Geräteaktionen, nicht lesende APIs; fremder Zustand bleibt unverändert.
-Sammleraktionen teilen `runner.mode_lock`; Shutdown beendet zuerst
-`runner.close()`, danach den eigenen Collector. Kein automatischer Neustart
-nach Diagnoseende oder Quittierung. HTTP-Start verlangt zusätzlich die
-ausdrückliche Betreiberangabe `{other_readers_stopped: true}`. Die App erkennt
-keine Leser auf fremden Volumes oder anderen Geräten.
-
-Paket #34 ergänzt formale Steuerplanbewertung und unveränderliche Revisionen
-über `save_control_plan`/`get_control_plan`/`list_control_plans`. Gemeinsames
-Dokument enthält Entwurf, Quellenstatus, Bewertung und `execution_enabled:false`.
-Die Liste liefert ausschließlich neueste Revisionen; veraltete Updates werfen
-`RevisionConflict` mit Code `revision_conflict`. API-/Lifespan-Anbindung ist
-mit #35 umgesetzt; die Bedienung im bestehenden Dashboard ist mit #36 umgesetzt.
-Details: [Steuerplanvertrag](docs/DATENMODELL.md#steuerentwürfe-und-revisionen-issue-34).
-Private Speicherdicts werden nicht als API ausgegeben; explizite Projektionen
-erhalten Quelle/Rohbelege, aber keine Ziele/Pfade/Fingerprintwerte.
-Wheel-Laufzeitnachweis außerhalb des Checkouts und gebaute StaticFiles-UI mit #39
-bestanden: 199 Einträge, identischer Ressourcenhash, hostlose Planblockade.
-Offline-Nachweise: [Ergebnisse](reports/RESULTS.md); keine zusätzlichen Live-Belege.
-
-Für weitere Arbeit: verbindliche OpenAPI-Modelle in `backend/diagnostics_api.py`,
-die Oberfläche `frontend/src/Diagnostics.tsx` mit `ReadRuns.tsx` und
-`ControlPlans.tsx` sowie den [HTTP-Vertrag](docs/DATENMODELL.md#diagnose-http-api-issue-35)
-verwenden.
-Inventar: `entries`, getrennte `control_candidates`, `blockade`;
-je Eintrag `latest_diagnostic` mit `completed_at`, `source`, `target_changed`.
-Laufstatus: `plan`, `requests_reserved`, `next_step_index`,
-`wait_remaining_seconds`, `duration_remaining_seconds`, `requests`.
-HTTP 409 `read_not_due` darf weder warten noch automatisch erneut anfragen.
-Jede Antwort muss ausdrücklich bewertet werden; Freitexte und Exporte bleiben
-privat. LAN/Tailscale und CSRF sind keine Authentisierung oder Schreibfreigabe.
-
-Paket #36 bietet 50er-Katalogseiten, drei Suchformen, Belegfilter, Details und
-getrennte START-/SOLL-Kandidaten. `api.ts` und `format.ts` sind die einzigen
-gemeinsamen Fetch-/Anzeigehelfer; `ApiError.message` bleibt `HTTP <Status>`.
-Serverpläne, Leserbestätigung, manuelle Reads/Reviews, sicherer Stopp und
-Ursachenquittierung sind angebunden, ohne automatischen Diagnose-POST oder
-Diagnosepolling. Bereichswechsel erhält den gemounteten Zustand.
-Alle Steuerplanfelder, Nullwerte, unveränderliche Blocker, Revisionen und
-Konfliktübernahme sind bedienbar; Export lädt die aktuelle Serverrevision.
-Der Vite-Proxy erhält mit `changeOrigin:false` den Browser-Hostheader, damit
-der bestehende Same-Origin-Vertrag auch bei lokaler Entwicklung gilt.
-
-Eigene Browserprüfung gegen echte Loopback-API/Katalogsimulator mit temporärem
-DATA_DIR bestanden: drei manuelle Rohreads, reale 60-s-Schranken,
-Pflichtbewertungen, Refresh/Downloads, Neustart/Recovery, Revisionenkonflikt,
-Exception-Stopp und Desktop/390 px. Speicher-/Netzfehleranzeigen zusätzlich
-mit synthetischen Browserantworten geprüft, nicht als echte DB-Ausfälle.
-Details und Grenzen: [Ergebnisse](reports/RESULTS.md).
-Die automatisierte Verbraucherabnahme #37 ist bestanden: 644 Tests der
-vereinbarten Gesamtsuite und 63 zusätzliche Steuerplantests auf CPython 3.12.9;
-Ruff und Frontendbuild erfolgreich. Jeder Matrixfall ist im Ergebnisbericht
-konkreten Verhaltenstests zugeordnet. Neue Nachweise umfassen echte
-Zweitprozessbesitzer, gegatete Reservierungs-/Antwort-/Collector-Speicherrennen,
-Fehler am ersten/zweiten Versuch und echte Steuerrevisionen nach Restore.
-Die Runner-Tests isolieren auch geerbte Deploymentvariablen.
-Ein zusätzlicher realer Loopbacklauf mit drei manuellen Reads und echten
-60,050-s-Wartezeiten endete `completed`, ohne neue Kernbeobachtungen.
-Die reproduzierbare Screenshot-/Request-/Persistenzabnahme #38 belegt zusätzlich
-den tatsächlich bedienten Vite-Browser bei Desktopbreite und 390 px,
-exakt drei bewusste Rohreads mit mindestens 60 s Abstand, echte JSON-Downloads
-mit SQLite-Abgleich, unveränderliche Steuerrevisionen/Revisionskonflikt sowie
-Neustartpersistenz und einen separaten harten Exception-Stopp ohne Retry.
-Bereinigte Screenshots und genaue Messwerte:
-[Abnahmebericht #38](reports/RESULTS.md#15102026--issue-38-reale-offline-browserabnahme).
-Keine Produktionsänderung erforderlich. Paketabnahme #39 bestanden:
-Wheel in frischer CPython-3.12.9-Umgebung außerhalb des Checkouts importiert;
-gebaute Oberfläche über den bestehenden StaticFiles-Pfad tatsächlich bedient.
-Containerlauf lokal ungeprüft: Docker nicht verfügbar.
-CLI vorhanden, Linux-Engine nicht erreichbar; kein Containerbuild oder -lauf.
-[Konkrete Artefakt-/Browserbelege](reports/RESULTS.md#15102026--issue-39-wheel-und-gebaute-laufzeitoberfläche).
-Offen bleiben Linux-/Unraid-Deployment und Langzeitbetrieb. Vor späterer
-Live-Diagnose aktuelle private Konfiguration und Quellen prüfen, andere Leser
-anhalten und einen eigenen endlichen Aliasplan mit genau begründeten Blöcken,
-Budget, Intervall, Laufzeit und Stopbedingungen dokumentieren; keinen
-pauschalen 199-Register-Liveplan aus der Offline-Abnahme ableiten.
-`npm audit` meldet eine bestehende hohe Vite-Sicherheitslücke; keine automatische
-Lockfileänderung im Abnahmeauftrag. Devserver ausschließlich auf Loopback betreiben;
-den Abhängigkeitsbefund vor nicht vertrauenswürdiger Bereitstellung beheben.
-Windows-Sperrnachweise ersetzen keinen Linux-/Unraid-Nachweis.
-Kein Deployment, Live-Test oder Heizungs-Schreibauftrag aus dieser Abnahme ableiten.
-
+Diagnosefunktion und Offline-Steuerentwürfe sind entfernt; die App bleibt
+auf Monitoring beschränkt. Die Git-Historie bleibt erhalten. Vorhandene
+Datenbanken und Minutenhistorien nicht löschen.
+Der [Registerkatalog](docs/register_catalog.json) bleibt eine statische
+Referenz, keine Registerauswahl oder zusätzliche Lesefunktion der App.
 
 ## Begrenzter Full-Stack-Test am Gerät
 

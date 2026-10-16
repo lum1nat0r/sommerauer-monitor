@@ -12,25 +12,20 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
-from starlette.concurrency import run_in_threadpool
 
 from backend.collector import Collector, CollectorStopped
 from backend.config import get_settings
-from backend.device_lock import DeviceOwnershipError
-from backend.diagnostics_api import api_error, install_error_handlers, router as diagnostics_router
-from backend.read_checks import ReadCheckError, ReadCheckRunner
 from backend.storage import SQLiteStore, StorageError, utc_now
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-    settings = await run_in_threadpool(get_settings)
-    storage = await run_in_threadpool(SQLiteStore, settings.data_dir / "monitor.sqlite3")
+    settings = get_settings()
+    storage = SQLiteStore(settings.data_dir / "monitor.sqlite3")
     application.state.storage = storage
     collector = None
     if settings.collector_enabled:
-        collector = await run_in_threadpool(
-            Collector,
+        collector = Collector(
             host=settings.modbus_host,
             port=settings.modbus_port,
             store=storage,
@@ -38,49 +33,17 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             max_requests=settings.collector_max_requests,
             retry_on_transport_error=settings.collector_max_requests is None,
         )
+        collector.start()
     application.state.collector = collector
-    runner = await run_in_threadpool(
-        ReadCheckRunner, settings=settings, store=storage, collector=collector,
-    )
-    application.state.runner = runner
-    application.state.diagnostics_blocker = None
-    application.state.collector_started = False
     try:
-        try:
-            await run_in_threadpool(runner.recover_interrupted)
-        except DeviceOwnershipError:
-            application.state.diagnostics_blocker = "run_conflict"
-        except ReadCheckError as exc:
-            application.state.diagnostics_blocker = (
-                "storage_unavailable" if exc.code == "stopped_storage" else "run_conflict"
-            )
-        except (StorageError, OSError):
-            application.state.diagnostics_blocker = "storage_unavailable"
-        if collector is not None and application.state.diagnostics_blocker is None:
-            try:
-                await run_in_threadpool(collector.start)
-                application.state.collector_started = True
-            except DeviceOwnershipError:
-                application.state.diagnostics_blocker = "run_conflict"
-            except CollectorStopped:
-                # Persistente Diagnosestopps bleiben quittierbar, ohne Autostart.
-                pass
-            except (StorageError, OSError):
-                application.state.diagnostics_blocker = "storage_unavailable"
         yield
     finally:
-        try:
-            await run_in_threadpool(runner.close)
-        finally:
-            # Bei fremdem Besitz auch beim Shutdown keinen fremden Zustand ändern.
-            if collector is not None and application.state.collector_started:
-                await run_in_threadpool(collector.stop)
+        if collector is not None:
+            collector.stop()
 
 
 app = FastAPI(title="Sommerauer Monitor", version="0.2.1", lifespan=lifespan)
 
-install_error_handlers(app)
-app.include_router(diagnostics_router)
 
 class AppConfigUpdate(BaseModel):
     display_timezone: str = Field(min_length=1, max_length=100)
@@ -152,9 +115,7 @@ def health(request: Request) -> dict[str, object]:
 
 @app.get("/api/config")
 def config_summary(request: Request) -> dict[str, object]:
-    settings = get_settings()
-    summary: dict[str, object] = settings.public_summary()
-    summary["diagnostics_source"] = settings.diagnostics_source
+    summary: dict[str, object] = get_settings().public_summary()
     storage = getattr(request.app.state, "storage", None)
     if storage is not None:
         try:
@@ -324,45 +285,35 @@ def collector_status(request: Request) -> dict[str, object]:
 def _collector(request: Request) -> Collector:
     collector = getattr(request.app.state, "collector", None)
     if collector is None:
-        raise api_error("collector_blocked")
+        raise HTTPException(409, "Collector is not configured")
     return collector
-
-
-def _collector_action(request: Request, action: str) -> dict[str, object]:
-    runner = request.app.state.runner
-    with runner.mode_lock:
-        try:
-            blocker = request.app.state.diagnostics_blocker or runner.access_blocker()
-            if blocker is not None:
-                raise api_error(blocker)
-            collector = _collector(request)
-            getattr(collector, action)()
-            if action in {"resume", "acknowledge_and_start"}:
-                request.app.state.collector_started = True
-        except DeviceOwnershipError:
-            request.app.state.diagnostics_blocker = "run_conflict"
-            raise api_error("run_conflict") from None
-        except CollectorStopped:
-            raise api_error(runner.access_blocker() or "collector_blocked") from None
-        except (StorageError, OSError):
-            request.app.state.diagnostics_blocker = "storage_unavailable"
-            raise api_error("storage_unavailable") from None
-        return collector.status()
 
 
 @app.post("/api/collector/pause")
 def pause_collector(request: Request) -> dict[str, object]:
-    return _collector_action(request, "pause")
+    collector = _collector(request)
+    collector.pause()
+    return collector.status()
 
 
 @app.post("/api/collector/resume")
 def resume_collector(request: Request) -> dict[str, object]:
-    return _collector_action(request, "resume")
+    collector = _collector(request)
+    try:
+        collector.resume()
+    except CollectorStopped as exc:
+        raise HTTPException(409, "Collector must be acknowledged after resolving its cause") from exc
+    return collector.status()
 
 
 @app.post("/api/collector/acknowledge-and-start")
 def acknowledge_collector(request: Request) -> dict[str, object]:
-    return _collector_action(request, "acknowledge_and_start")
+    collector = _collector(request)
+    try:
+        collector.acknowledge_and_start()
+    except CollectorStopped as exc:
+        raise HTTPException(409, "Collector cannot be acknowledged in its current state") from exc
+    return collector.status()
 
 static_directory = Path(__file__).resolve().parent.parent / "static"
 if static_directory.is_dir():

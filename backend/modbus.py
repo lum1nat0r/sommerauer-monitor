@@ -1,4 +1,4 @@
-"""Strikter FC03-Transport mit getrennten Kern- und Kataloggrenzen."""
+"""Strict, single-request Modbus TCP FC03 transport for the confirmed core profile."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import threading
 import time
 from dataclasses import dataclass
 
-from backend.catalog import CatalogReadBlock, load_catalog
 from backend.registers import CORE_PROFILE, RegisterBlock
 
 UNIT_ID = 255
@@ -45,7 +44,7 @@ class RegisterRead:
 
 
 class ModbusTcpClient:
-    """Genau einen validierten Block synchron lesen, ohne Wiederholung."""
+    """Read exactly one approved core block at a time, without retries."""
 
     def __init__(
         self,
@@ -68,40 +67,10 @@ class ModbusTcpClient:
 
     def read(self, block: RegisterBlock) -> RegisterRead:
         """Read a block present verbatim in CORE_PROFILE, using fixed Unit 255."""
-        if (
-            type(block) is not RegisterBlock
-            or type(block.offset) is not int
-            or type(block.count) is not int
-            or block not in CORE_PROFILE
-        ):
+        if block not in CORE_PROFILE:
             raise ValueError("only blocks from the confirmed core profile are allowed")
         if not 1 <= block.count <= MAX_REGISTERS:
             raise ValueError("FC03 reads are limited to two registers")
-        return self._read_fc03(block.offset, block.count)
-
-    def read_catalog(self, block: CatalogReadBlock) -> RegisterRead:
-        """Dokumentiertes Einzelwort oder exakten Kernblock vor Socket prüfen."""
-        if (
-            type(block) is not CatalogReadBlock
-            or type(block.offset) is not int
-            or type(block.count) is not int
-            or not 0 <= block.offset <= 65535
-            or not 1 <= block.count <= MAX_REGISTERS
-        ):
-            raise ValueError("invalid catalog read block")
-        catalog = load_catalog()
-        if block.offset not in catalog.entries or (
-            block.count != 1
-            and not any(
-                (block.offset, block.count) == (core.offset, core.count)
-                for core in CORE_PROFILE
-            )
-        ):
-            raise ValueError("only documented single registers or exact core blocks are allowed")
-        return self._read_fc03(block.offset, block.count)
-
-    def _read_fc03(self, offset: int, count: int) -> RegisterRead:
-        """Gemeinsamer privater Telegrammpfad; Aufrufer validieren die Grenze."""
 
         deadline = time.monotonic() + self._deadline_seconds
         if not self._request_lock.acquire(timeout=self._remaining(deadline)):
@@ -113,8 +82,8 @@ class ModbusTcpClient:
                 transaction_id.to_bytes(2, "big")
                 + b"\x00\x00\x00\x06"
                 + bytes((UNIT_ID, FUNCTION_READ_HOLDING_REGISTERS))
-                + offset.to_bytes(2, "big")
-                + count.to_bytes(2, "big")
+                + block.offset.to_bytes(2, "big")
+                + block.count.to_bytes(2, "big")
             )
             received = bytearray()
             try:
@@ -158,14 +127,14 @@ class ModbusTcpClient:
                 )
             if function != FUNCTION_READ_HOLDING_REGISTERS:
                 raise ProtocolError("function code mismatch", received_bytes=len(received))
-            expected_byte_count = count * 2
+            expected_byte_count = block.count * 2
             if len(pdu) != 2 + expected_byte_count or pdu[1] != expected_byte_count:
                 raise ProtocolError("register byte count mismatch", received_bytes=len(received))
             words = tuple(
                 int.from_bytes(pdu[index : index + 2], "big")
                 for index in range(2, len(pdu), 2)
             )
-            return RegisterRead(offset, words)
+            return RegisterRead(block.offset, words)
         finally:
             self._request_lock.release()
 

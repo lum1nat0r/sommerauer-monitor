@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import os
 from pathlib import Path
 import threading
 import time
 from typing import Any, Callable
 from uuid import uuid4
 
-from backend.device_lock import DeviceLock
 from backend.modbus import (
     ConnectionError as ModbusConnectionError,
     IncompleteResponseError,
@@ -31,8 +31,64 @@ RECONNECT_DELAYS_SECONDS = (60.0, 120.0, 300.0, 600.0, 900.0)
 MAX_RECONNECT_ATTEMPTS = len(RECONNECT_DELAYS_SECONDS)
 
 
+
+class CollectorOwnershipError(RuntimeError):
+    """Another process currently owns this deployment's collector lock."""
+
+
 class CollectorStopped(RuntimeError):
     """The collector ended in a non-running state."""
+
+
+class _ProcessLock:
+    """OS-backed exclusive lock, held for the collector's complete lifetime."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._file: Any = None
+
+    def acquire(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._file = self.path.open("a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                self._file.seek(0)
+                if self._file.read(1) == b"":
+                    self._file.write(b"0")
+                    self._file.flush()
+                self._file.seek(0)
+                msvcrt.locking(self._file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self._file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            self._file.close()
+            self._file = None
+            raise CollectorOwnershipError("collector lock is held by another process") from exc
+        except BaseException:
+            self._file.close()
+            self._file = None
+            raise
+
+    def release(self) -> None:
+        if self._file is None:
+            return
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                self._file.seek(0)
+                msvcrt.locking(self._file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self._file.fileno(), fcntl.LOCK_UN)
+        finally:
+            self._file.close()
+            self._file = None
 
 
 class Collector:
@@ -52,7 +108,6 @@ class Collector:
         max_duration_seconds: float | None = None,
         max_requests: int | None = None,
         retry_on_transport_error: bool = True,
-        mode_lock: threading.RLock | None = None,
     ) -> None:
         if max_duration_seconds is not None and max_duration_seconds <= 0:
             raise ValueError("max_duration_seconds must be positive")
@@ -66,14 +121,12 @@ class Collector:
         self.max_duration_seconds = max_duration_seconds
         self.max_requests = max_requests
         self.retry_on_transport_error = retry_on_transport_error
-        self.mode_lock = mode_lock if mode_lock is not None else threading.RLock()
-        self._lock = DeviceLock(data_dir / "collector.lock")
+        self._lock = _ProcessLock(data_dir / "collector.lock")
         self._stop = threading.Event()
         self._paused = threading.Event()
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._started_at: float | None = None
-        self._first_read_not_before: float | None = None
         self._request_count = 0
         self._last_completed: dict[int, float] = {}
         self._last_counter: tuple[int, datetime] | None = None
@@ -214,77 +267,51 @@ class Collector:
             self._paused.set()
 
     def acknowledge_and_start(self) -> None:
-        with self.mode_lock:
-            self._ensure_diagnostic_access()
-            if self.state not in {
-                "paused", "stopped_transport", "stopped_protocol", "stopped_data",
-                "stopped_storage", "completed",
-            }:
-                raise CollectorStopped(f"cannot acknowledge collector in state {self.state}")
-            self.error = None
-            self._reconnect_attempts = 0
-            self._successful_core_cycles = 0
-            self._successful_blocks_in_cycle = 0
-            self._retry_at = None
-            self._retry_delay_seconds = None
-            self._retry_monotonic_deadline = None
-            self.state = "paused"
-            self._last_action = "Start collection"
-            self._has_saved_state = False
-            self._persist_state()
-            self._paused.clear()
-            if self._thread is None or not self._thread.is_alive():
-                self.start()
+        if self.state not in {
+            "paused", "stopped_transport", "stopped_protocol", "stopped_data",
+            "stopped_storage", "completed",
+        }:
+            raise CollectorStopped(f"cannot acknowledge collector in state {self.state}")
+        self.error = None
+        self._reconnect_attempts = 0
+        self._successful_core_cycles = 0
+        self._successful_blocks_in_cycle = 0
+        self._retry_at = None
+        self._retry_delay_seconds = None
+        self._retry_monotonic_deadline = None
+        self.state = "paused"
+        self._last_action = "Start collection"
+        self._has_saved_state = False
+        self._persist_state()
+        self._paused.clear()
+        if self._thread is None or not self._thread.is_alive():
+            self.start()
 
     def start(self) -> None:
-        """Acquire ownership and check diagnostics before changing the collector."""
-        with self.mode_lock:
-            if self._thread is not None and self._thread.is_alive():
-                self._ensure_diagnostic_access()
-                return
-            self._lock.acquire()
-            try:
-                self._ensure_diagnostic_access()
-                if (
-                    (self._has_saved_state and self.state == "paused")
-                    or self.state.startswith("stopped_")
-                    or self.state == "completed"
-                ):
-                    self._lock.release()
-                    return
-                self._stop.clear()
-                self._wake.clear()
-                self._paused.clear()
-                self._thread = threading.Thread(
-                    target=self.run, name="sommerauer-collector", daemon=True,
-                )
-                self._thread.start()
-            except BaseException:
-                self._lock.release()
-                raise
+        """Acquire ownership before creating the background worker."""
+        if self._thread is not None and self._thread.is_alive():
+            return
+        if self._has_saved_state and self.state == "paused":
+            return
+        if self.state.startswith("stopped_") or self.state in {"stopped_protocol", "completed"}:
+            return
+        self._lock.acquire()
+        self._stop.clear()
+        self._wake.clear()
+        self._paused.clear()
+        self._thread = threading.Thread(target=self.run, name="sommerauer-collector", daemon=True)
+        self._thread.start()
 
     def run(self) -> None:
         """Run until stopped, paused, failed, or a configured finite limit is reached."""
-        if self._thread is not threading.current_thread():
-            with self.mode_lock:
-                self._lock.acquire()
-                try:
-                    self._ensure_diagnostic_access()
-                except BaseException:
-                    self._lock.release()
-                    raise
         try:
-            # Der Worker darf den Moduslock nicht benötigen: stop() hält ihn beim Join.
-            self._ensure_diagnostic_access()
-            diagnostic_history = self.store.has_diagnostic_requests()
+            if self._thread is None:
+                self._lock.acquire()
             if not self._has_saved_state:
                 self._paused.clear()
             if self.state != "reconnect_wait":
                 self.state = "running"
             self._started_at = self.monotonic()
-            self._first_read_not_before = self._started_at + (
-                MIN_BLOCK_INTERVAL_SECONDS if diagnostic_history else 0.0
-            )
             self._persist_state()
             while not self._stop.is_set():
                 if self._paused.is_set():
@@ -303,11 +330,8 @@ class Collector:
                 if recovering:
                     if self._retry_at is None or self._retry_monotonic_deadline is None:
                         raise StorageError("Reconnect state has no retry deadline")
-                    due = max(
-                        self._retry_monotonic_deadline,
-                        self._first_read_not_before,
-                    )
-                    if not self._wait_until(due):
+                    remaining = self._retry_monotonic_deadline - self.monotonic()
+                    if remaining > 0 and not self._wait_until(self.monotonic() + remaining):
                         break
                     if self._stop.is_set() or self._paused.is_set():
                         continue
@@ -334,6 +358,10 @@ class Collector:
                 self.state = "paused"
                 self._last_action = "Collection paused"
                 self._persist_state()
+        except CollectorOwnershipError:
+            self.state = "ownership_error"
+            self.error = "collector lock is held by another process"
+            raise
         except StorageError as exc:
             self.state = "stopped_storage"
             self.error = str(exc)
@@ -343,52 +371,44 @@ class Collector:
 
     def pause(self) -> None:
         """Pause future reads; an in-flight read may finish by its transport deadline."""
-        with self.mode_lock:
-            self._paused.set()
-            self._wake.set()
-            if self.state in {"running", "reconnect_wait"}:
-                self.state = "paused"
-                self._last_action = "Collection paused"
-                self._persist_state()
+        self._paused.set()
+        self._wake.set()
+        if self.state in {"running", "reconnect_wait"}:
+            self.state = "paused"
+            self._last_action = "Collection paused"
+            self._persist_state()
 
     def resume(self) -> None:
-        with self.mode_lock:
-            self._ensure_diagnostic_access()
-            if self.state not in {"paused"}:
-                raise CollectorStopped(f"cannot resume collector in state {self.state}")
-            self._paused.clear()
-            self._wake.clear()
-            self.state = "reconnect_wait" if self._retry_at is not None else "running"
-            self._last_action = (
-                "Resume after saved retry delay"
-                if self.state == "reconnect_wait" else "Resume collection"
-            )
-            self._has_saved_state = False
-            self._persist_state()
-            if self._thread is None or not self._thread.is_alive():
-                self.start()
+        if self.state not in {"paused"}:
+            raise CollectorStopped(f"cannot resume collector in state {self.state}")
+        self._paused.clear()
+        self._wake.clear()
+        self.state = "reconnect_wait" if self._retry_at is not None else "running"
+        self._last_action = (
+            "Resume after saved retry delay"
+            if self.state == "reconnect_wait" else "Resume collection"
+        )
+        self._has_saved_state = False
+        self._persist_state()
+        if self._thread is None or not self._thread.is_alive():
+            self.start()
 
     def stop(self, timeout: float | None = 4.0) -> None:
         """Prevent new reads, allow an in-flight request to finish, then join the worker."""
         self._stop.set()
         self._wake.set()
-        with self.mode_lock:
-            if self._thread is not None:
-                self._thread.join(timeout)
-                if self._thread.is_alive():
-                    raise TimeoutError("collector did not stop before the join timeout")
-                self._thread = None
-            if self.state not in {
-                "stopped_storage", "stopped_protocol", "stopped_data",
-                "stopped_transport", "completed", "reconnect_wait",
-            }:
-                self.state = "paused"
-                self._last_action = "Collection paused"
-                self._persist_state()
-
-    def _ensure_diagnostic_access(self) -> None:
-        if self.store.diagnostic_access_blocker() is not None:
-            raise CollectorStopped("diagnostic run blocks core collection")
+        if self._thread is not None:
+            self._thread.join(timeout)
+            if self._thread.is_alive():
+                raise TimeoutError("collector did not stop before the join timeout")
+            self._thread = None
+        if self.state not in {
+            "stopped_storage", "stopped_protocol", "stopped_data",
+            "stopped_transport", "completed", "reconnect_wait",
+        }:
+            self.state = "paused"
+            self._last_action = "Collection paused"
+            self._persist_state()
 
     def _limit_reached(self) -> bool:
         return (
@@ -409,8 +429,6 @@ class Collector:
 
     def _due_at(self, block) -> float:
         due = self._started_at if self._started_at is not None else self.monotonic()
-        if self._first_read_not_before is not None:
-            due = max(due, self._first_read_not_before)
         previous = self._last_completed.get(block.offset)
         if previous is not None:
             due = max(due, previous + MIN_BLOCK_INTERVAL_SECONDS)
