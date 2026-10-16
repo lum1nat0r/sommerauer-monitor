@@ -44,11 +44,6 @@ identische Ressourcenbytes) und die tatsächlich bediente gebaute StaticFiles-UI
 Containerlauf lokal ungeprüft: Docker nicht verfügbar.
 [Paketabnahme und Grenzen](reports/RESULTS.md#15102026--issue-39-wheel-und-gebaute-laufzeitoberfläche).
 
-Epic #29 bündelt die abgeschlossenen Pakete #30–#39; Umsetzung und getrennte
-Offline-Abnahmen sind in der [Abschlussmatrix](reports/RESULTS.md#15102026--issue-29-epicabschluss)
-den jeweiligen Pull Requests zugeordnet. Die Container-, Unraid-, Live- und
-Steuerungsgrenzen bleiben ausdrücklich bestehen.
-
 
 Issue #34 ergänzt rein offline bewertete Steuerentwürfe mit atomaren,
 unveränderlichen SQLite-Revisionen und privater Exportprojektion. Auch vollständig

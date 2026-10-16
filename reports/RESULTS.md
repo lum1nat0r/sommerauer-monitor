@@ -1706,66 +1706,6 @@ Linux-/Unraid-Laufzeit, Langzeitbetrieb, zusätzliche Registerinterpretationen
 und autonome START-/SOLL-Rückstellung bleiben ungeprüft. Neue Live-Lesearbeit
 verlangt einen eigenen endlichen öffentlichen Alias-/privaten Zielplan;
 echte Steueränderungen zusätzlich konkrete Betreiberfreigabe.
-
-## 15.10.2026 – Issue #29: Epicabschluss
-
-Ausgangsstand: `main` nach Merge von PR #49 (`93cc7a5`).
-Alle Unterissues #30–#39 sind auf GitHub geschlossen und ihre PRs zusammengeführt.
-Der Abschluss ergänzt nur Dokumentation, keinen zweiten Implementierungspfad.
-Issue-Text und Kommentare werden nicht verändert; die Schließreferenz steht im
-Abschluss-PR. Historische offene Checkboxen im Epic sind keine neue Aussage
-über den inzwischen zusammengeführten Implementierungsstand.
-
-| Paket / Epic-Anforderung | Zusammengeführter PR | Nachweis in diesem Bericht |
-|---|---|---|
-| #30: 199 Katalogeinträge, 194 Rohkandidaten, sichere Blockauswahl | [#40](https://github.com/lum1nat0r/sommerauer-monitor/pull/40) | Abschnitt #30: validierter Snapshot, negative Auswahlfälle |
-| #31: Journal, dauerhafte Reservierung, Migration/Restore | [#41](https://github.com/lum1nat0r/sommerauer-monitor/pull/41) | Abschnitt #31; zusätzliche Restore-/Rennnachweise in #37 |
-| #32: enger FC03-Pfad und synthetischer Katalogsimulator | [#42](https://github.com/lum1nat0r/sommerauer-monitor/pull/42) | Abschnitt #32: Auswahl- und Protokollgrenzen |
-| #33: exklusiver Besitzer, manuelle endliche Reads, Stopps/Recovery | [#43](https://github.com/lum1nat0r/sommerauer-monitor/pull/43) | Abschnitte #33/#37: Zweitprozess, Stop-/Reservierungs-/Joinrennen |
-| #34: reine Bewertung, unveränderliche Steuerrevisionen | [#44](https://github.com/lum1nat0r/sommerauer-monitor/pull/44) | Abschnitte #34/#37/#38: Konflikte, Export nicht ausführbar |
-| #35: Lifespan/API, bereinigte Projektionen, CSRF, wirkungsfreie GETs | [#45](https://github.com/lum1nat0r/sommerauer-monitor/pull/45) | Abschnitte #35/#37: API-/Sicherheitsverträge |
-| #36: Dashboard, Lese-/Bewertungsfolge und Steuerformulare | [#46](https://github.com/lum1nat0r/sommerauer-monitor/pull/46) | Abschnitte #36/#38: Bedienung, Fehler-/Lade-/Konfliktzustände |
-| #37: vollständige automatisierte Abnahmematrix | [#47](https://github.com/lum1nat0r/sommerauer-monitor/pull/47) | Abschnitt #37 mit konkreter Testzuordnung; Gesamtsuite unten erneut ausgeführt |
-| #38: reale Browser-/Persistenz-/Fehlerabnahme | [#48](https://github.com/lum1nat0r/sommerauer-monitor/pull/48) | Abschnitt #38: Screenshots, echte 60-s-Schranken, Downloads/SQLite, Neustart |
-| #39: installiertes Wheel, gebaute Oberfläche, Containergrenze | [#49](https://github.com/lum1nat0r/sommerauer-monitor/pull/49) | Abschnitt #39: isolierter Import/Hash, StaticFiles-Browser, Dockergrenze |
-
-**Beim Epicabschluss selbst ausgeführt:**
-
-- CPython **3.12.9**, uv **0.12.2**, Node **26.7.0**, npm **12.0.2**.
-- Frische temporäre Projektumgebung mit `uv sync --locked --python 3.12.9`.
-  Die vorhandene `.venv` blieb unverändert.
-- Gesamtes `pytest`: **707 passed, 1 warning in 88.07s**, einschließlich aller
-  acht im Epic verlangten Testdateien und der 63 Steuerplantests.
-  Bekannte Starlette-/AnyIO-DeprecationWarning, kein Testfehler.
-- `ruff check .`: **All checks passed!**
-- `uv build --wheel --python 3.12.9`: erfolgreich,
-  `sommerauer_monitor-0.1.0-py3-none-any.whl`.
-- `npm run build`: TypeScript erfolgreich, **33 Module**, **1,10 s**.
-- Separater API-Laufzeit-Smoke mit explizit leerem `MODBUS_HOST`,
-  `COLLECTOR_ENABLED=false`, temporärem `DATA_DIR`: `/api/config` **200**,
-  `host_configured:false`, `collector_enabled:false`; Collector `unconfigured`,
-  OpenAPI **200**. Katalog **199**; Auswahl 4098, 4099, 33408 ergibt exakt
-  drei Einzelblöcke, kein zusammengefasster Nachbarblock.
-
-Ein erster Smoke-Aufruf scheiterte wegen fehlendem FastAPI in der bestehenden
-Umgebung. Ein weiterer Versuch mit Python-seitigem Settingsersatz isolierte
-die App-Konfiguration nicht wirksam: die API meldete die vorhandene
-Deploymentkonfiguration und den gespeicherten Zustand `completed`.
-Dieser Versuch zählt nicht als Offline-Isolationsnachweis; Geräteverkehr wurde
-dabei nicht mitgeschnitten und wird deshalb nicht ausgeschlossen oder als
-Live-Nachweis gewertet. Danach wurde der oben genannte Smoke vor jedem
-Backendimport über explizite Umgebungsvariablen isoliert und erfolgreich geprüft.
-Keine Schreibfunktion aufgerufen, keine private Konfiguration geändert.
-
-Die Browser-/Wheelinstallationsbelege aus #38/#39 sind bestehende Nachweise,
-keine in diesem Abschluss wiederholten Sitzungen. Kein neuer Browser-,
-Container- oder Unraid-Nachweis behauptet. Docker-Engine war bei #39 nicht
-erreichbar; diese dokumentierte, im Epic erlaubte Containergrenze bleibt offen.
-Bekannter Vite-Sicherheitsbefund, Linux-/Unraid-Deployment, Langzeitbetrieb,
-neue Registerinterpretationen sowie Stellweg und autonomer Rückfall (#18)
-bleiben außerhalb dieses Abschlusses. Keine Gerätefreigabe, kein Release,
-kein Deployment und kein Dauerbetrieb aus dem Epicabschluss ableiten.
-
 ## 15.10.2026 – Version 0.2.0 vorbereitet
 
 Nutzerauftrag: aktuellen `main`-Stand als Version 0.2.0 vorbereiten.

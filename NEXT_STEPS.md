@@ -29,13 +29,7 @@ von Datenvolume und Erfassungseinstellungen neu erstellen.
 Keine Geräteanfrage für die Proxyprüfung nötig; Ergebnisse im
 [Ergebnisbericht](reports/RESULTS.md#15102026--domainaktionen-hinter-einem-reverse-proxy).
 
-## Register-Prüfwerkzeug: Abschluss von Epic #29
-
-Die Pakete #30–#39 sind zusammengeführt. Die
-[Abschlussmatrix](reports/RESULTS.md#15102026--issue-29-epicabschluss)
-ordnet Anforderungen, PRs und vorhandene Laufzeitbelege zu.
-Kein weiteres Implementierungspaket aus #29 offen; Container-/Unraid-Nachweis,
-Langzeitbetrieb und Stellweg/autonomer Rückfall (#18) sind dadurch nicht erfüllt.
+## Register-Prüfwerkzeug: Übergabe nach #39
 
 Die kanonische Ressource liegt ausschließlich unter
 [`backend/resources/register_catalog.json`](backend/resources/register_catalog.json).
