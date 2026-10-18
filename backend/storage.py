@@ -41,8 +41,8 @@ class SQLiteStore:
         except (OSError, sqlite3.Error) as exc:
             raise StorageError(f"Could not initialize database: {exc}") from exc
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=3.0)
+    def _connect(self, *, check_same_thread: bool = True) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path, timeout=3.0, check_same_thread=check_same_thread)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 3000")
@@ -397,7 +397,8 @@ class SQLiteStore:
             args.append(end)
         query += " ORDER BY observed_at, observation_id"
         try:
-            with self._connection() as connection:
+            # Starlette setzt den Generator sequenziell auf wechselnden Workerthreads fort.
+            with closing(self._connect(check_same_thread=False)) as connection:
                 for row in connection.execute(query, args):
                     item = dict(row)
                     item["raw_words"] = json.loads(item.pop("raw_words_json"))

@@ -9,13 +9,15 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from backend.collector import Collector, CollectorStopped
 from backend.config import get_settings
-from backend.logging_config import MAX_REQUEST_BYTES, LoggingConfigError, merge_csv
+from backend.logging_config import (
+    MAX_REQUEST_BYTES, LoggingConfigError, export_configuration, import_configuration, merge_csv,
+)
 from backend.registers import CONTROL_CANDIDATES, SIGNAL_DEFINITIONS
 from backend.storage import LoggingConfigConflict, SQLiteStore, StorageError, utc_now
 
@@ -206,6 +208,38 @@ def signal_definitions() -> dict[str, object]:
 def logging_config(request: Request) -> dict[str, object]:
     try:
         return _logging_config_response(request, _storage(request).get_logging_config())
+    except StorageError as exc:
+        raise HTTPException(503, "Die Aufzeichnungskonfiguration ist nicht verfügbar.") from exc
+
+
+@app.get("/api/logging-config/export")
+def export_logging_config(request: Request) -> Response:
+    try:
+        snapshot = _storage(request).get_logging_config()
+        content = export_configuration(snapshot["entries"])
+        return Response(content, media_type="application/json", headers={
+            "Content-Disposition": 'attachment; filename="sommerauer-aufzeichnung.json"',
+            "Cache-Control": "no-store",
+        })
+    except LoggingConfigError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except StorageError as exc:
+        raise HTTPException(503, "Die Aufzeichnungskonfiguration ist nicht verfügbar.") from exc
+
+
+@app.post("/api/logging-config/import-preview")
+async def import_logging_config(request: Request) -> dict[str, object]:
+    payload = await _logging_payload(request, "configuration")
+    try:
+        snapshot = _storage(request).get_logging_config()
+        if payload["revision"] != snapshot["revision"]:
+            raise LoggingConfigConflict("Die Aufzeichnungskonfiguration wurde zwischenzeitlich geändert. Bitte neu laden und den Import erneut prüfen.")
+        draft = import_configuration(payload["configuration"], snapshot["entries"])
+        return _logging_config_response(request, snapshot, draft)
+    except LoggingConfigConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except LoggingConfigError as exc:
+        raise HTTPException(422, str(exc)) from exc
     except StorageError as exc:
         raise HTTPException(503, "Die Aufzeichnungskonfiguration ist nicht verfügbar.") from exc
 

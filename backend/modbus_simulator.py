@@ -32,6 +32,9 @@ _SYNTHETIC_WORDS = {
     definition["offset"]: 20 for definition in REGISTER_DEFINITIONS.values()
 }
 _SYNTHETIC_WORDS.update({
+    0x1001: 2,
+    0x1000: 7, 0x1007: 65, 0x9020: 60, 0x9040: 40,
+    0x1005: 100, 0x1012: 0,
     0x1002: 0, 0x1003: 50, 0x1006: 42, 0x1008: 50, 0x100A: 240,
     0x1021: 0, 0x1023: 0, 0x10D1: 1,
     0x1100: 120, 0x1101: 120, 0x1102: 120, 0x1104: 500, 0x1105: 500,

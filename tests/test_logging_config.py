@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+import json
 import sqlite3
 from datetime import timedelta
 from threading import Barrier
@@ -10,8 +11,8 @@ import pytest
 from backend.collector import Collector
 from backend.config import Settings, get_settings
 from backend.logging_config import (
-    MAX_CSV_BYTES, MAX_ENTRIES, MAX_REQUEST_BYTES, LoggingConfigError,
-    default_entries, merge_csv, normalize_entries, parse_csv, selected_signal_ids,
+    MAX_CSV_BYTES, MAX_ENTRIES, MAX_REQUEST_BYTES, MAX_TRANSFER_BYTES, LoggingConfigError,
+    default_entries, export_configuration, merge_csv, normalize_entries, parse_csv, selected_signal_ids,
 )
 from backend.main import app
 from backend.storage import LoggingConfigConflict, SQLiteStore, StorageError
@@ -426,10 +427,10 @@ def test_csv_preselects_only_interpretable_mappings_and_complete_counter_pairs()
         "Leistung;4099;1003\nLambda;4356;1104\nProtokoll;4848;12F0\n"
         "Unbekannt;99;ABCD\nSTART;36928;9040\nStoker_Tag;28690;7012\n"
         "Falsche_Zuordnung;4103;1006"))
-    for code in ("1003", "1104", "12F0"):
+    for code in ("1003", "1104", "12F0", "9040"):
         assert draft[code]["eligible"] is True
         assert draft[code]["record"] is True
-    for code in ("ABCD", "9040", "7012", "1006"):
+    for code in ("ABCD", "7012", "1006"):
         assert draft[code]["eligible"] is False
         assert draft[code]["record"] is False
 
@@ -453,3 +454,215 @@ def test_one_uploaded_counter_word_preselects_existing_partner_atomically():
     draft = indexed(merge_csv(entries, "Betrieb_Min;28689;7011"))
     assert draft["7010"]["record"] is True
     assert draft["7011"]["record"] is True
+
+
+def test_json_transfer_roundtrip_uses_saved_selection_and_preserves_target_runtime(offline_app, tmp_path):
+    source = SQLiteStore(tmp_path / "source.sqlite3")
+    source_entries = merge_csv(default_entries(), "Leistungsregelung;4099;1003\nEigene Reserve;17;ABCD")
+    for entry in source_entries:
+        if entry["code"] == "1006":
+            entry.update(name="Kessel Quelle", record=False, unit="Betreiber °C", description="Eigene Beschreibung\nmit Zeile")
+        if entry["code"] == "ABCD":
+            entry.update(unit="Notiz", description="Unbekannt und bewusst abgewählt")
+    source_saved = source.save_logging_config(0, source_entries)
+    with TestClient(offline_app) as client:
+        target = offline_app.state.storage
+        offline_app.state.storage = source
+        exported = client.get("/api/logging-config/export")
+        assert exported.status_code == 200
+        assert exported.headers["content-disposition"] == 'attachment; filename="sommerauer-aufzeichnung.json"'
+        assert exported.headers["cache-control"] == "no-store"
+        assert source.get_logging_config() == source_saved
+        document = exported.json()
+        assert set(document) == {"version", "entries"}
+        assert document["version"] == 1
+        assert all(set(entry) == {"code", "offset", "name", "record", "unit", "description"} for entry in document["entries"])
+        offline_app.state.storage = target
+        target_entries = merge_csv(default_entries(), "Nur Ziel;4104;1008")
+        target_entries = [{**entry, "description": "Bisher im Ziel"} for entry in target_entries]
+        target_saved = target.save_logging_config(0, target_entries)
+        collector = Collector(
+            host="unused.invalid", port=502, store=target, data_dir=tmp_path,
+            client=object(), max_requests=23,
+        )
+        collector.state = "stopped_data"
+        collector._request_count = 9
+        collector.blocked_signals.add("boiler.temperature")
+        collector._persist_state()
+        offline_app.state.collector = collector
+        runtime = target.get_collector_state()
+        target.record_cycle({
+            "request_id": "transfer-history", "started_at": "2026-10-14T12:00:00+00:00",
+            "completed_at": "2026-10-14T12:00:01+00:00", "function_code": 3,
+            "unit_id": 255, "offset": 4102, "register_count": 1, "outcome": "ok",
+        }, [{
+            "observation_id": "transfer-observation", "signal_id": "boiler.temperature",
+            "observed_at": "2026-10-14T12:00:01+00:00", "value": 42, "unit": "°C",
+            "quality": "ok", "raw_words": [42], "source": "synthetic",
+            "profile_id": "core", "profile_version": "1", "decoder_version": "1",
+        }])
+        history = client.get("/api/history/boiler.temperature").json()
+        preview_response = client.post("/api/logging-config/import-preview", headers=MUTATION_HEADERS, json={
+            "revision": target_saved["revision"], "configuration": document,
+        })
+        assert preview_response.status_code == 200
+        preview = preview_response.json()
+        assert preview["revision"] == target_saved["revision"]
+        assert target.get_logging_config() == target_saved
+        assert target.get_collector_state() == runtime
+        assert client.get("/api/history/boiler.temperature").json() == history
+        rows = indexed(preview["entries"])
+        for imported in document["entries"]:
+            assert {key: rows[imported["code"]][key] for key in imported} == imported
+        assert rows["1008"]["record"] is False
+        assert rows["1008"]["description"] == "Bisher im Ziel"
+        assert rows["ABCD"]["eligible"] is False
+        saved_response = client.put("/api/logging-config", headers=MUTATION_HEADERS, json={
+            "revision": preview["revision"], "entries": preview["entries"],
+        })
+        assert saved_response.status_code == 200
+        saved = saved_response.json()
+        assert saved["apply_status"] == "ausstehend"
+        assert saved["active_entries"] == target_saved["entries"]
+        assert target.get_collector_state() == runtime
+        assert collector.state == "stopped_data"
+        assert collector._request_count == 9
+        assert collector.max_requests == 23
+        assert collector.blocked_signals == {"boiler.temperature"}
+        assert collector._thread is None
+        assert client.get("/api/history/boiler.temperature").json() == history
+        reexported = client.get("/api/logging-config/export").json()
+        assert indexed(reexported["entries"])["1008"]["record"] is False
+        assert indexed(reexported["entries"])["1006"]["record"] is False
+        assert indexed(reexported["entries"])["1006"]["name"] == "Kessel Quelle"
+        restarted = SQLiteStore(tmp_path / "monitor.sqlite3").get_logging_config()
+        assert restarted["entries"] == saved["entries"]
+        assert source.get_logging_config() == source_saved
+
+
+@pytest.mark.parametrize("entries", [[], [
+    {"code": "1006", "offset": 4102, "name": "Abgewählt", "record": False, "unit": "", "description": ""},
+]])
+def test_json_empty_selection_is_not_csv_preselected(offline_app, entries):
+    with TestClient(offline_app) as client:
+        before = client.get("/api/logging-config").json()
+        response = client.post("/api/logging-config/import-preview", headers=MUTATION_HEADERS, json={
+            "revision": before["revision"], "configuration": {"version": 1, "entries": entries},
+        })
+        assert response.status_code == 200
+        draft = response.json()
+        assert not any(entry["record"] for entry in draft["entries"])
+        assert {entry["code"] for entry in draft["entries"]} == {entry["code"] for entry in before["entries"]}
+        assert client.get("/api/logging-config").json() == before
+        saved = client.put("/api/logging-config", headers=MUTATION_HEADERS, json={
+            "revision": draft["revision"], "entries": draft["entries"],
+        })
+        assert saved.status_code == 200
+        assert not any(entry["record"] for entry in saved.json()["entries"])
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda document: document.update(version=True),
+    lambda document: document.update(version=1.0),
+    lambda document: document.update(version="1"),
+    lambda document: document.update(version=2),
+    lambda document: document.pop("version"),
+    lambda document: document.update(revision=4),
+    lambda document: document.update(host="untrusted.invalid"),
+    lambda document: document.update(blocked_signals=[]),
+    lambda document: document.update(entries={}),
+    lambda document: document["entries"][0].update(offset=123),
+    lambda document: document["entries"][0].update(code="ABCD"),
+    lambda document: document["entries"].append(deepcopy(document["entries"][0])),
+    lambda document: document["entries"].remove(next(entry for entry in document["entries"] if entry["code"] == "7011")),
+    lambda document: next(entry for entry in document["entries"] if entry["code"] == "7011").update(record=False),
+    lambda document: document["entries"][0].update(record=1),
+    lambda document: document["entries"][0].update(offset=True),
+    lambda document: document["entries"][0].update(eligible=True),
+    lambda document: document["entries"][0].update(signal_id="boiler.temperature"),
+    lambda document: document["entries"][0].update(decoder="temperature"),
+    lambda document: document["entries"][0].update(blocked_reason=None),
+    lambda document: document["entries"][0].update(description=42),
+    lambda document: document["entries"][0].pop("name"),
+])
+def test_json_transfer_rejects_unsupported_formats_and_untrusted_fields(offline_app, mutate):
+    with TestClient(offline_app) as client:
+        before = client.get("/api/logging-config").json()
+        document = client.get("/api/logging-config/export").json()
+        mutate(document)
+        response = client.post("/api/logging-config/import-preview", headers=MUTATION_HEADERS, json={
+            "revision": before["revision"], "configuration": document,
+        })
+        assert response.status_code == 422
+        assert isinstance(response.json()["detail"], str)
+        assert client.get("/api/logging-config").json() == before
+
+
+def test_json_transfer_cas_and_same_origin_protect_existing_draft(offline_app):
+    with TestClient(offline_app) as client:
+        document = client.get("/api/logging-config/export").json()
+        body = {"revision": 0, "configuration": document}
+        route = "/api/logging-config/import-preview"
+        for headers in ({}, {**MUTATION_HEADERS, "Origin": "https://fremd.invalid"},
+                        {**MUTATION_HEADERS, "Sec-Fetch-Site": "cross-site"}):
+            assert client.post(route, json=body, headers=headers).status_code == 403
+        draft = client.post(route, json=body, headers=MUTATION_HEADERS).json()
+        changed = deepcopy(draft["entries"])
+        changed[0]["description"] = "Parallel gespeichert"
+        assert client.put("/api/logging-config", headers=MUTATION_HEADERS, json={
+            "revision": 0, "entries": changed,
+        }).status_code == 200
+        saved = client.get("/api/logging-config").json()
+        assert client.post(route, json=body, headers=MUTATION_HEADERS).status_code == 409
+        assert client.put("/api/logging-config", headers=MUTATION_HEADERS, json={
+            "revision": draft["revision"], "entries": draft["entries"],
+        }).status_code == 409
+        assert client.get("/api/logging-config").json() == saved
+        for payload in (
+            {"revision": True, "configuration": document},
+            {"revision": -1, "configuration": document},
+            {"revision": saved["revision"], "configuration": document, "extra": True},
+        ):
+            assert client.post(route, json=payload, headers=MUTATION_HEADERS).status_code == 422
+
+
+def test_json_transfer_limits_prevent_non_importable_downloads(offline_app, monkeypatch):
+    with TestClient(offline_app) as client:
+        before = client.get("/api/logging-config").json()
+        route = "/api/logging-config/import-preview"
+        assert client.post(route, headers=MUTATION_HEADERS, content=b" " * (MAX_REQUEST_BYTES + 1)).status_code == 413
+        assert client.post(route, headers=MUTATION_HEADERS, content=b"{broken").status_code == 422
+        assert client.get("/api/logging-config").json() == before
+        too_large = [
+            {"code": f"{index:04X}", "offset": index, "name": "Register", "record": False,
+             "unit": "", "description": "x" * 2000}
+            for index in range(2200)
+        ]
+        with pytest.raises(LoggingConfigError, match="zu groß"):
+            export_configuration(too_large)
+        with monkeypatch.context() as patch:
+            patch.setattr(offline_app.state.storage, "get_logging_config", lambda: {
+                "revision": before["revision"], "entries": too_large,
+            })
+            assert client.get("/api/logging-config/export").status_code == 422
+        with monkeypatch.context() as patch:
+            patch.setattr("backend.logging_config.MAX_TRANSFER_BYTES", 32)
+            response = client.post(route, headers=MUTATION_HEADERS, json={
+                "revision": before["revision"],
+                "configuration": json.loads(export_configuration([])),
+            })
+            assert response.status_code == 200
+            response = client.post(route, headers=MUTATION_HEADERS, json={
+                "revision": before["revision"],
+                "configuration": {"version": 1, "entries": [{
+                    "code": "1006", "offset": 4102, "name": "Zu groß", "record": False,
+                    "unit": "", "description": "",
+                }]},
+            })
+            assert response.status_code == 422
+        # Der kanonische Export inklusive Hülle passt wieder in denselben Importvertrag.
+        exported = client.get("/api/logging-config/export")
+        assert len(exported.content) <= MAX_TRANSFER_BYTES
+        wrapped = json.dumps({"revision": before["revision"], "configuration": exported.json()})
+        assert len(wrapped.encode("utf-8")) <= MAX_REQUEST_BYTES
+        assert client.post(route, headers=MUTATION_HEADERS, content=wrapped).status_code == 200

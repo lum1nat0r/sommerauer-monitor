@@ -55,6 +55,14 @@ _REGISTER_ROWS = (
     ("7011", "Betrieb_Min", "min", "counter", "days_minutes", "Restminuten des Betriebszeitzählers (0–1439)."),
     ("7012", "Stoker_Tage", "min", "counter", "days_minutes", "Softwaregezählte Stoker-Freigabezeit; kein Nachweis mechanischer Bewegung oder Pelletmasse."),
     ("7013", "Stoker_Min", "min", "counter", "days_minutes", "Restminuten der Stoker-Freigabezeit (0–1439); Snapshot und Resetpolitik nicht bestätigt."),
+    ("1001", "Betriebsstatus", "Rohwert", "status", "boiler_state", "Software-Steuerungszustand des Kessels: 0 Aus, 2 Regelbetrieb, 3 Gluterhaltung, 4 Zündung; Zusatzbit 0x8000 als Mindestlaufzeit-Kennzeichen. Keine unabhängige Flammen- oder Aktorrückmeldung; anlagenseitiger Abgleich offen."),
+    ("1000", "Betriebsart", "Rohwert", "setting", "boiler_mode", "Betriebsart der Software: 0 Dauerbetrieb, 1 Uhrzeitbetrieb, 2 Boiler-/Mehrkesselbetrieb (gemeinsamer Lesecode), 3 Uhr-/Boilerbetrieb, 6 Handbetrieb, 7 Automatik, 9 Speicherregelung, 10 Extern-Start. Kein Ein-/Aus- oder Flammennachweis; Lesekodierung nicht als Schreibkodierung verwenden."),
+    ("1007", "Kessel_Soll", "°C", "setting", "boiler_target_temperature", "Eingestellte Kessel-Basis-Solltemperatur in ganzen °C (60–90); keine Sensormessung. Nur lesend; keine Parameteränderung."),
+    ("9020", "BO01_SOLL", "°C", "setting", "buffer_threshold_temperature", "Pufferkanal 1: SOLL-Basisparameter in ganzen °C (10–90), bei Zweifühlerbetrieb Bezug zum unteren Fühler. Zeit-/Wettermodifikatoren können wirksame Schwellen verändern; keine Sensormessung oder Schreibfreigabe."),
+    ("9040", "BO01_START", "°C", "setting", "buffer_threshold_temperature", "Pufferkanal 1: START-Basisparameter in ganzen °C (10–90), Bezug zum oberen Fühler. Keine globale Startsperre; weitere Anforderungen und Modifikatoren möglich. Nur lesend, kein autonomer Rückfall nach Änderungen nachgewiesen."),
+    ("1005", "Leistung_Max", "%", "setting", "power_limit", "Eingestellte maximale interne Leistungsregelgröße im Normalbetrieb (30–100 %); keine thermische Leistung in kW."),
+    ("1012", "Reinigung", "Rohwert", "status", "cleaning_state", "Software-Reinigungszustand: 0 inaktiv, 1 aktiv ohne Motor-Ein-Kennzeichen, 2 aktiv mit Motor-Ein-Kennzeichen. Keine unabhängige mechanische Rückmeldung."),
+    ("1013", "Reinig_Interv", "min", "counter", "raw", "Interner Reinigungsintervallzähler in min; softwareseitig leistungsabhängig gewichtet erhöht. Kein Restzeit-Countdown und keine gemessene mechanische Laufzeit."),
     ("1002", "Fehler_Min", "Rohwert", "status", "raw", "Kleinste Fehlernummer der aktuell geführten Fehlerliste; 0 bedeutet Liste leer, nicht garantierte physische Fehlerfreiheit. Kein Zähler, keine Minuten und kein vollständiges Fehlerjournal."),
     ("1003", "Leistung_Ist", "%", "derived", "raw", "Interne Istgröße der Leistungsregelung in Prozent; keine gemessene thermische Leistung in kW."),
     ("1008", "Leistung_Soll", "%", "derived", "raw", "Aktuelle interne Leistungssollgröße in Prozent, kein editierbarer Sollparameter dieses Codes."),
@@ -150,6 +158,11 @@ _DISPLAY_LABELS = {
     "1006": "Kesseltemperatur",
     "7010": "Anlagen-Betriebszähler", "7011": "Anlagen-Betriebszähler",
     "7012": "Stoker-Freigabezeit", "7013": "Stoker-Freigabezeit",
+    "1001": "Kessel – Steuerungszustand",
+    "1000": "Kessel – Betriebsart", "1007": "Kessel – Basis-Solltemperatur",
+    "9020": "Puffer 1 – SOLL-Basisparameter", "9040": "Puffer 1 – START-Basisparameter",
+    "1005": "Leistungsregelung – Maximalparameter",
+    "1012": "Reinigung – Softwarezustand", "1013": "Reinigung – gewichteter Intervallzähler",
     "1002": "Fehlernummer – kleinster Listeneintrag",
     "1003": "Leistungsregelung – Istwert", "1008": "Leistungsregelung – Sollwert",
     "1009": "Elektroniktemperatur", "100A": "Elektronikversorgung",
@@ -207,7 +220,7 @@ for _code, _name, _unit, _kind, _decoder, _description in _REGISTER_ROWS:
         "unit": _unit, "description": _description, "kind": _kind,
         "live_confirmed": _code in _CORE_IDS, "read_to_clear": _clear, "decoder": _decoder,
         "interval_seconds": 60 if _code in _CORE_IDS else 300,
-        "verification_status": "source_only" if _code == "10D1" else "operator_touch_confirmed",
+        "verification_status": "source_only" if _code in ("10D1", "1001", "1000", "1007", "9020", "9040", "1005", "1012", "1013") else "operator_touch_confirmed",
         "module_status": "inactive" if _code in _INACTIVE_CODES else "active" if _code in _ACTIVE_CODES else "unknown",
     }
     REGISTER_DEFINITIONS[_code] = _definition
@@ -223,7 +236,7 @@ CONTROL_CANDIDATES: Final = [
     {
         "code": code, "name": name, "kind": "control_candidate",
         "live_confirmed": False, "read_to_clear": False,
-        "description": f"Statisch belegter Basisparameter {name} für Softwarekanal 01; nicht notwendigerweise die wirksame Schaltschwelle. Nur sichtbarer Steuerungskandidat: keine Schreibfreigabe, keine Ausführung und kein belegter automatischer Rückfall.",
+        "description": f"Basisparameter {name} für Pufferkanal 1 ist jetzt lesend importierbar; nicht notwendigerweise die wirksame Schaltschwelle. Eine spätere Schreibnutzung ist weiterhin nur Kandidat: keine Schreibfreigabe, keine Ausführung und kein belegter automatischer Rückfall.",
     }
     for code, name in (("9020", "SOLL"), ("9040", "START"))
 ]
@@ -328,9 +341,30 @@ def _validated_temperature(value: int) -> int:
 def _decode_extended_word(raw: int, decoder: str) -> int | float:
     if decoder == "raw":
         return raw
+    if decoder == "boiler_mode":
+        if raw not in (0, 1, 2, 3, 6, 7, 9, 10):
+            raise DecodeError("unknown_boiler_mode", "Unbekannte Betriebsart des Kessels")
+        return raw
+    if decoder == "cleaning_state":
+        if raw not in (0, 1, 2):
+            raise DecodeError("unknown_cleaning_state", "Unbekannter Software-Reinigungszustand")
+        return raw
+    if decoder == "power_limit":
+        if not 30 <= raw <= 100:
+            raise DecodeError("invalid_power_limit", "Maximale Leistungsregelgröße außerhalb 30..100 %")
+        return raw
+    if decoder == "boiler_state":
+        if raw not in (0, 2, 3, 4, 0x8002, 0x8003, 0x8004):
+            raise DecodeError("unknown_boiler_state", "Unbekannter Steuerungszustand des Kessels")
+        return raw
     if decoder == "tenths":
         return raw / 10
     value = signed16(raw)
+    if decoder in ("boiler_target_temperature", "buffer_threshold_temperature"):
+        lower = 60 if decoder == "boiler_target_temperature" else 10
+        if not lower <= value <= 90:
+            raise DecodeError("invalid_temperature_setting", f"Temperatur-Basisparameter außerhalb {lower}..90 °C: {value}")
+        return value
     if decoder == "signed":
         return value
     if decoder == "weather_status":
