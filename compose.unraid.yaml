@@ -1,8 +1,8 @@
 # Eigenständiger Unraid-Stack; nicht mit compose.yaml kombinieren.
-# Nach Veröffentlichung von v0.2.1 und öffentlicher GHCR-Freigabe verwenden.
+# Nach Veröffentlichung von v0.3.0 und öffentlicher GHCR-Freigabe verwenden.
 services:
   monitor:
-    image: ghcr.io/lum1nat0r/sommerauer-monitor:${APP_VERSION:-0.2.1}
+    image: ghcr.io/lum1nat0r/sommerauer-monitor:${APP_VERSION:-0.3.0}
     platform: linux/amd64
     user: "${PUID:-99}:${PGID:-100}"
     init: true

@@ -268,7 +268,7 @@ eine alte App-Version kann die migrierte Datenbank nicht öffnen.
 ## Docker und Unraid
 
 Für Unraid steht [compose.unraid.yaml](compose.unraid.yaml) als eigenständiger
-Stack mit **`ghcr.io/lum1nat0r/sommerauer-monitor:0.2.1`** bereit, ohne lokalen
+Stack mit **`ghcr.io/lum1nat0r/sommerauer-monitor:0.3.0`** bereit, ohne lokalen
 Build. Einrichtung von `.env`, persistentem Datenpfad und Start:
 [Unraid-Anleitung](docs/UNRAID.md#unraid-veröffentlichtes-image-verwenden).
 Der Container läuft standardmäßig als UID 99/GID 100, bindet Port 8000,
@@ -282,8 +282,8 @@ Die bisherige `compose.yaml` bleibt für lokale Builds:
 `cp .env.example .env`, beschreibbaren `DATA_PATH` setzen und
 `docker compose up --build -d` ausführen. `/api/version` meldet Buildversion
 und Revision. Pull Requests prüfen einen `linux/amd64`-Image-Build ohne Push.
-Der Release-Git-Tag für Version 0.2.1 heißt **`v0.2.1`**; der Workflow veröffentlicht
-nach seinen Offline-Prüfungen das Image mit Tag **`0.2.1`**
+Der Release-Git-Tag für Version 0.3.0 heißt **`v0.3.0`**; der Workflow veröffentlicht
+nach seinen Offline-Prüfungen das Image mit Tag **`0.3.0`**
 ([Strategie und Sperren](docs/UNRAID.md#github-image-build-und-veröffentlichungsgrenze)).
 Bis zur erfolgreichen Veröffentlichung, öffentlicher GHCR-Freigabe und anonymem
 Pull ist dessen Verfügbarkeit nicht belegt. Lokale Docker-Prüfungen belegen
