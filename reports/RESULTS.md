@@ -1269,3 +1269,65 @@ einen bereits gespeicherten globalen Fehlerstopp nach Prüfung ausdrücklich
 quittieren. Die Migration selbst quittiert nichts. Alte App-Versionen können
 Schema 4 nicht öffnen. Kein Container-/Unraid- oder Live-Nachweis aus diesen
 Prüfungen ableiten; keine Veröffentlichung, Commits oder Pushes ausgeführt.
+
+## 18.10.2026 – Feldabgleich der 80 unterstützten Register
+
+Die vorhandenen Betreiber-Notizen und die zuvor ausgewerteten Herstellerpfade
+wurden in verständliche Anzeigenamen und fachliche Beschreibungen übernommen.
+Die Ausgabe bleibt Teil von `/api/signals`, ohne neue Gruppenrouter oder
+automatische Änderungen an Auswahl und Kachelsichtbarkeit. CSV-Importnamen bleiben
+unabhängig von den Anzeigenamen, damit unveränderte Reimporte ihre Identität behalten.
+
+- `verification_status`: Touch-Abgleich / Lesbarkeit laut Betreiber für 79 Wörter;
+  für `10D1` fehlt die Bestätigung. Keine unabhängige physikalische Verifikation.
+- `module_status`: NM/SP und eigenständige Puffer-2-Parameter als inaktiv markiert,
+  getrennt vom Verifikationsstatus. Lesbare Zahlen sind dort keine aktiven
+  Anlagenmessungen. `9000` und `9001` bleiben ausdrücklich die aktiven Fühler
+  oben/unten desselben Puffers; IDs, Blockmapping und Beschreibungen unverändert.
+- Präzisiert: Fehlerlisten-Minimum / 0 leer, identische Abgasquellen,
+  Saugzug-Prozentanzeige ohne U/min-Normierung, einheitenlose Lambda-Ganzzahlen,
+  Materialförderungs-Stoppschwelle, Teillast-/Zündtaktalias, Heizkreis-Vorlauf /
+  Quellen-Ist / berechneter Vorlauf-Sollwert, Ausbaukonfiguration statt Pumpenstatus
+  und PT100-Betriebsart statt Rohmesswert.
+- `91E0/1` erhalten Prozentmetadaten für die belegten Anzeigestufen 10/50/90,
+  ohne Energieinterpretation. Alle neuen Prozentmetadaten behalten die
+  identische Rohwortdekodierung ohne zusätzliche Skalierung oder Statusgrenzen.
+- Historische Beobachtungen behalten ihre gespeicherten Einheiten in API und CSV;
+  unterschiedliche Einheiten im selben Zeitraum werden getrennt gezeichnet.
+  Der historische Kern-Livenachweis und die Intervalle 60/300 s bleiben unverändert.
+
+Verhaltenstests ergänzt für unverändertes aktives Puffer-Mapping,
+Prozentmetadaten ohne Rohwortskalierung oder neue Grenzen, getrennte
+Verifikations-/Modulzustände, historische Einheiten in API/Export und unveränderte
+CSV-Importidentität. Anschließend tatsächlich geprüft: `uv run pytest -q`
+mit 317 bestandenen Tests und einer bekannten DeprecationWarning;
+`uv run ruff check .` erfolgreich; `npm run build` erfolgreich.
+Gebaute App isoliert ohne Collector/Heizungsziel gestartet und in Chromium
+geprüft: unveränderte Pufferbezeichnungen, Saugzug-Prozentdarstellung,
+Touch-Betreiberbestätigung und weiterhin offener Status von 10D1.
+Screenshot der Verlaufsauswahl gesichtet; keine JavaScript-Fehler.
+
+Keine Heizungsabfrage, Neustart, Quittierung, Änderung einer echten Datenbank
+oder privaten `.env`. Private Originaldateien und Quellen wurden nicht kopiert.
+Keine Git-Aktionen, Commits oder Veröffentlichung.
+
+## 18.10.2026 – Dashboard auf Aufzeichnungsauswahl begrenzen
+
+Kacheln folgen ausschließlich der gespeicherten Aufzeichnungsauswahl.
+Kernsignale, historische Werte und eine noch ausstehende alte aktive Auswahl
+erzwingen keine zusätzlichen Kacheln mehr. Verlauf und Historie bleiben erhalten.
+`npm run build` erfolgreich. Tatsächliche lokale Browseroberfläche geprüft:
+40 ausgewählte Signale, 40 Kacheln, weiterhin 78 Verlaufseinträge.
+Keine Änderung der Auswahl, kein Sammlerneustart und keine zusätzliche
+Heizungsabfrage durch die Prüfung.
+
+## 18.10.2026 – Diagrammauswahl auf Aufzeichnungsauswahl begrenzen
+
+Verlaufsauswahl nutzt denselben Filter wie die Anlagenkacheln.
+Eine gespeicherte, inzwischen ausgeschlossene Signalwahl wird korrigiert;
+bei leerer Auswahl sind Auswahl und Export deaktiviert. Historie bleibt erhalten.
+TypeScript-/Vite-Build und Diffprüfung erfolgreich. Der lokale Vite-Port war
+bei der Abnahme nicht erreichbar; deshalb gebaute App isoliert ohne Collector
+gestartet und im Browser geprüft: vier ausgewählte Signale, vier Diagrammoptionen,
+unzulässige gemerkte Auswahl nach Neuladen auf verfügbares Signal korrigiert.
+Keine Heizungsabfrage oder Änderung der tatsächlichen Aufzeichnungsauswahl.

@@ -118,9 +118,23 @@ Die Navigation **Modbus-Aufzeichnung** öffnet eine separate Konfigurationsseite
 CSV hochladen, **Aufzeichnen**, Einheit und Beschreibung bearbeiten, dann
 **Entwurf speichern**. Vorschau und Änderungen bleiben bis dahin unverbindlich.
 Die Auswahl steuert die tatsächliche Erfassung, nicht nur die Anzeige.
-Die 80 explizit unterstützten Register der V2-Auswahl sind bewusst aktivierbar;
-nur fünf sind live bestätigt. Zusätzliche Zuordnungen sind quellengeprüft,
-aber nicht an der Anlage abgenommen. Beim CSV-Upload werden alle interpretierbaren
+Die 80 explizit unterstützten Register der V2-Auswahl sind bewusst aktivierbar.
+Die Betreiber-Notizen bestätigen für 79 Register den Touch-Abgleich / die Lesbarkeit;
+für `10D1` fehlt diese Bestätigung. Das ist kein unabhängiger Sensor-, Skalierungs-
+oder Aktornachweis. Der historische Live-Kernnachweis umfasst weiterhin fünf Register.
+Verständliche Anzeigenamen und Beschreibungen werden über `/api/signals` geliefert,
+getrennt von unveränderten CSV-Importnamen. Inaktive Netzmischer-/Speichermodule und
+eigenständige Puffer-2-Parameter sind gekennzeichnet; `9000` / `9001` bleiben aktive
+Fühler oben / unten desselben Puffers, mit unveränderten IDs und Decodergrenzen.
+Neue Prozentmetadaten skalieren keine Rohworte; frühere Beobachtungen behalten ihre
+Einheiten, gemischte Historien werden im Diagramm nach gespeicherter Einheit getrennt.
+Die Metadaten ändern weder Aufzeichnungsauswahl noch Sichtbarkeit der Kacheln.
+Die Anlagenübersicht zeigt ausschließlich die gespeicherte Aufzeichnungsauswahl,
+auch wenn die Übernahme durch den Sammler noch aussteht. Abgewählte Signale
+bleiben gespeichert. Auch die Diagrammauswahl folgt ausschließlich der
+gespeicherten Aufzeichnungsauswahl. Eine zuvor gemerkte, inzwischen abgewählte
+Signalwahl wechselt automatisch zum ersten verfügbaren Signal.
+Beim CSV-Upload werden alle interpretierbaren
 Einträge mit passender Lesezuordnung im Entwurf vorgewählt, auch bei Reimport.
 Vor Speichern prüfen und unerwünschte Werte abwählen; erst Speichern übernimmt sie.
 Neun Protokollregister leeren beim Lesen ihre Ausgangsbits und tragen eine

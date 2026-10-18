@@ -189,7 +189,7 @@ def test_control_candidates_have_no_read_block_or_signal() -> None:
         ("1104", 999, 999, "Rohwert"),
         ("1002", 65535, 65535, "Rohwert"),
         ("9140", 2, 2, "Rohwert"),
-        ("91E0", 90, 90, "Rohwert"),
+        ("91E0", 90, 90, "%"),
         ("95E0", 255, 255, "Rohwert"),
     ],
 )
@@ -266,3 +266,38 @@ def test_buffer_channels_are_validated_independently(words):
         assert signal.quality == ("invalid" if word == 110 else "ok")
         assert signal.value == (None if word == 110 else word)
         assert signal.error_code == ("invalid_temperature" if word == 110 else None)
+
+
+def test_buffer_mapping_stays_active_and_in_the_original_core_block() -> None:
+    top, bottom = decode_register_block(0x9000, (64, 32))
+    assert (top.signal_id, top.value, top.unit) == ("buffer.top_temperature", 64, "°C")
+    assert (bottom.signal_id, bottom.value, bottom.unit) == ("buffer.bottom_temperature", 32, "°C")
+    assert CORE_PROFILE[2].offset == 0x9000
+    assert CORE_PROFILE[2].count == 2
+    assert CORE_PROFILE[2].signal_ids == ("buffer.top_temperature", "buffer.bottom_temperature")
+    assert REGISTER_DEFINITIONS["9001"]["module_status"] == "active"
+    for code in ("9061", "9141", "91E1", "95E1"):
+        assert REGISTER_DEFINITIONS[code]["module_status"] == "inactive"
+        assert REGISTER_DEFINITIONS[code]["signal_id"] == f"modbus.{code}"
+
+
+@pytest.mark.parametrize("code", ("1106", "1107", "1108", "1300", "1301", "1302", "91E0", "91E1"))
+@pytest.mark.parametrize("word", (0, 10, 50, 90, 100, 101, 65535))
+def test_display_percent_metadata_does_not_scale_or_restrict_register_words(code, word) -> None:
+    signal, = decode_register_block(int(code, 16), (word,))
+    assert signal.unit == "%"
+    assert signal.value == word
+    assert signal.raw_words == (word,)
+    assert signal.quality == "ok"
+    assert signal.error_code is None
+    assert REGISTER_DEFINITIONS[code]["decoder"] == "raw"
+
+
+def test_touch_confirmation_is_independent_of_activity_core_provenance_and_interval() -> None:
+    assert sum(row["verification_status"] == "operator_touch_confirmed" for row in REGISTER_DEFINITIONS.values()) == 79
+    assert REGISTER_DEFINITIONS["10D1"]["verification_status"] == "source_only"
+    assert REGISTER_DEFINITIONS["8E00"]["module_status"] == "inactive"
+    assert REGISTER_DEFINITIONS["8E00"]["verification_status"] == "operator_touch_confirmed"
+    assert REGISTER_DEFINITIONS["8E00"]["live_confirmed"] is False
+    assert REGISTER_DEFINITIONS["8E00"]["interval_seconds"] == 300
+    assert REGISTER_DEFINITIONS["9001"]["interval_seconds"] == 60

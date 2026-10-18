@@ -45,6 +45,51 @@ konservative Schranke setzt weder Heizungs-Tastgrad noch Zählerrücksetzung ode
 Es sind Anlagen-Betriebsminuten, nicht bewiesene Flammenlaufzeit oder Brennerstarts.
 BO01/BO02 bezeichnen an dieser Anlage oben/unten desselben Puffers.
 
+## Betreiberabgleich und Feldbedeutung
+
+Die ergänzten Betreiber-Notizen bestätigen für **79 von 80 Registerwörtern**
+den Touch-Abgleich / die Lesbarkeit; nur `10D1` ist nicht bestätigt.
+`verification_status` unterscheidet `operator_touch_confirmed` von `source_only`.
+Das bestätigt weder eine unabhängige Sensorprüfung noch jede physikalische
+Interpretation. Der bestehende `live_confirmed`-Wert bleibt als historischer
+Nachweis des fünf Wörter umfassenden Kernprofils erhalten, nicht als pauschale
+Sicherheitsfreigabe. Zeitplan und Frische verwenden weiterhin `interval_seconds`
+(Kern 60 s, Zusatz 300 s), nicht den Verifikationsstatus.
+
+`module_status` trennt die Anlagenbeobachtung davon: Netzmischer, SP-Speichermodule
+und die eigenständigen Puffer-2-Parameter `9061`, `9141`, `91E1`, `95E1` sind laut
+Betreiber `inactive`; die bestätigten Pufferfühler `9000` / `9001` bleiben `active`.
+Der aktive untere Fühler gehört zu demselben Puffer wie der obere. Inaktive
+Parameter am Folgeindex werden dadurch nicht zu Messungen dieses unteren Fühlers.
+`unknown` bedeutet keine bestätigte Modulaktivität, nicht automatisch inaktiv.
+Lesbare inaktive Werte sind kein Nachweis aktiver Anlagenmessungen.
+Keiner dieser Statuswerte verändert die gespeicherte Aufzeichnungsauswahl oder
+blendet vorhandene Kacheln aus. `/api/signals` liefert die bereinigten Anzeigenamen,
+Beschreibungen und Statusfelder; CSV-Importnamen bleiben davon unabhängig.
+
+| Codes (hex) | Quellen- und anlagengerechte Bedeutung |
+|---|---|
+| `1002` | Kleinste Nummer der aktuell geführten Fehlerliste; 0 = Liste leer, kein Fehlerzähler und kein Beweis physischer Fehlerfreiheit. |
+| `1100`, `1102` | Identische ausgewertete Abgastemperaturquelle; kein zweiter Sensor oder ADC-Rohwert. |
+| `1106`, `1107`, `1300`–`1302` | Saugzugansteuerung bzw. Betriebsparameter in Prozent, keine gemessene Drehzahl. |
+| `1108` | Modulgelieferte Drehzahlrückmeldung, am Touch mit % angezeigt; Bezugsdrehzahl / U/min-Umrechnung nicht belegt. |
+| `1104`, `1105`, `1320`, `1321`, `1323` | Ganzzahlige Lambda-Regelskala ohne belegte physikalische Einheit; keine Umrechnung in λ oder O₂-%. `1323` sperrt die normale Materialförderung, kein globaler Heizungsstopp; Gluterhaltung hat einen Sonderzweig. |
+| `110E`, `1110` | Berechnete Förder-/Pausentaktlängen, Rohwort ÷ 10 in Sekunden; keine gemessenen Laufzeiten oder Countdowns. |
+| `1331`, `1332` | Dieselbe Teillast-Lesequelle; zugleich gekoppelter Zündtaktwert, kein unabhängiger letzter Zündwert. |
+| `8000`, `8001` | Heizkreis-Ausbaukonfiguration, nicht Pumpenlauf: 0 aus, 1 aktiv, 2 mit Raumgerät; zusätzlich 3 Rücklaufanhebung nur bei HK1. |
+| `8020/21`, `8030/31`, `8040/41` | Heizkreis-Vorlauf-Isttemperatur, Temperatur der konfigurierten Wärmequelle und aktuell berechneter Vorlauf-Sollwert. |
+| `9060/61` | Temperatur der konfigurierten Wärmequelle; kein eigener Zulauffühler, Start- oder Pumpenfreigabewert. |
+| `9140/41` | Fühlerbetriebsart: 0 ein PT100, 1 zwei PT100, 2 Start/Stopp; kein PT100-Rohmesswert. |
+| `91E0/1` | Prozentanzeige mit berechneten Stufen 10/50/90; keine kontinuierliche oder kalorimetrische Energiemessung. Eigene Berechnung je Softwareindex, kein „Ladezustand unten“. |
+
+Die neuen %-Einheiten ändern nur die Bedeutung neu dekodierter Beobachtungen:
+die Rohwort-Decoder bleiben unverändert und skalieren oder begrenzen nichts
+zusätzlich auf 0–100 bzw. 10/50/90. Frühere Beobachtungen behalten ihre gespeicherte
+Einheit in Current-/History-API und CSV; es gibt keine Datenmigration oder
+Umdeutung alter `Rohwert`-Beobachtungen. Das Dashboard zeichnet unterschiedliche
+gespeicherte Einheiten getrennt und verbindet sie nicht zu einer gemeinsamen Linie.
+
+
 ## Aufzeichnung konfigurieren
 
 Unter **Modbus-Aufzeichnung** (`#/modbus`) wird ausschließlich die lokale
@@ -95,8 +140,9 @@ Ausleseausgang erfolgt keine automatische Wiederholung, auch nicht nach Neustart
 Einheiten/Skalen sind kanalbezogen: Temperaturen in ganzen °C mit jeweils
 eigenen Grenzen, Versorgung in 0,1 V, interne Leistungsregelgrößen in Prozent,
 Förder-/Pausentakte in 0,1 s und Stokerzähler als Tage/Restminuten.
-Lambda-/Gebläsewerte ohne belegte physikalische Skalierung bleiben ausdrücklich
-Herstellerrohwerte. Settings, Regelgrößen, Steuerungsdatum/-zeit und Messwerte
+Lambda-Ganzzahlen bleiben ohne belegte physikalische Einheit als `Rohwert`
+gekennzeichnet; Saugzugwerte verwenden die belegte Prozentanzeige, ohne neue
+physikalische Normierung. Settings, Regelgrößen, Steuerungsdatum/-zeit und Messwerte
 sind im Dashboard unterschieden. Raumtemperatur 0 und Abgastemperatur 299 können
 Initialzustände oder echte Werte sein; diese Mehrdeutigkeit bleibt dokumentiert.
 
@@ -159,15 +205,16 @@ Bibliotheks-/API-Start aktiviert keinen Simulator. Kein Schreibbefehl/Diagnosemo
 
 | Offset / Anzahl | Tabellenbezeichnung | Stand |
 |---|---|---|
-| 4098 / 2 | Fehler_Min + Leistung_Ist | Fehlerkennung (keine Minuten) und interne Leistungsregelgröße in Prozent; statisch geprüft, nicht live abgenommen. Im erweiterten Profil getrennte Einzelreads. |
+| 4098 / 2 | Fehler_Min + Leistung_Ist | Kleinste Fehlernummer der Liste (0 leer) und interne Leistungsregelgröße in Prozent; Betreiber-Touch-Abgleich notiert. Im erweiterten Profil getrennte Einzelreads. |
 | 4104 / 1 | Leistung_Soll | Interne Leistungssollgröße in Prozent; keine thermische kW-Messung, kein Schreibparameter dieses Codes. |
-| 33408 / 1 | Aussen_Ist | signed16, ganze °C, kanalspezifische Grenze −50 < T < 50; nicht live abgenommen. |
-| 4354 / 1 | Abgas_Sensor | Statisch belegter Ganzgradkanal, −5 < T < 330; 299 kann Initialwert sein. Nicht live abgenommen. |
+| 33408 / 1 | Aussen_Ist | signed16, ganze °C, kanalspezifische Grenze −50 < T < 50; Betreiber-Touch-Abgleich notiert. |
+| 4354 / 1 | Abgas_Sensor | Dieselbe ausgewertete Quelle wie 1100, −5 < T < 330; 299 kann Initialwert sein. Betreiber-Touch-Abgleich notiert, keine zusätzliche unabhängige Sensorprüfung. |
 
 Die V2-Erweiterung hat die privaten Lese-, Konversions- und Anzeigepfade für
-den bereitgestellten Umfang statisch ausgewertet. Dies ersetzt weder
-Geräteantwort noch Display-/Hardwareabgleich. Es wurde keine Live-Anfrage
-ausgeführt und kein privater Zielwert in Beispiele übernommen.
+den bereitgestellten Umfang statisch ausgewertet. Der ergänzte Betreiberabgleich
+ist oben separat erfasst; er ersetzt keine unabhängige Geräte-/Hardwareprüfung.
+Für diesen Feldabgleich wurde keine neue Live-Anfrage ausgeführt und kein privater
+Zielwert in Beispiele übernommen.
 Kernblöcke bleiben mindestens 60 s, Zusatzblöcke mindestens 300 s auseinander,
 jeweils ab Abschluss. Der zentrale Sammler überspringt noch nicht fällige
 Zusätze, statt die Kernwerte bis zu deren 300-s-Termin warten zu lassen.
@@ -177,8 +224,9 @@ das längere Intervall. Kein automatisches Nachholen verpasster Messungen.
 Ein erfolgreicher einzelner zukünftiger Read wäre kein Beleg für dauerhaft
 gültige Skalierung oder Betriebsfreigabe.
 
-Die Zuordnungen oben sind Kandidaten, kein bestätigter Zusatzumfang. Nie alle
-199 Einträge ungeprüft pollen. Ein Fehler beendet jeden begrenzten Testdurchgang.
+Die Zuordnungen dieses Abschnitts sind explizit unterstützte Lesezuordnungen mit
+dem oben getrennt beschriebenen Belegstatus, keine generelle Betriebsfreigabe.
+Nie alle 199 Einträge ungeprüft pollen. Ein Fehler beendet jeden begrenzten Testdurchgang.
 
 ## Vollkatalog und Grenzen
 

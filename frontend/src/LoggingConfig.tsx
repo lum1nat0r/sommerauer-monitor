@@ -12,6 +12,9 @@ type Entry = {
   blocked_reason: string | null;
   kind?: string;
   live_confirmed?: boolean;
+  label?: string | null;
+  verification_status?: string;
+  module_status?: string;
   read_to_clear?: boolean;
   decoder?: string;
   information?: string;
@@ -149,7 +152,7 @@ export default function LoggingConfig() {
   const conflict = saved !== null && revision !== null && saved.revision !== revision;
   return <main className="dashboard logging-page">
     <header className="topbar"><div><p className="eyebrow">OFFLINE-KONFIGURATION</p><h1>Modbus <span>Aufzeichnung</span></h1></div></header>
-    <p className="logging-intro">Importieren und wählen Sie die bekannten Register für die Aufzeichnung. Hochgeladene Einträge mit passendem Decoder und Lesezuordnung sind im Entwurf vorgewählt, auch beim erneuten Upload. Das Kernprofil ist live bestätigt; zusätzliche Lesezuordnungen sind quellenbelegt, aber live ungeprüft. Erst Speichern übernimmt die Auswahl an der nächsten sicheren Zyklusgrenze.</p>
+    <p className="logging-intro">Importieren und wählen Sie die bekannten Register für die Aufzeichnung. Hochgeladene Einträge mit passendem Decoder und Lesezuordnung sind im Entwurf vorgewählt, auch beim erneuten Upload. Touch-Abgleich durch den Betreiber, Modulaktivität und fachliche Bedeutung sind getrennte Angaben: Lesbarkeit bestätigt keine aktive Messung oder physikalische Skalierung. Erst Speichern übernimmt die Auswahl an der nächsten sicheren Zyklusgrenze.</p>
     <section className="logging-status" aria-labelledby="logging-status-title">
       <h2 id="logging-status-title">Gespeichert und tatsächlich aktiv</h2>
       {saved ? <><dl><div><dt>Gespeicherte Revision</dt><dd>{saved.revision}</dd></div><div><dt>Aktive Revision</dt><dd>{saved.active_revision ?? 'Keine aktive Revision'}</dd></div><div><dt>Übernahmestatus</dt><dd>{saved.apply_status}</dd></div></dl>
@@ -184,7 +187,7 @@ export default function LoggingConfig() {
               <td><label className="logging-check"><input type="checkbox" checked={Boolean(entry.record)} disabled={busy || !eligible} aria-describedby={`eligibility-${entry.code}${entry.read_to_clear ? ` risk-${entry.code}` : ''}`} onChange={(event) => toggle(entry, event.target.checked)} />{entry.code} aufzeichnen</label>{entry.read_to_clear && <p className="read-clear-warning" id={`risk-${entry.code}`}>Read-to-clear: Lesen leert die Modul-Ausgangsbits. Aktivieren beeinflusst auch andere Leser.</p>}</td>
               <td><label className="visually-hidden" htmlFor={`unit-${entry.code}`}>Betreibereinheit für {entry.code}</label><input id={`unit-${entry.code}`} type="text" maxLength={40} value={entry.unit ?? ''} disabled={busy} onChange={(event) => update(entry.code, 'unit', event.target.value)} /></td>
               <td><label className="visually-hidden" htmlFor={`description-${entry.code}`}>Betreiberbeschreibung für {entry.code}</label><textarea id={`description-${entry.code}`} rows={2} maxLength={2000} value={entry.description ?? ''} disabled={busy} onChange={(event) => update(entry.code, 'description', event.target.value)} /></td>
-              <td id={`eligibility-${entry.code}`}><span className={eligible ? 'logging-eligible' : 'logging-blocked'}>{eligible ? 'Bekannte Lesezuordnung – auswählbar' : entry.blocked_reason || 'Unbekannte oder unvollständige Mehrwortzuordnung; Aufzeichnung gesperrt.'}</span><small>{entry.kind ? kindLabels[entry.kind] || entry.kind : 'Kategorie nicht angegeben'} · {entry.live_confirmed === true ? 'Live bestätigt' : entry.live_confirmed === false ? 'Quellenbelegt · live ungeprüft' : 'Livebestätigung nicht angegeben'}</small><small>{entry.signal_id || 'Kein zugeordneter Decoder'}{entry.decoder && <> · Decoder: {entry.decoder}</>}</small>{entry.information && <small>{entry.information}</small>}</td>
+              <td id={`eligibility-${entry.code}`}><strong>{entry.label || entry.name}</strong><span className={eligible ? 'logging-eligible' : 'logging-blocked'}>{eligible ? 'Bekannte Lesezuordnung – auswählbar' : entry.blocked_reason || 'Unbekannte oder unvollständige Mehrwortzuordnung; Aufzeichnung gesperrt.'}</span><small>{entry.kind ? kindLabels[entry.kind] || entry.kind : 'Kategorie nicht angegeben'} · {entry.verification_status === 'operator_touch_confirmed' ? 'Touch-Abgleich: Betreiberbestätigung' : entry.verification_status === 'source_only' ? 'Quellenbelegt · Touch-Abgleich offen' : 'Touch-Abgleich nicht angegeben'}</small><small>{entry.module_status === 'inactive' ? 'Modul / eigenständiger Kanal laut Betreiber inaktiv' : entry.module_status === 'active' ? 'Anlagenkanal laut Betreiber aktiv' : 'Modulaktivität nicht bestätigt'}</small><small>{entry.signal_id || 'Kein zugeordneter Decoder'}{entry.decoder && <> · Decoder: {entry.decoder}</>}</small>{entry.information && <small>{entry.information}</small>}</td>
             </tr>;
           })}</tbody>
         </table>

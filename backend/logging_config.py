@@ -8,7 +8,7 @@ import io
 import re
 from typing import Any
 
-from backend.registers import REGISTER_DEFINITIONS
+from backend.registers import REGISTER_DEFINITIONS, SIGNAL_DEFINITIONS
 
 
 MAX_CSV_BYTES = 1024 * 1024
@@ -21,6 +21,7 @@ _INPUT_FIELDS = {"code", "offset", "name", "record", "unit", "description"}
 _ENTRY_FIELDS = _INPUT_FIELDS | {
     "signal_id", "eligible", "blocked_reason", "change", "changed_fields",
     "kind", "live_confirmed", "read_to_clear", "decoder", "information",
+    "label", "verification_status", "module_status",
 }
 
 
@@ -88,6 +89,9 @@ def normalize_entries(entries: Any) -> list[dict[str, Any]]:
             "changed_fields": [],
             "kind": definition["kind"] if definition else "unknown",
             "live_confirmed": definition["live_confirmed"] if definition else False,
+            "label": SIGNAL_DEFINITIONS[signal_id]["label"] if definition else None,
+            "verification_status": definition["verification_status"] if definition else "unknown",
+            "module_status": definition["module_status"] if definition else "unknown",
             "read_to_clear": definition["read_to_clear"] if definition else False,
             "decoder": definition["decoder"] if definition else None,
             "information": definition["description"] if definition else "Keine geprüfte Registerdefinition vorhanden.",

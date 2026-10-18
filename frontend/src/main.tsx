@@ -35,6 +35,8 @@ type SignalDefinition = {
   unit: string;
   kind: string;
   live_confirmed: boolean;
+  verification_status: string;
+  module_status: string;
   read_to_clear: boolean;
   description: string;
   interval_seconds: number;
@@ -57,7 +59,6 @@ type EventItem = {
 type Period = '1h' | '24h' | 'week' | 'month' | 'custom';
 type SignalId = Signal['signal_id'];
 
-const coreSignalIds = ['boiler.temperature', 'buffer.top_temperature', 'buffer.bottom_temperature', 'boiler.operating_minutes'];
 const kindLabels: Record<string, string> = {
   measurement: 'Messwert', derived: 'Abgeleiteter Wert / Regelgröße', counter: 'Zähler',
   status: 'Status / Kennung', setting: 'Einstellung', raw: 'Herstellerrohwert',
@@ -225,7 +226,8 @@ function Chart({ points, unit, timeZone, gapThresholdMs }: { points: Point[]; un
 }
 function SignalMetadata({ definition }: { definition: SignalDefinition }) {
   return <div className="signal-metadata">
-    <p className="signal-tags"><span>{kindLabels[definition.kind] || definition.kind}</span><span>{definition.live_confirmed ? 'Live bestätigt' : 'Quellenbelegt · live ungeprüft'}</span></p>
+    <p className="signal-tags"><span>{kindLabels[definition.kind] || definition.kind}</span><span>{definition.verification_status === 'operator_touch_confirmed' ? 'Touch-Abgleich: Betreiberbestätigung' : 'Quellenbelegt · Touch-Abgleich offen'}</span><span>{definition.module_status === 'inactive' ? 'Modul / eigenständiger Kanal laut Betreiber inaktiv' : definition.module_status === 'active' ? 'Anlagenkanal laut Betreiber aktiv' : 'Modulaktivität nicht bestätigt'}</span></p>
+    <p className="muted">Der Touch-Abgleich bestätigt die notierte Anzeige / Lesbarkeit, nicht unabhängig Sensorik, physikalische Skalierung oder Aktorzustand.</p>
     <p>{definition.description}</p>
     {definition.read_to_clear && <p className="read-clear-warning">Read-to-clear: Jede Auslesung leert die aufgesammelten Modul-Ausgangsbits. Andere Leser können dadurch Werte verlieren.</p>}
   </div>;
@@ -271,7 +273,7 @@ function App() {
       setSignals(current.signals);
       setDefinitions(catalog.signals);
       setControlCandidates(catalog.control_candidates);
-      setRecordedSignalIds([...new Set([...logging.entries, ...logging.active_entries].filter((entry) => entry.record && entry.signal_id).map((entry) => entry.signal_id as string))]);
+      setRecordedSignalIds([...new Set(logging.entries.filter((entry) => entry.record && entry.signal_id).map((entry) => entry.signal_id as string))]);
       setCollector(status);
       setConfig(settings);
       setTimezoneDraft((existing) => existing === (config?.display_timezone || 'Europe/Vienna') ? settings.display_timezone : existing);
@@ -288,13 +290,17 @@ function App() {
   }, [refresh]);
 
   useEffect(() => {
-    if (!definitions?.length) return;
-    if (!definitions.some((definition) => definition.signal_id === selectedSignal)) {
-      setSelectedSignal(definitions.find((definition) => definition.signal_id === 'boiler.temperature')?.signal_id || definitions[0].signal_id);
+    if (!definitions) return;
+    const available = definitions.filter((definition) => recordedSignalIds.includes(definition.signal_id));
+    if (!available.some((definition) => definition.signal_id === selectedSignal)) {
+      setSelectedSignal(available[0]?.signal_id || '');
+      setHistory([]);
+      setHistoryTotal(0);
+      setHistoryError('');
       return;
     }
     localStorage.setItem('dashboard-signal', selectedSignal);
-  }, [definitions, selectedSignal]);
+  }, [definitions, recordedSignalIds, selectedSignal]);
 
   useEffect(() => { localStorage.setItem('dashboard-period', period); }, [period]);
 
@@ -307,7 +313,7 @@ function App() {
     return { start: localInputToUtc(customStart, timeZone), end: localInputToUtc(customEnd, timeZone) };
   }, [period, customStart, customEnd, timeZone]);
 
-  const selectedDefinition = definitions?.find((definition) => definition.signal_id === selectedSignal);
+  const selectedDefinition = definitions?.find((definition) => definition.signal_id === selectedSignal && recordedSignalIds.includes(definition.signal_id));
   const selectedSignalKnown = Boolean(selectedDefinition);
   const loadHistory = useCallback(async (abortSignal: AbortSignal) => {
     if (!selectedSignalKnown) return;
@@ -380,8 +386,8 @@ function App() {
 
   const selected = signals.find((signal) => signal.signal_id === selectedSignal);
   const historyUnit = history.find((point) => point.unit)?.unit || selected?.unit || selectedDefinition?.unit || '';
-  const visibleDefinitions = (definitions || []).filter((definition) => coreSignalIds.includes(definition.signal_id)
-    || recordedSignalIds.includes(definition.signal_id) || signals.some((signal) => signal.signal_id === definition.signal_id));
+  const historyUnits = [...new Set(history.map((point) => point.unit ?? historyUnit))];
+  const visibleDefinitions = (definitions || []).filter((definition) => recordedSignalIds.includes(definition.signal_id));
   const lastSuccessfulAt = signals
     .filter((signal) => signal.value !== null && signal.quality === 'ok')
     .reduce<string | undefined>((latest, signal) => !latest || signal.observed_at > latest ? signal.observed_at : latest, undefined);
@@ -416,7 +422,7 @@ function App() {
     {notice && <p className="notice" role="status">{notice}</p>}
 
     <section aria-labelledby="signals-title"><div className="section-heading"><div><p className="eyebrow">LETZTE BEKANNTE MESSWERTE</p><h2 id="signals-title">Anlagenübersicht</h2></div><p className="muted">Anzeigezeit: {timeZone}</p></div>
-      <p className="muted">Kernsignale, bewusst zur Aufzeichnung ausgewählte und zuletzt bekannte Werte. Weitere Signale sind im Verlauf auswählbar; die Auswahl dort löst keine Geräteabfrage aus.</p>
+      <p className="muted">Anlagenübersicht und Verlauf zeigen nur die gespeicherten, zur Aufzeichnung ausgewählten Werte. Die Historie abgewählter Signale bleibt gespeichert.</p>
       <div className="signal-grid">
         {visibleDefinitions.map((definition) => {
           const id = definition.signal_id;
@@ -457,16 +463,20 @@ function App() {
     </section>
 
     <section className="history-panel" aria-labelledby="history-title"><div className="section-heading"><div><p className="eyebrow">GESPEICHERTE ORIGINALMESSUNGEN</p><h2 id="history-title">Verlauf</h2></div>
-      {range.start && range.end && <a className="button secondary download" href={`/api/export.csv${csvQuery}`} download>CSV herunterladen</a>}
+      {selectedDefinition && range.start && range.end && <a className="button secondary download" href={`/api/export.csv${csvQuery}`} download>CSV herunterladen</a>}
     </div>
       <div className="history-controls">
-        <label>Signal<select value={selectedDefinition ? selectedSignal : ''} disabled={!definitions?.length} onChange={(event) => setSelectedSignal(event.target.value)}>{!selectedDefinition && <option value="">Signaldefinitionen werden geladen …</option>}{(definitions || []).map((definition) => <option key={definition.signal_id} value={definition.signal_id}>{definition.label} ({definition.unit}){definition.read_to_clear ? ' · Read-to-clear' : ''}</option>)}</select></label>
+        <label>Signal<select value={selectedDefinition ? selectedSignal : ''} disabled={!visibleDefinitions.length} onChange={(event) => setSelectedSignal(event.target.value)}>{!selectedDefinition && <option value="">{definitions === null ? 'Signaldefinitionen werden geladen …' : 'Keine Werte zur Aufzeichnung ausgewählt'}</option>}{visibleDefinitions.map((definition) => <option key={definition.signal_id} value={definition.signal_id}>{definition.label} ({definition.unit}){definition.read_to_clear ? ' · Read-to-clear' : ''}</option>)}</select></label>
         <fieldset><legend>Zeitraum</legend><div className="periods">{periods.map(({ id, label }) => <button type="button" key={id} aria-pressed={period === id} className={`period-button ${period === id ? 'selected' : ''}`} onClick={() => setPeriod(id)}>{label}</button>)}</div></fieldset>
       </div>
       {period === 'custom' && <div className="custom-range"><label>Beginn ({timeZone})<input type="datetime-local" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>Ende ({timeZone})<input type="datetime-local" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}
-      <div className="chart-card"><div className="chart-title"><h3>{selectedDefinition?.label || 'Signal wird geladen'}</h3><span>{historyUnit}</span></div>
+      <div className="chart-card"><div className="chart-title"><h3>{selectedDefinition?.label || 'Signal wird geladen'}</h3><span>{historyUnits.length > 1 ? 'Einheiten getrennt' : historyUnit}</span></div>
         {selectedDefinition && <SignalMetadata definition={selectedDefinition} />}
-        {historyError ? <p className="alert" role="status">{historyError}</p> : selectedDefinition ? <Chart points={history} unit={historyUnit} timeZone={timeZone} gapThresholdMs={3 * (selectedDefinition.interval_seconds || 60) * 1000} /> : <p className="empty-chart">Signaldefinitionen werden geladen …</p>}
+        {historyUnits.length > 1 && <p className="alert">Die gespeicherte Einheit hat sich geändert. Frühere Beobachtungen behalten ihre Originaleinheit; die Reihen werden ohne Umrechnung getrennt dargestellt.</p>}
+        {historyError ? <p className="alert" role="status">{historyError}</p> : selectedDefinition ? (historyUnits.length ? historyUnits : [historyUnit]).map((unit) => <div key={unit}>
+          {historyUnits.length > 1 && <h4>Gespeicherte Einheit: {unit || 'ohne Einheit'}</h4>}
+          <Chart points={historyUnits.length > 1 ? history.map((point) => (point.unit ?? historyUnit) === unit ? point : { ...point, value: null }) : history} unit={unit} timeZone={timeZone} gapThresholdMs={3 * (selectedDefinition.interval_seconds || 60) * 1000} />
+        </div>) : <p className="empty-chart">{definitions === null ? 'Signaldefinitionen werden geladen …' : 'Keine Werte zur Aufzeichnung ausgewählt.'}</p>}
         {historyTotal > history.length && <p className="muted">Darstellung auf 10.000 Messpunkte begrenzt; CSV enthält weiterhin alle Werte des Zeitraums.</p>}
         {selected && (selected.quality !== 'ok' || selected.value === null) ? <p className="alert stale-note">Die letzte Beobachtung enthält keinen gültigen Messwert. Frühere Werte sind keine aktuelle Messung; der Verlauf ergänzt keine künstlichen Werte.</p> : selected && !selected.fresh && <p className="alert stale-note">Der letzte bekannte Wert ist veraltet. Der Verlauf zeigt keine künstlichen Messwerte.</p>}
       </div>
