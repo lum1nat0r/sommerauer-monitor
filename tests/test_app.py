@@ -1,3 +1,7 @@
+import csv
+from datetime import datetime, timezone
+import io
+import json
 import time
 
 from fastapi.testclient import TestClient
@@ -223,6 +227,95 @@ def test_history_events_and_csv_are_database_only_and_keep_original_rows() -> No
     assert "synthetic-observation" in csv_response.text
     assert "2026-10-14T12:00:01+00:00" in csv_response.text
     assert event_page.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("quality", "error_code", "raw_words"),
+    [
+        ("unavailable", "missing_weather", [32767]),
+        ("invalid", "invalid_value", [65535]),
+        ("unavailable", "modbus_exception_2", []),
+    ],
+)
+def test_current_history_and_csv_keep_error_observation_without_polling(
+    monkeypatch, quality, error_code, raw_words,
+) -> None:
+    def forbidden_client(*args, **kwargs):
+        pytest.fail("Database GET endpoints must not create a Modbus client")
+
+    monkeypatch.setattr("backend.collector.ModbusTcpClient", forbidden_client)
+    timestamp = datetime.now(timezone.utc).isoformat()
+    message = "Der Wert ist nicht verfügbar; bitte Ursache prüfen."
+    with TestClient(app) as client:
+        store = app.state.storage
+        for request_id, signal_id, value, row_quality, words, offset, count in (
+            ("z-good", "boiler.temperature", 42, "ok", [42], 4102, 1),
+            ("a-failed", "boiler.temperature", None, quality, raw_words, 4096, 8),
+            ("healthy", "buffer.top_temperature", 48, "ok", [48], 36864, 4),
+        ):
+            failed = value is None
+            store.record_cycle(
+                {
+                    "request_id": request_id, "started_at": timestamp, "completed_at": timestamp,
+                    "function_code": 3, "unit_id": 255, "offset": offset,
+                    "register_count": count, "outcome": "error" if failed else "ok",
+                },
+                [{
+                    "observation_id": request_id, "signal_id": signal_id,
+                    "observed_at": timestamp, "value": value, "unit": "°C",
+                    "quality": row_quality, "raw_words": words,
+                    "source": "failed_reply" if failed else "synthetic",
+                    "profile_id": "core", "profile_version": "1", "decoder_version": "1",
+                    "error_code": error_code if failed else None,
+                    "error_message": message if failed else None,
+                }],
+            )
+
+        current_response = client.get("/api/signals/current")
+        history_response = client.get("/api/history/boiler.temperature")
+        csv_response = client.get("/api/export.csv")
+        assert app.state.collector is None
+
+    assert current_response.status_code == history_response.status_code == csv_response.status_code == 200
+    signals = current_response.json()["signals"]
+    assert len(signals) == 2
+    current = {row["signal_id"]: row for row in signals}
+    failed = current["boiler.temperature"]
+    assert failed["value"] is None
+    assert failed["quality"] == quality
+    assert failed["error_code"] == error_code
+    assert failed["error_message"] == message
+    assert failed["observed_at"] == timestamp
+    assert failed["block_offset"] == 4096
+    assert failed["register_count"] == 8
+    assert failed["fresh"] is False
+    assert current["buffer.top_temperature"]["value"] == 48
+    assert current["buffer.top_temperature"]["fresh"] is True
+    assert current["buffer.top_temperature"]["error_code"] is None
+    assert current["buffer.top_temperature"]["error_message"] is None
+    assert current["buffer.top_temperature"]["block_offset"] == 36864
+
+    history = history_response.json()
+    assert history["total"] == 2
+    stored = next(row for row in history["items"] if row["observation_id"] == "a-failed")
+    assert stored["value"] is None
+    assert stored["quality"] == quality
+    assert stored["raw_words"] == raw_words
+    assert stored["observed_at"] == timestamp
+    assert stored["source"] == "failed_reply"
+    assert stored["error_code"] == error_code
+    assert stored["error_message"] == message
+
+    reader = csv.DictReader(io.StringIO(csv_response.text))
+    assert reader.fieldnames[-2:] == ["error_code", "error_message"]
+    exported = next(row for row in reader if row["observation_id"] == "a-failed")
+    assert exported["value"] == ""
+    assert exported["quality"] == quality
+    assert exported["raw_words"] == json.dumps(raw_words, separators=(",", ":"))
+    assert exported["observed_at"] == timestamp
+    assert exported["source"] == "failed_reply"
+    assert exported["error_code"] == error_code
+    assert exported["error_message"] == message
 
 
 def test_mutating_routes_require_same_origin_custom_header_and_log_config_change() -> None:

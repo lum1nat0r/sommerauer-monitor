@@ -1,4 +1,4 @@
-"""Strict, single-request Modbus TCP FC03 transport for the confirmed core profile."""
+"""Enger FC03-Lesetransport für die explizit quellengeprüften Registerblöcke."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from backend.registers import CORE_PROFILE, RegisterBlock
+from backend.registers import READ_PROFILE, RegisterBlock
 
 UNIT_ID = 255
 FUNCTION_READ_HOLDING_REGISTERS = 3
@@ -35,6 +35,16 @@ class ProtocolError(ModbusError):
     """A complete or incomplete response violated the Modbus contract."""
 
 
+class ModbusExceptionError(ProtocolError):
+    """A structurally valid exception PDU rejects this register block."""
+
+    def __init__(self, exception_code: int, *, received_bytes: int = 0) -> None:
+        super().__init__(
+            f"Modbus exception code {exception_code}", received_bytes=received_bytes
+        )
+        self.exception_code = exception_code
+
+
 @dataclass(frozen=True, slots=True)
 class RegisterRead:
     offset: int
@@ -44,7 +54,7 @@ class RegisterRead:
 
 
 class ModbusTcpClient:
-    """Read exactly one approved core block at a time, without retries."""
+    """Genau einen explizit zugelassenen Block lesen, ohne eigene Wiederholungen."""
 
     def __init__(
         self,
@@ -66,9 +76,9 @@ class ModbusTcpClient:
         self._transaction_id = 0
 
     def read(self, block: RegisterBlock) -> RegisterRead:
-        """Read a block present verbatim in CORE_PROFILE, using fixed Unit 255."""
-        if block not in CORE_PROFILE:
-            raise ValueError("only blocks from the confirmed core profile are allowed")
+        """Nur vollständig übereinstimmende Profilblöcke lesen; feste Unit 255."""
+        if block not in READ_PROFILE:
+            raise ValueError("only blocks from the explicit read profile are allowed")
         if not 1 <= block.count <= MAX_REGISTERS:
             raise ValueError("FC03 reads are limited to two registers")
 
@@ -122,9 +132,7 @@ class ModbusTcpClient:
                     raise ProtocolError(
                         "malformed Modbus exception response", received_bytes=len(received)
                     )
-                raise ProtocolError(
-                    f"Modbus exception code {pdu[1]}", received_bytes=len(received)
-                )
+                raise ModbusExceptionError(pdu[1], received_bytes=len(received))
             if function != FUNCTION_READ_HOLDING_REGISTERS:
                 raise ProtocolError("function code mismatch", received_bytes=len(received))
             expected_byte_count = block.count * 2

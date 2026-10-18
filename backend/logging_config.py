@@ -1,4 +1,4 @@
-"""Offline-Import und Freigabe ausschließlich für das bestätigte core-Profil."""
+"""CSV-Auswahl für explizit quellengeprüfte Leseregister, ohne automatische Aktivierung."""
 
 from __future__ import annotations
 
@@ -8,25 +8,19 @@ import io
 import re
 from typing import Any
 
-from backend.registers import CORE_PROFILE
+from backend.registers import REGISTER_DEFINITIONS
 
 
 MAX_CSV_BYTES = 1024 * 1024
 MAX_ENTRIES = 5000
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 
-# Codes stammen aus der belegten Zuordnung, Signal-IDs aus dem ausführbaren Profil.
-_CORE = {
-    "1006": (CORE_PROFILE[0].offset, CORE_PROFILE[0].signal_ids[0], "Kessel_Ist", "°C"),
-    "7010": (CORE_PROFILE[1].offset, CORE_PROFILE[1].signal_ids[0], "Betrieb_Tage", "Tage"),
-    "7011": (CORE_PROFILE[1].offset + 1, CORE_PROFILE[1].signal_ids[0], "Betrieb_Min", "min"),
-    "9000": (CORE_PROFILE[2].offset, CORE_PROFILE[2].signal_ids[0], "Puffer_oben", "°C"),
-    "9001": (CORE_PROFILE[2].offset + 1, CORE_PROFILE[2].signal_ids[1], "Puffer_unten", "°C"),
-}
-_COUNTER_CODES = ("7010", "7011")
+_CORE_CODES = ("1006", "7010", "7011", "9000", "9001")
+_COUNTER_GROUPS = (("7010", "7011"), ("7012", "7013"))
 _INPUT_FIELDS = {"code", "offset", "name", "record", "unit", "description"}
 _ENTRY_FIELDS = _INPUT_FIELDS | {
     "signal_id", "eligible", "blocked_reason", "change", "changed_fields",
+    "kind", "live_confirmed", "read_to_clear", "decoder", "information",
 }
 
 
@@ -75,10 +69,11 @@ def normalize_entries(entries: Any) -> list[dict[str, Any]]:
         offsets[offset] = code
         if type(raw["record"]) is not bool:
             raise LoggingConfigError(f"Die Aufzeichnung für {code} muss wahr oder falsch sein.")
-        definition = _CORE.get(code)
-        signal_id = definition[1] if definition else None
-        if "signal_id" in raw and raw["signal_id"] != signal_id:
-            raise LoggingConfigError(f"Die Signalzuordnung für {code} ist nicht erlaubt; nur das bestätigte core-Profil ist verfügbar.")
+        definition = REGISTER_DEFINITIONS.get(code)
+        signal_id = definition["signal_id"] if definition else None
+        # Früher unbekannte gespeicherte CSV-Zeilen hatten noch keine Signal-ID.
+        if raw.get("signal_id") not in (None, signal_id):
+            raise LoggingConfigError(f"Die Signalzuordnung für {code} stimmt nicht mit dem geprüften Leseprofil überein.")
         result.append({
             "code": code,
             "offset": offset,
@@ -91,37 +86,48 @@ def normalize_entries(entries: Any) -> list[dict[str, Any]]:
             "blocked_reason": None,
             "change": "unchanged",
             "changed_fields": [],
+            "kind": definition["kind"] if definition else "unknown",
+            "live_confirmed": definition["live_confirmed"] if definition else False,
+            "read_to_clear": definition["read_to_clear"] if definition else False,
+            "decoder": definition["decoder"] if definition else None,
+            "information": definition["description"] if definition else "Keine geprüfte Registerdefinition vorhanden.",
         })
     by_code = {entry["code"]: entry for entry in result}
-    counter_complete = all(
-        code in by_code and by_code[code]["offset"] == _CORE[code][0]
-        for code in _COUNTER_CODES
-    )
+    complete_groups = {
+        group: all(
+            code in by_code and by_code[code]["offset"] == REGISTER_DEFINITIONS[code]["offset"]
+            for code in group
+        )
+        for group in _COUNTER_GROUPS
+    }
     for entry in result:
-        definition = _CORE.get(entry["code"])
+        definition = REGISTER_DEFINITIONS.get(entry["code"])
+        group = next((group for group in _COUNTER_GROUPS if entry["code"] in group), None)
         if definition is None:
-            reason = "Kein bestätigter Decoder im core-Profil vorhanden."
-        elif entry["offset"] != definition[0]:
-            reason = f"Offset weicht von der bestätigten core-Zuordnung ({definition[0]}) ab."
-        elif entry["code"] in _COUNTER_CODES and not counter_complete:
-            reason = "Betriebszähler benötigt 7010 und 7011 gemeinsam an den bestätigten Offsets 28688 und 28689."
+            reason = "Kein quellengeprüfter Decoder für diesen Code vorhanden."
+        elif entry["offset"] != definition["offset"]:
+            reason = f"Offset weicht von der bestätigten core-Zuordnung bzw. quellengeprüften Zuordnung ({definition['offset']}) ab."
+        elif group is not None and not complete_groups[group]:
+            reason = f"Zähler benötigt {' und '.join(group)} gemeinsam an den zugeordneten Offsets."
         else:
             reason = None
         entry["eligible"] = reason is None
         entry["blocked_reason"] = reason
         if entry["record"] and reason is not None:
             raise LoggingConfigError(f"{entry['code']} kann nicht aufgezeichnet werden: {reason}")
-    if counter_complete and by_code["7010"]["record"] != by_code["7011"]["record"]:
-        raise LoggingConfigError("7010 und 7011 müssen für den Betriebszähler gemeinsam ein- oder ausgeschaltet werden.")
+    for group, complete in complete_groups.items():
+        if complete and by_code[group[0]]["record"] != by_code[group[1]]["record"]:
+            raise LoggingConfigError(f"{' und '.join(group)} müssen für den Zähler gemeinsam ein- oder ausgeschaltet werden.")
     return sorted(result, key=lambda entry: entry["code"])
 
 
 def default_entries() -> list[dict[str, Any]]:
     """Ohne Speicherung bleibt die bisherige Aufzeichnung aller Kernregister erhalten."""
     return normalize_entries([
-        {"code": code, "offset": definition[0], "name": definition[2],
-         "record": True, "unit": definition[3], "description": ""}
-        for code, definition in _CORE.items()
+        {"code": code, "offset": REGISTER_DEFINITIONS[code]["offset"],
+         "name": REGISTER_DEFINITIONS[code]["name"], "record": True,
+         "unit": "Tage" if code == "7010" else REGISTER_DEFINITIONS[code]["unit"], "description": ""}
+        for code in _CORE_CODES
     ])
 
 
@@ -179,7 +185,9 @@ def merge_csv(entries: list[dict[str, Any]], csv_text: str) -> list[dict[str, An
     current = normalize_entries(entries)
     previous_by_code = {entry["code"]: entry for entry in current}
     by_code = {code: dict(entry) for code, entry in previous_by_code.items()}
-    for imported in parse_csv(csv_text):
+    imported_rows = parse_csv(csv_text)
+    imported_codes = {row["code"] for row in imported_rows}
+    for imported in imported_rows:
         code = imported["code"]
         previous = previous_by_code.get(code)
         if previous is None:
@@ -189,15 +197,26 @@ def merge_csv(entries: list[dict[str, Any]], csv_text: str) -> list[dict[str, An
             if imported["offset"] != previous["offset"]:
                 by_code[code]["record"] = False
     # Jede geänderte Wortzuordnung deaktiviert den gesamten Mehrwortzähler.
-    if any(
-        code in by_code and (code not in previous_by_code
-        or by_code[code]["offset"] != previous_by_code[code]["offset"])
-        for code in _COUNTER_CODES
-    ):
-        for code in _COUNTER_CODES:
-            if code in by_code:
-                by_code[code]["record"] = False
+    for group in _COUNTER_GROUPS:
+        if any(
+            code in by_code and (code not in previous_by_code
+            or by_code[code]["offset"] != previous_by_code[code]["offset"])
+            for code in group
+        ):
+            for code in group:
+                if code in by_code:
+                    by_code[code]["record"] = False
     merged = normalize_entries(list(by_code.values()))
+    for entry in merged:
+        if entry["code"] in imported_codes:
+            entry["record"] = entry["eligible"]
+    # Ein hochgeladenes Zählerwort wählt das vollständige, zugeordnete Paar.
+    for group in _COUNTER_GROUPS:
+        if imported_codes.intersection(group):
+            pair = [entry for entry in merged if entry["code"] in group]
+            selected = len(pair) == len(group) and all(entry["eligible"] for entry in pair)
+            for entry in pair:
+                entry["record"] = selected
     for entry in merged:
         previous = previous_by_code.get(entry["code"])
         fields = ["name", "offset"] if previous is None else [

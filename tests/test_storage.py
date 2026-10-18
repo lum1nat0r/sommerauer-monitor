@@ -53,6 +53,69 @@ def test_atomic_cycle_keeps_provenance_and_duplicate_retry_is_noop(tmp_path):
     assert (rows[0]["source"], rows[0]["profile_version"], rows[0]["decoder_version"]) == (
         "modbus_fc03", "1", "1"
     )
+    assert rows[0]["error_code"] is None
+    assert rows[0]["error_message"] is None
+
+
+@pytest.mark.parametrize(
+    ("quality", "error_code", "raw_words"),
+    [
+        ("unavailable", "missing_weather", [32767]),
+        ("invalid", "invalid_value", [65535]),
+        ("unavailable", "modbus_exception_2", []),
+    ],
+)
+def test_error_observation_replaces_good_current_at_equal_timestamp(
+    tmp_path, quality, error_code, raw_words,
+):
+    store = make_store(tmp_path)
+    store.record_cycle(request("good"), [observation("z-good")])
+    failed_request = request("failed")
+    failed_request.update(offset=4096, register_count=8, outcome="data_error")
+    failed = observation("a-error", quality=quality)
+    failed.update(
+        value=None, raw_words=raw_words, error_code=error_code,
+        error_message="Der Wert ist nicht verfügbar; bitte Ursache prüfen.",
+        source="failed_reply",
+    )
+    assert store.record_cycle(failed_request, [failed]) is True
+
+    current = store.current_signals()
+    assert len(current) == 1
+    assert current[0]["observation_id"] == "a-error"
+    assert current[0]["value"] is None
+    assert current[0]["quality"] == quality
+    assert current[0]["error_code"] == error_code
+    assert current[0]["error_message"] == failed["error_message"]
+    assert current[0]["raw_words"] == raw_words
+    assert current[0]["source"] == "failed_reply"
+    assert current[0]["observed_at"] == failed["observed_at"]
+    assert current[0]["block_offset"] == 4096
+    assert current[0]["register_count"] == 8
+    for rows in (
+        store.history("boiler.temperature"), store.history_page("boiler.temperature"),
+        list(store.stream_observations()),
+    ):
+        assert len(rows) == 2
+        stored = next(row for row in rows if row["observation_id"] == "a-error")
+        assert stored == {**failed, "request_id": "failed"}
+
+
+def test_error_cycle_failure_keeps_previous_current_and_can_be_retried(tmp_path):
+    store = make_store(tmp_path)
+    store.record_cycle(request("good"), [observation("good")])
+    failed = observation("failed", quality="invalid")
+    failed.update(value=None, error_code="invalid_value", error_message="Ungültiger Wert.")
+    corrupt = observation("corrupt", quality="corrupt")
+    corrupt["signal_id"] = "buffer.top_temperature"
+
+    with pytest.raises(StorageError):
+        store.record_cycle(request("failed-request"), [failed, corrupt])
+
+    assert store.current_signals()[0]["observation_id"] == "good"
+    assert store.history("buffer.top_temperature") == []
+    assert store.record_cycle(request("failed-request"), [failed]) is True
+    assert store.current_signals()[0]["value"] is None
 
 
 def test_failed_cycle_rolls_back_request_and_any_prior_observations(tmp_path):
@@ -68,6 +131,12 @@ def test_failed_cycle_rolls_back_request_and_any_prior_observations(tmp_path):
 def test_backup_and_restore_preserve_history_and_pause_collector(tmp_path):
     store = make_store(tmp_path)
     store.record_cycle(request(), [observation()])
+    failed = observation("unavailable", quality="unavailable")
+    failed.update(
+        value=None, error_code="missing_weather",
+        error_message="Wetterdaten stehen nicht zur Verfügung.", raw_words=[32767],
+    )
+    store.record_cycle(request("failed-weather"), [failed])
     store.record_event("event-1", "2026-10-14T12:01:00+00:00", "connected", "info", "ok")
     store.save_config(1, {"collector_enabled": False}, "2026-10-14T12:00:00+00:00")
     store.save_collector_state({"state": "running", "attempts": 2}, "2026-10-14T12:00:00+00:00")
@@ -100,7 +169,7 @@ def test_migration_reopen_preserves_rows_and_rejects_newer_schema(tmp_path):
 
 
 
-@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("version", [1, 2, 3])
 def test_legacy_database_preserves_minute_values_and_extra_tables_on_restore(tmp_path, version):
     path = tmp_path / "legacy.sqlite3"
     store = SQLiteStore(path)
@@ -121,25 +190,47 @@ def test_legacy_database_preserves_minute_values_and_extra_tables_on_restore(tmp
             )
             assert target.record_cycle(cycle, [row]) is True
 
-    def dump(database):
+    def snapshot(database):
         with closing(sqlite3.connect(database)) as connection:
-            return list(connection.iterdump())
-
-    def legacy_dump(database):
-        return [
-            line for line in dump(database)
-            if "logging_config" not in line
-            and not line.startswith('INSERT INTO "schema_migrations"')
-        ]
+            connection.row_factory = sqlite3.Row
+            tables = [
+                row["name"] for row in connection.execute(
+                    """SELECT name FROM sqlite_master WHERE type='table'
+                    AND name NOT IN ('schema_migrations', 'logging_config')
+                    AND name NOT LIKE 'sqlite_%' ORDER BY name"""
+                )
+            ]
+            result = {}
+            for table in tables:
+                quoted = table.replace('"', '""')
+                rows = [
+                    dict(row) for row in connection.execute(
+                        f'SELECT * FROM "{quoted}" ORDER BY rowid'
+                    )
+                ]
+                if table == "observations":
+                    for row in rows:
+                        row.setdefault("error_code", None)
+                        row.setdefault("error_message", None)
+                result[table] = rows
+            return result
 
     for minute in range(3):
         write_minute(store, minute)
-    state = {"state": "running", "attempts": 2}
+    state = {
+        "state": "running", "reconnect_attempts": 2,
+        "blocked_signals": ["boiler.temperature"],
+    }
     store.save_collector_state(state, start.isoformat())
+    original_measurements = list(store.stream_observations())
     with sqlite3.connect(path) as connection:
-        connection.execute("DROP TABLE logging_config")
-        connection.execute("DELETE FROM schema_migrations WHERE version = 3")
-        connection.execute("PRAGMA user_version = 1")
+        connection.execute("ALTER TABLE observations DROP COLUMN error_code")
+        connection.execute("ALTER TABLE observations DROP COLUMN error_message")
+        connection.execute("DELETE FROM schema_migrations WHERE version = 4")
+        if version < 3:
+            connection.execute("DROP TABLE logging_config")
+            connection.execute("DELETE FROM schema_migrations WHERE version = 3")
+        connection.execute(f"PRAGMA user_version = {version}")
     if version == 2:
         # Synthetische additive Alttabellen dürfen weder migriert noch gelöscht werden.
         with closing(sqlite3.connect(path)) as connection:
@@ -203,10 +294,19 @@ def test_legacy_database_preserves_minute_values_and_extra_tables_on_restore(tmp
                     """
                 )
 
-    original = legacy_dump(path)
-    original_measurements = list(store.stream_observations())
+    original = snapshot(path)
+    legacy_backup = tmp_path / "legacy-backup.sqlite3"
+    store.backup_to(legacy_backup)
+    legacy_backup_bytes = legacy_backup.read_bytes()
+    legacy_restored = SQLiteStore.restore_from(
+        legacy_backup, tmp_path / "legacy-restored.sqlite3",
+    )
+    assert list(legacy_restored.stream_observations()) == original_measurements
+    assert legacy_restored.get_collector_state() == {**state, "state": "paused"}
+    assert legacy_backup.read_bytes() == legacy_backup_bytes
+    assert snapshot(path) == original
     reopened = SQLiteStore(path)
-    assert legacy_dump(path) == original
+    assert snapshot(path) == original
     assert reopened.get_logging_config()["revision"] == 0
     assert list(reopened.stream_observations()) == original_measurements
     write_minute(reopened, 3)
@@ -215,32 +315,32 @@ def test_legacy_database_preserves_minute_values_and_extra_tables_on_restore(tmp
     assert measurements[:6] == original_measurements
     assert [row["value"] for row in measurements] == [62, 48, 63, 49, 64, 50, 65, 51]
 
-    source_dump = dump(path)
+    source_snapshot = snapshot(path)
     backup = tmp_path / "backup.sqlite3"
     reopened.backup_to(backup)
-    assert dump(backup) == source_dump
+    assert snapshot(backup) == source_snapshot
     backup_bytes = backup.read_bytes()
     restored = SQLiteStore.restore_from(backup, tmp_path / "restored.sqlite3")
 
     assert backup.read_bytes() == backup_bytes
-    assert dump(backup) == source_dump
-    assert dump(path) == source_dump
+    assert snapshot(backup) == source_snapshot
+    assert snapshot(path) == source_snapshot
     assert reopened.get_collector_state() == state
     assert list(restored.stream_observations()) == measurements
-    assert restored.get_collector_state() == {"state": "paused", "attempts": 2}
-    assert [
-        line for line in dump(restored.path)
-        if not line.startswith('INSERT INTO "collector_state"')
-    ] == [
-        line for line in source_dump
-        if not line.startswith('INSERT INTO "collector_state"')
-    ]
+    assert restored.get_collector_state() == {**state, "state": "paused"}
+    assert {
+        table: rows for table, rows in snapshot(restored.path).items()
+        if table != "collector_state"
+    } == {
+        table: rows for table, rows in source_snapshot.items()
+        if table != "collector_state"
+    }
     for database in (path, backup, restored.path):
         with closing(sqlite3.connect(database)) as connection:
             assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     write_minute(restored, 4)
     assert restored.count_observations() == 10
-    assert dump(path) == source_dump
+    assert snapshot(path) == source_snapshot
     assert backup.read_bytes() == backup_bytes
 
 
@@ -283,7 +383,9 @@ def test_large_synthetic_history_is_retained_and_query_is_bounded(tmp_path):
             "INSERT INTO signals VALUES ('boiler.temperature', '°C', '{}')"
         )
         connection.executemany(
-            """INSERT INTO observations VALUES
+            """INSERT INTO observations
+            (observation_id, request_id, signal_id, observed_at, value, unit, quality,
+             raw_words_json, source, profile_id, profile_version, decoder_version) VALUES
             (?, ?, 'boiler.temperature', ?, 42, '°C', 'ok', '[42]',
              'modbus_fc03', 'core', '1', '1')""",
             [

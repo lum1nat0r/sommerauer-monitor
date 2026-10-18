@@ -15,8 +15,8 @@ from backend.logging_config import (
 )
 
 
-SCHEMA_VERSION = 3
-SUPPORTED_SCHEMA_VERSIONS = (1, 2, SCHEMA_VERSION)
+SCHEMA_VERSION = 4
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, SCHEMA_VERSION)
 
 
 class StorageError(RuntimeError):
@@ -138,7 +138,7 @@ class SQLiteStore:
                 COMMIT;
                 """
             )
-        if version < SCHEMA_VERSION:
+        if version < 3:
             connection.executescript(
                 """
                 BEGIN IMMEDIATE;
@@ -151,6 +151,18 @@ class SQLiteStore:
                     INSERT OR IGNORE INTO schema_migrations(version, applied_at)
                         VALUES (3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
                     PRAGMA user_version = 3;
+                COMMIT;
+                """
+            )
+        if version < 4:
+            connection.executescript(
+                """
+                BEGIN IMMEDIATE;
+                    ALTER TABLE observations ADD COLUMN error_code TEXT;
+                    ALTER TABLE observations ADD COLUMN error_message TEXT;
+                    INSERT INTO schema_migrations(version, applied_at)
+                        VALUES (4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                    PRAGMA user_version = 4;
                 COMMIT;
                 """
             )
@@ -243,13 +255,15 @@ class SQLiteStore:
                     connection.execute(
                         """INSERT INTO observations
                         (observation_id, request_id, signal_id, observed_at, value, unit, quality,
-                         raw_words_json, source, profile_id, profile_version, decoder_version)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         raw_words_json, source, profile_id, profile_version, decoder_version,
+                         error_code, error_message)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             row["observation_id"], request["request_id"], signal_id,
                             row["observed_at"], row.get("value"), row["unit"], row["quality"],
                             json.dumps(row["raw_words"], separators=(",", ":")), row["source"],
                             row["profile_id"], row["profile_version"], row["decoder_version"],
+                            row.get("error_code"), row.get("error_message"),
                         ),
                     )
                 connection.commit()
@@ -334,12 +348,14 @@ class SQLiteStore:
         try:
             with self._connection() as connection:
                 rows = connection.execute(
-                    """SELECT o.* FROM observations o
-                    JOIN (
-                        SELECT signal_id, MAX(observed_at) AS latest
-                        FROM observations GROUP BY signal_id
-                    ) latest ON latest.signal_id=o.signal_id AND latest.latest=o.observed_at
-                    ORDER BY o.signal_id, o.observation_id"""
+                    """SELECT o.*, r.offset AS block_offset, r.register_count
+                    FROM signals s JOIN observations o ON o.rowid = (
+                        SELECT latest.rowid FROM observations latest
+                        WHERE latest.signal_id=s.signal_id
+                        ORDER BY latest.observed_at DESC, latest.rowid DESC LIMIT 1
+                    )
+                    JOIN requests r ON r.request_id=o.request_id
+                    ORDER BY o.signal_id"""
                 )
                 result = []
                 for row in rows:

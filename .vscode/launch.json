@@ -28,10 +28,35 @@
       "justMyCode": true
     },
     {
+      "name": "Sommerauer Monitor: API",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "python": "${command:python.interpreterPath}",
+      "args": [
+        "backend.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000"
+      ],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "COLLECTOR_ENABLED": "true",
+        "DATA_DIR": "${workspaceFolder}/data/vscode-heizung"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
       "name": "Sommerauer Monitor: Dashboard (Vite)",
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "npm",
+      "windows": {
+        "runtimeExecutable": "npm.cmd"
+      },
       "runtimeArgs": [
         "run",
         "dev"
@@ -51,6 +76,14 @@
       "name": "Sommerauer Monitor: Offline-Gesamttest",
       "configurations": [
         "Sommerauer Monitor: API + Simulator",
+        "Sommerauer Monitor: Dashboard (Vite)"
+      ],
+      "stopAll": true
+    },
+    {
+      "name": "Sommerauer Monitor: Heizung (API + Dashboard)",
+      "configurations": [
+        "Sommerauer Monitor: API",
         "Sommerauer Monitor: Dashboard (Vite)"
       ],
       "stopAll": true

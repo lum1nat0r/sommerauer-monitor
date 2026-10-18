@@ -10,6 +10,11 @@ type Entry = {
   signal_id: string | null;
   eligible: boolean;
   blocked_reason: string | null;
+  kind?: string;
+  live_confirmed?: boolean;
+  read_to_clear?: boolean;
+  decoder?: string;
+  information?: string;
   change: 'new' | 'changed' | 'unchanged';
   changed_fields: string[];
 };
@@ -22,6 +27,18 @@ type Snapshot = {
 };
 const MAX_CSV_BYTES = 1024 * 1024;
 const fieldLabels: Record<string, string> = { name: 'Importname', offset: 'Offset', code: 'Hexcode', unit: 'Einheit', description: 'Beschreibung', record: 'Aufzeichnen' };
+const counterCodes: Record<string, string[]> = {
+  'boiler.operating_minutes': ['7010', '7011'],
+  'stoker.operating_minutes': ['7012', '7013'],
+};
+const kindLabels: Record<string, string> = {
+  measurement: 'Messwert', derived: 'Abgeleiteter Wert / Regelgröße', counter: 'Zähler',
+  status: 'Status / Kennung', setting: 'Einstellung', raw: 'Herstellerrohwert', device_time: 'Steuerungsdatum / -zeit',
+};
+function groupEligible(entry: Entry, group: Entry[]) {
+  return entry.eligible && group.every((item) => item.eligible)
+    && (counterCodes[entry.signal_id || ''] || []).every((code) => group.some((item) => item.code === code));
+}
 
 async function request(url: string, init?: RequestInit): Promise<Snapshot> {
   const response = await fetch(url, init);
@@ -75,7 +92,7 @@ export default function LoggingConfig() {
   };
   const toggle = (entry: Entry, checked: boolean) => {
     const group = entry.signal_id ? draft.filter((item) => item.signal_id === entry.signal_id) : [entry];
-    if (!group.every((item) => item.eligible)) return;
+    if (!groupEligible(entry, group)) return;
     const codes = new Set(group.map((item) => item.code));
     setDraft((entries) => entries.map((item) => codes.has(item.code) ? { ...item, record: checked } : item));
     setDirty(true);
@@ -96,14 +113,11 @@ export default function LoggingConfig() {
       const previous = new Map(draft.map((entry) => [entry.code, entry]));
       const merged = preview.entries.map((entry) => {
         const old = previous.get(entry.code);
-        return old ? { ...entry, unit: old.unit, description: old.description, record: entry.eligible && old.offset === entry.offset ? old.record : false } : entry;
+        return old ? { ...entry, unit: old.unit, description: old.description } : entry;
       });
-      const previewCodes = new Set(preview.entries.map((entry) => entry.code));
-      merged.push(...draft.filter((entry) => !previewCodes.has(entry.code)));
-      const counterChanged = merged.some((entry) => entry.signal_id === 'boiler.operating_minutes' && entry.offset !== previous.get(entry.code)?.offset);
-      setDraft(counterChanged ? merged.map((entry) => entry.signal_id === 'boiler.operating_minutes' ? { ...entry, record: false } : entry) : merged);
+      setDraft(merged);
       setDirty(true);
-      setNotice('CSV als Entwurf übernommen. Importfelder entsprechen der neuen Vorschau auf Basis der gespeicherten Konfiguration; bisherige Metadaten bleiben erhalten. Gespeichert wird erst mit „Entwurf speichern“.');
+      setNotice('CSV als Entwurf übernommen. Interpretierbare Einträge mit passender Lesezuordnung sind vorgewählt. Bisherige Metadaten bleiben erhalten. Aktiv wird die Auswahl erst mit „Entwurf speichern“.');
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'CSV konnte nicht importiert werden.'); }
     finally { setBusy(false); }
   };
@@ -135,7 +149,7 @@ export default function LoggingConfig() {
   const conflict = saved !== null && revision !== null && saved.revision !== revision;
   return <main className="dashboard logging-page">
     <header className="topbar"><div><p className="eyebrow">OFFLINE-KONFIGURATION</p><h1>Modbus <span>Aufzeichnung</span></h1></div></header>
-    <p className="logging-intro">Importieren und wählen Sie Register für die Aufzeichnung. Nur das bestätigte Kernprofil ist freigegeben. Es werden keine Geräteaktionen ausgelöst und keine zusätzlichen Decoder eingerichtet.</p>
+    <p className="logging-intro">Importieren und wählen Sie die bekannten Register für die Aufzeichnung. Hochgeladene Einträge mit passendem Decoder und Lesezuordnung sind im Entwurf vorgewählt, auch beim erneuten Upload. Das Kernprofil ist live bestätigt; zusätzliche Lesezuordnungen sind quellenbelegt, aber live ungeprüft. Erst Speichern übernimmt die Auswahl an der nächsten sicheren Zyklusgrenze.</p>
     <section className="logging-status" aria-labelledby="logging-status-title">
       <h2 id="logging-status-title">Gespeichert und tatsächlich aktiv</h2>
       {saved ? <><dl><div><dt>Gespeicherte Revision</dt><dd>{saved.revision}</dd></div><div><dt>Aktive Revision</dt><dd>{saved.active_revision ?? 'Keine aktive Revision'}</dd></div><div><dt>Übernahmestatus</dt><dd>{saved.apply_status}</dd></div></dl>
@@ -149,27 +163,28 @@ export default function LoggingConfig() {
     {conflict && <p className="alert" role="alert">Die gespeicherte Revision wurde zwischenzeitlich geändert. Ihr Entwurf auf Basis von Revision {revision} bleibt erhalten. Zum Übernehmen der aktuellen Wahrheit „Entwurf verwerfen und neu laden“ verwenden.</p>}
     <section className="logging-import" aria-labelledby="logging-import-title">
       <h2 id="logging-import-title">CSV importieren</h2>
-      <p id="csv-help">UTF-8, ohne Kopfzeile, mit Semikolon: <code>Name;dezimaler Offset;interner Hexcode</code>, zum Beispiel <code>Kessel_Ist;4102;1006</code>. Maximal 1 MiB. Neue Register und fachlich relevante Offsetänderungen werden nicht automatisch aufgezeichnet.</p>
-      {dirty && <p className="alert">Ein Entwurf ist bereits vorhanden. Ein weiterer Import erstellt die Importfelder erneut auf Basis der gespeicherten Konfiguration. Ungespeicherte Einheit/Beschreibung bleiben erhalten, die Auswahl nur bei unverändertem Offset und gültiger Freigabe. Speichern Sie den Entwurf zuerst, wenn dessen Importfelder die Grundlage des nächsten Imports sein sollen.</p>}
+      <p id="csv-help">UTF-8, ohne Kopfzeile, mit Semikolon: <code>Name;dezimaler Offset;interner Hexcode</code>, zum Beispiel <code>Kessel_Ist;4102;1006</code>. Maximal 1 MiB. Interpretierbare hochgeladene Einträge mit passender Lesezuordnung werden vorgewählt; unbekannte oder unvollständige Zuordnungen bleiben gesperrt.</p>
+      <p className="alert" id="read-clear-help">Neun Protokollregister sind Read-to-clear: 12F0, 85E0, 85E1, 8BF0, 8BF1, 8E0F, 8E1F, 95E0 und 95E1. Jede Auslesung leert dort die aufgesammelten Modul-Ausgangsbits; wiederholte oder konkurrierende Auslesungen können Werte verlieren. Auch diese Einträge werden beim Upload vorgewählt. Vor dem Speichern prüfen und gegebenenfalls abwählen.</p>
+      {dirty && <p className="alert">Ein Entwurf ist bereits vorhanden. Ein weiterer Import erstellt die Importfelder erneut auf Basis der gespeicherten Konfiguration und wählt passende hochgeladene Einträge erneut vor. Ungespeicherte Einheit/Beschreibung für übernommene Einträge bleiben erhalten. Speichern Sie zuerst, wenn ungespeicherte Importfelder erhalten bleiben sollen.</p>}
       <label htmlFor="logging-csv">CSV-Datei als Entwurf einlesen<input id="logging-csv" type="file" accept=".csv,text/csv,text/plain" aria-describedby="csv-help" disabled={busy || revision === null || conflict} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importFile(file); }} /></label>
     </section>
     <section aria-labelledby="logging-draft-title">
       <div className="section-heading"><div><h2 id="logging-draft-title">Gemeinsamer Entwurf</h2><p className="muted">Basisrevision {revision ?? '—'} · {dirty ? 'Ungespeicherte Änderungen' : 'Keine ungespeicherten Änderungen'} · {draft.length} Register</p></div></div>
-      <p id="logging-metadata-help">Einheit und Beschreibung sind reine Betreiber-Metadaten. Sie ändern weder Decoder noch Umrechnung oder Einheiten gespeicherter Messungen. Historische Daten bleiben unverändert. Der Mehrwortzähler 7010/7011 wird nur vollständig und gemeinsam geschaltet.</p>
+      <p id="logging-metadata-help">Einheit und Beschreibung sind reine Betreiber-Metadaten. Sie ändern weder Decoder noch Umrechnung oder Einheiten gespeicherter Messungen. Historische Daten bleiben unverändert. Die Mehrwortzähler Betrieb 7010/7011 und Stoker 7012/7013 werden jeweils nur vollständig und gemeinsam geschaltet.</p>
       <div className="logging-table-wrap" role="region" aria-label="Registerkonfiguration, horizontal scrollbar" tabIndex={0}>
         <table className="logging-table" aria-describedby="logging-metadata-help"><caption>Neue und geänderte Importzeilen zuerst; Auswahl und Metadaten werden gemeinsam gespeichert.</caption>
-          <thead><tr><th scope="col">Import / Änderung</th><th scope="col">Hexcode</th><th scope="col">Offset (dezimal)</th><th scope="col">Aufzeichnen</th><th scope="col">Einheit (Metadaten)</th><th scope="col">Beschreibung (Metadaten)</th><th scope="col">Freigabe / Signal</th></tr></thead>
+          <thead><tr><th scope="col">Import / Änderung</th><th scope="col">Hexcode</th><th scope="col">Offset (dezimal)</th><th scope="col">Aufzeichnen</th><th scope="col">Einheit (Metadaten)</th><th scope="col">Beschreibung (Metadaten)</th><th scope="col">Lesezuordnung / Signal</th></tr></thead>
           <tbody>{rows.map((entry) => {
             const group = entry.signal_id ? draft.filter((item) => item.signal_id === entry.signal_id) : [entry];
-            const eligible = entry.eligible && group.every((item) => item.eligible) && (entry.signal_id !== 'boiler.operating_minutes' || ['7010', '7011'].every((code) => group.some((item) => item.code === code)));
+            const eligible = groupEligible(entry, group);
             const fields = Array.isArray(entry.changed_fields) ? entry.changed_fields : [];
             return <tr key={entry.code} className={`logging-row-${entry.change || 'unchanged'}`}>
               <th scope="row"><span className={fields.includes('name') ? 'import-field-changed' : ''}>{entry.name || 'Ohne Importname'}</span><span className="logging-change">{entry.change === 'new' ? 'Neu' : entry.change === 'changed' ? 'Geändert' : 'Unverändert'}</span>{fields.length > 0 && <small>Geänderte Felder: {fields.map((field) => fieldLabels[field] || field).join(', ')}</small>}</th>
               <td><code className={fields.includes('code') ? 'import-field-changed' : ''}>{entry.code}</code></td><td><span className={fields.includes('offset') ? 'import-field-changed' : ''}>{entry.offset ?? '—'}</span></td>
-              <td><label className="logging-check"><input type="checkbox" checked={Boolean(entry.record)} disabled={busy || !eligible} aria-describedby={`eligibility-${entry.code}`} onChange={(event) => toggle(entry, event.target.checked)} />{entry.code} aufzeichnen</label></td>
+              <td><label className="logging-check"><input type="checkbox" checked={Boolean(entry.record)} disabled={busy || !eligible} aria-describedby={`eligibility-${entry.code}${entry.read_to_clear ? ` risk-${entry.code}` : ''}`} onChange={(event) => toggle(entry, event.target.checked)} />{entry.code} aufzeichnen</label>{entry.read_to_clear && <p className="read-clear-warning" id={`risk-${entry.code}`}>Read-to-clear: Lesen leert die Modul-Ausgangsbits. Aktivieren beeinflusst auch andere Leser.</p>}</td>
               <td><label className="visually-hidden" htmlFor={`unit-${entry.code}`}>Betreibereinheit für {entry.code}</label><input id={`unit-${entry.code}`} type="text" maxLength={40} value={entry.unit ?? ''} disabled={busy} onChange={(event) => update(entry.code, 'unit', event.target.value)} /></td>
               <td><label className="visually-hidden" htmlFor={`description-${entry.code}`}>Betreiberbeschreibung für {entry.code}</label><textarea id={`description-${entry.code}`} rows={2} maxLength={2000} value={entry.description ?? ''} disabled={busy} onChange={(event) => update(entry.code, 'description', event.target.value)} /></td>
-              <td id={`eligibility-${entry.code}`}><span className={eligible ? 'logging-eligible' : 'logging-blocked'}>{eligible ? 'Bestätigtes Kernprofil' : entry.blocked_reason || 'Ungeprüft oder Mehrwortzuordnung unvollständig; Aufzeichnung gesperrt.'}</span><small>{entry.signal_id || 'Kein bestätigter Decoder'}</small></td>
+              <td id={`eligibility-${entry.code}`}><span className={eligible ? 'logging-eligible' : 'logging-blocked'}>{eligible ? 'Bekannte Lesezuordnung – auswählbar' : entry.blocked_reason || 'Unbekannte oder unvollständige Mehrwortzuordnung; Aufzeichnung gesperrt.'}</span><small>{entry.kind ? kindLabels[entry.kind] || entry.kind : 'Kategorie nicht angegeben'} · {entry.live_confirmed === true ? 'Live bestätigt' : entry.live_confirmed === false ? 'Quellenbelegt · live ungeprüft' : 'Livebestätigung nicht angegeben'}</small><small>{entry.signal_id || 'Kein zugeordneter Decoder'}{entry.decoder && <> · Decoder: {entry.decoder}</>}</small>{entry.information && <small>{entry.information}</small>}</td>
             </tr>;
           })}</tbody>
         </table>

@@ -123,7 +123,7 @@ def test_counter_word_change_disables_both_words_and_requires_complete_mapping()
     partial[0]["record"] = False
     assert normalize_entries(partial)[0]["eligible"] is False
     restored = indexed(merge_csv(list(draft.values()), "Betrieb_Min;28689;7011"))
-    assert all(restored[code]["eligible"] and not restored[code]["record"] for code in ("7010", "7011"))
+    assert all(restored[code]["eligible"] and restored[code]["record"] for code in ("7010", "7011"))
 
 
 @pytest.mark.parametrize(("csv_text", "message"), [
@@ -186,11 +186,11 @@ def test_unsupported_and_reassigned_offsets_cannot_bypass_freigabe(tmp_path):
     store = SQLiteStore(tmp_path / "monitor.sqlite3")
     draft = merge_csv(default_entries(), "Unbekannt;4102;ABCD\nFalsch;99;1006")
     indexed(draft)["ABCD"].update(record=True, eligible=True, blocked_reason=None)
-    with pytest.raises(LoggingConfigError, match="Kein bestätigter Decoder"):
+    with pytest.raises(LoggingConfigError):
         store.save_logging_config(0, draft)
     indexed(draft)["ABCD"]["record"] = False
     indexed(draft)["1006"].update(record=True, eligible=True, blocked_reason=None)
-    with pytest.raises(LoggingConfigError, match="Offset weicht"):
+    with pytest.raises(LoggingConfigError):
         store.save_logging_config(0, draft)
     assert store.get_logging_config()["revision"] == 0
 
@@ -209,7 +209,7 @@ def test_save_restart_reimport_preserve_metadata_and_clear_draft_markers(tmp_pat
     reimported = merge_csv(saved["entries"], "Anderer Name;4102;1006")
     entry = indexed(reimported)["1006"]
     assert (entry["unit"], entry["description"], entry["record"]) == (
-        "keine Umrechnung", "Hinweis vom Betreiber", False,
+        "keine Umrechnung", "Hinweis vom Betreiber", True,
     )
     saved["entries"][0]["description"] = "Nur Antwortkopie"
     assert restarted.get_logging_config() != saved
@@ -272,14 +272,14 @@ def test_reimport_cannot_reuse_offset_of_preserved_entry(tmp_path):
     assert store.get_logging_config() == before
 
 
-def test_corrected_core_mapping_remains_unselected_until_operator_opts_in(tmp_path):
+def test_corrected_core_mapping_is_preselected_only_in_draft_until_saved(tmp_path):
     store = SQLiteStore(tmp_path / "monitor.sqlite3")
     wrong = merge_csv(default_entries(), "Kessel_Ist;4103;1006")
     saved = store.save_logging_config(0, wrong)
     corrected = merge_csv(saved["entries"], "Kessel_Ist;4102;1006")
     assert indexed(corrected)["1006"]["eligible"] is True
-    assert indexed(corrected)["1006"]["record"] is False
-    indexed(corrected)["1006"]["record"] = True
+    assert indexed(corrected)["1006"]["record"] is True
+    assert store.get_logging_config() == saved
     accepted = store.save_logging_config(saved["revision"], corrected)
     assert indexed(accepted["entries"])["1006"]["record"] is True
 
@@ -419,3 +419,37 @@ def test_api_limits_json_and_csv_before_saving(offline_app):
         malformed = client.put("/api/logging-config", headers=MUTATION_HEADERS, content=b"{not-json")
         assert malformed.status_code == 422
         assert client.get("/api/logging-config").json()["revision"] == 0
+
+
+def test_csv_preselects_only_interpretable_mappings_and_complete_counter_pairs():
+    draft = indexed(merge_csv(default_entries(),
+        "Leistung;4099;1003\nLambda;4356;1104\nProtokoll;4848;12F0\n"
+        "Unbekannt;99;ABCD\nSTART;36928;9040\nStoker_Tag;28690;7012\n"
+        "Falsche_Zuordnung;4103;1006"))
+    for code in ("1003", "1104", "12F0"):
+        assert draft[code]["eligible"] is True
+        assert draft[code]["record"] is True
+    for code in ("ABCD", "9040", "7012", "1006"):
+        assert draft[code]["eligible"] is False
+        assert draft[code]["record"] is False
+
+
+def test_reimport_preselects_uploaded_rows_but_keeps_omitted_selection_and_metadata():
+    entries = default_entries()
+    indexed(entries)["1006"].update(record=False, unit="Eigene Einheit", description="Betreibertext")
+    indexed(entries)["9000"]["record"] = False
+    before = deepcopy(entries)
+    draft = indexed(merge_csv(entries, "Kessel_Ist;4102;1006"))
+    assert draft["1006"]["record"] is True
+    assert (draft["1006"]["unit"], draft["1006"]["description"]) == ("Eigene Einheit", "Betreibertext")
+    assert draft["9000"]["record"] is False
+    assert entries == before
+
+
+def test_one_uploaded_counter_word_preselects_existing_partner_atomically():
+    entries = default_entries()
+    for code in ("7010", "7011"):
+        indexed(entries)[code]["record"] = False
+    draft = indexed(merge_csv(entries, "Betrieb_Min;28689;7011"))
+    assert draft["7010"]["record"] is True
+    assert draft["7011"]["record"] is True

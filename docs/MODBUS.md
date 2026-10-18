@@ -25,12 +25,14 @@ Bei den Kern-Temperaturkanälen ist 110 Ersatz-/Fehlerwert. Gültig ist strikt
 `-5 < signed < 110`; keine Soll-/Betriebstemperaturgrenzen. Diese Grenze nicht auf
 die unbestätigte Außentemperatur übertragen.
 
-Das ausführbare Erstprofil `core` ist ausschließlich in
-[`backend/registers.py`](../backend/registers.py) definiert: exakt die drei oben
-aufgeführten Blöcke. `docs/register_catalog.json` bleibt eine getrennte
-Faktenreferenz und keine Pollingliste; die 194 statischen Einträge sind nicht aktiv.
-Dekodierte Werte tragen Rohworte, Blockoffset, Quelle sowie Profil- und
-Decoderversion, damit eine Interpretation nachvollziehbar bleibt.
+Das bestätigte Kernprofil `core` bleibt in
+[`backend/registers.py`](../backend/registers.py) unverändert. Das explizite
+`READ_PROFILE` ergänzt ausschließlich die weiteren 75 Wörter der bereitgestellten
+V2-Auswahl: insgesamt 80 Registerwörter und 78 Signale. Die beiden Zählerpaare
+ergeben jeweils ein Signal. Keine beliebigen Adressen und kein Vollscan.
+Neue Signale tragen Herkunft `extended/1/1`; alte Kernmessungen behalten
+`core/1/1`. Der 199er-Katalog bleibt eine historische statische Referenz,
+nicht die ausführbare Pollingliste.
 
 `Gesamtminuten = Tage * 1440 + Restminuten`, Restminuten 0..1439.
 Das ist kein Float und kein üblicher 32-Bit-Zähler. Die Tagesgrenze wird durch
@@ -47,8 +49,9 @@ BO01/BO02 bezeichnen an dieser Anlage oben/unten desselben Puffers.
 
 Unter **Modbus-Aufzeichnung** (`#/modbus`) wird ausschließlich die lokale
 Monitor-Auswahl bearbeitet, niemals die Modbus-Tabelle der Heizung.
-Formatquelle ist das [Betreiberbeispiel in Issue #55](https://github.com/lum1nat0r/sommerauer-monitor/issues/55#issuecomment-6218867012);
-ein privater Originalexport wurde nicht unabhängig geprüft.
+Formatquelle war zunächst das Betreiberbeispiel in Issue #55. Für die
+V2-Erweiterung wurden die privat bereitgestellte 80er-CSV und rekonstruierte
+Herstellerquellen lokal geprüft; Originaldateien und Quellcode bleiben privat.
 
 1. CSV als UTF-8 (optionaler BOM), ohne Kopfzeile hochladen:
    `Name;dezimaler Offset;interner Hexcode`, z. B. `Kessel_Ist;4102;1006`.
@@ -66,19 +69,42 @@ ein privater Originalexport wurde nicht unabhängig geprüft.
    die bisherige Konfiguration unverändert. „Entwurf verwerfen und neu laden“
    verwirft lokale Änderungen ausdrücklich.
 
-Neue Einträge sind zunächst abgewählt. Nur exakte bestätigte Code-/Offset-
-Zuordnungen des `core`-Profils haben einen Decoder; andere Einträge sind mit
-Begründung gesperrt. Offsetänderungen deaktivieren die betroffene Auswahl,
-beim Mehrwortzähler beide Wörter. Bei wiederhergestellter bestätigter Zuordnung
-ist eine bewusste erneute Auswahl möglich. Eine reine Namensänderung erhält
-die Auswahl. **7010/7011** werden gemeinsam geschaltet und als ein
-Anlagen-Betriebsminutensignal dekodiert. Die beiden Pufferkanäle sind separat
-abwählbar; technisch wird weiterhin der bestätigte Zweierblock gelesen und
-validiert, aber nur der ausgewählte Kanal gespeichert.
+Beim Upload werden alle interpretierbaren Einträge mit passender Lesezuordnung
+im Entwurf vorgewählt. Das gilt auch für zuvor abgewählte hochgeladene Einträge
+beim Reimport; fehlende CSV-Zeilen behalten ihre gespeicherte Auswahl.
+Unbekannte Codes, abweichende Offsets und unvollständige Zählerzuordnungen
+bleiben abgewählt und gesperrt. Bei wiederhergestellter gültiger Zuordnung
+ist der Eintrag wieder vorgewählt. Dies ist kein Live-/Displaynachweis oder
+Hersteller-Verträglichkeitsversprechen. Erst **Entwurf speichern** übernimmt
+die Auswahl; vorher kann jede geeignete Zeile wieder abgewählt werden.
+Die Zählerpaare **7010/7011** und **7012/7013** werden jeweils gemeinsam
+geschaltet und als Gesamtminuten dekodiert. Ein hochgeladenes Wort wählt auch
+seinen bereits vorhandenen, korrekt zugeordneten Partner vor. Stokerzeit bezeichnet die
+softwaregezählte Freigabezeit, nicht mechanisch nachgewiesene Bewegung.
+Puffer oben/unten bleiben separat abwählbar, aber im bestätigten Zweierblock.
+Alle anderen Zusatzregister werden einzeln gelesen, ohne ungeprüfte Lücken.
+
+**Neun Protokollregister sind Read-to-clear:** `12F0`, `85E0`, `85E1`, `8BF0`,
+`8BF1`, `8E0F`, `8E1F`, `95E0`, `95E1`. Ihre Auslesung leert aufgesammelte
+Modul-Ausgangsbits. Auch sie werden beim Upload im Entwurf vorgewählt;
+Warnungen stehen direkt an der Auswahl. Vor dem Speichern prüfen und bei
+Bedarf abwählen. Konkurrierende Leser können Informationen verlieren.
+Diese Werte sind kein Störungsjournal. Nach einem ungewissen
+Ausleseausgang erfolgt keine automatische Wiederholung, auch nicht nach Neustart.
+
+Einheiten/Skalen sind kanalbezogen: Temperaturen in ganzen °C mit jeweils
+eigenen Grenzen, Versorgung in 0,1 V, interne Leistungsregelgrößen in Prozent,
+Förder-/Pausentakte in 0,1 s und Stokerzähler als Tage/Restminuten.
+Lambda-/Gebläsewerte ohne belegte physikalische Skalierung bleiben ausdrücklich
+Herstellerrohwerte. Settings, Regelgrößen, Steuerungsdatum/-zeit und Messwerte
+sind im Dashboard unterschieden. Raumtemperatur 0 und Abgastemperatur 299 können
+Initialzustände oder echte Werte sein; diese Mehrdeutigkeit bleibt dokumentiert.
 
 Folgeimporte erhalten Betreibertexte und alle nicht mehr enthaltenen Einträge.
-Identische/umsortierte Importe erzeugen weder Duplikate noch Änderungsmarker;
-inhaltlich unverändertes Speichern erhöht auch die Revision nicht. Doppelte
+Identische/umsortierte Importe erzeugen weder Duplikate noch falsche Importfeld-
+Änderungsmarker. Sie setzen jedoch die Vorbelegung hochgeladener geeigneter
+Zeilen erneut; zuvor gespeicherte Abwahlen dieser Zeilen werden im Entwurf
+aufgehoben. Nur inhaltlich unverändertes Speichern bleibt ein Revisions-No-op. Doppelte
 Codes oder Offsets, widersprüchliche Zuordnungen und ungültige Dateien werden
 vollständig abgelehnt. Ein neuer Import basiert auf der gespeicherten
 Konfiguration; vorangehende ungespeicherte Importfelder daher zuerst speichern,
@@ -99,14 +125,21 @@ Wiederaufnahmebudget und harte Stopps bleiben erhalten, siehe
 Ohne gespeicherte Auswahl bleiben die fünf bestätigten Register wie bisher
 ausgewählt; weder CSV-Upload noch Installation aktiviert die Erfassung.
 Historische Beobachtungen werden nicht gelöscht oder anhand neuer Importfelder
-umgedeutet. Schema 1/2 wird additiv auf 3 migriert; vor Upgrade eine konsistente
-Sicherung erstellen. Alte App-Versionen unterstützen Schema 3 nicht.
+umgedeutet. Schema 1/2/3 wird additiv auf 4 migriert; vor Upgrade eine konsistente
+Sicherung erstellen. Alte App-Versionen unterstützen Schema 4 nicht.
+
+Fehlende Wetterwerte erscheinen jetzt als `unavailable` an der Kachel, ohne die
+übrigen Werte zu stoppen. Ungültige Einzelwerte und registerbezogene
+Modbus-Ausnahmen 2/3 werden persistent ausgesetzt; gesunde Nachbarn bleiben
+auslesbar. Globale Geräte-/Protokollfehler bleiben Stopps.
+Details und bewusste Freigabe: [Fehlerverhalten](FEHLERVERHALTEN.md).
 
 ## FC03-Transport und Offline-Simulator
 
-`backend/modbus.py` akzeptiert nur `RegisterBlock`-Einträge des ausführbaren
-`core`-Profils und sendet FC03/Unit 255 mit maximal zwei Registern. Eine synchrone
-Socket-Anfrage verwendet eine feste Gesamtdeadline von 3 Sekunden ab Aufruf
+`backend/modbus.py` akzeptiert nur vollständig übereinstimmende `RegisterBlock`-
+Einträge des expliziten `READ_PROFILE` und sendet FC03/Unit 255 mit maximal
+zwei Registern. START/SOLL sind nicht Teil dieses Leseprofils. Jede synchrone
+Socketanfrage verwendet eine feste 3-s-Gesamtdeadline
 (einschließlich Warten auf den Client-Lock, Verbindungsaufbau und Empfang).
 Es gibt keine Retry- oder parallele Request-Ebene.
 
@@ -117,32 +150,29 @@ Timeout/Abbruch ohne Antwortbytes ist `ConnectionError`; Deadline-/Verbindungsab
 nach Teilantwort ist `IncompleteResponseError`; fehlerhafte vollständige Protokolle
 sind `ProtocolError`. TCP-Fragmentierung wird bis zur Deadline zusammengesetzt.
 
-`backend/modbus_simulator.py` liefert feste synthetische Werte für die drei
-Kernblöcke und definierte Faults (Fragmentierung, Verzögerung, Teilantwort,
-verfälschte Header/PDU, Exception und Verbindungsabbruch). Bibliotheks-/API-Start
-aktiviert ihn nicht. Modulstart bindet auf `127.0.0.1:1502`; die Klasse verweigert
-nicht-loopback Ziele. Kein Scan, Modbus-Schreibbefehl oder Diagnosemodus.
+`backend/modbus_simulator.py` liefert ausdrücklich synthetische Werte für alle
+80 Register und bildet das Leeren der Protokollakkumulatoren nach. Bestehende
+Faults bleiben erhalten. Modulstart bindet ausschließlich auf Loopback;
+Bibliotheks-/API-Start aktiviert keinen Simulator. Kein Schreibbefehl/Diagnosemodus.
 
 ## Weitere Kandidaten
 
 | Offset / Anzahl | Tabellenbezeichnung | Stand |
 |---|---|---|
-| 4098 / 2 | Fehler_Min + Leistung_Ist | Zwei statische Einträge im Benutzerbericht-Import; beide ungefragt, Einheit/Decoder/Fehlerwerte/Bereich ungeklärt. |
-| 4104 / 1 | Leistung_Soll | Statischer Eintrag im Benutzerbericht-Import; ungefragt, Einheit/Decoder/Fehlerwerte/Bereich ungeklärt. Keine kW-/Prozentannahme. |
-| 33408 / 1 | Aussen_Ist | Statischer Eintrag im Benutzerbericht-Import; ungefragt, Einheit/Decoder/Fehlerwerte/Bereich ungeklärt. |
-| 4354 / 1 | Abgasfühler-Kandidat | Optionaler statischer Eintrag; ungefragt, Hardware/Einheit/Skalierung ungeklärt. |
+| 4098 / 2 | Fehler_Min + Leistung_Ist | Fehlerkennung (keine Minuten) und interne Leistungsregelgröße in Prozent; statisch geprüft, nicht live abgenommen. Im erweiterten Profil getrennte Einzelreads. |
+| 4104 / 1 | Leistung_Soll | Interne Leistungssollgröße in Prozent; keine thermische kW-Messung, kein Schreibparameter dieses Codes. |
+| 33408 / 1 | Aussen_Ist | signed16, ganze °C, kanalspezifische Grenze −50 < T < 50; nicht live abgenommen. |
+| 4354 / 1 | Abgas_Sensor | Statisch belegter Ganzgradkanal, −5 < T < 330; 299 kann Initialwert sein. Nicht live abgenommen. |
 
-Diese Statusangaben stammen ausschließlich aus dem bereinigten statischen
-Katalog und der bisherigen Projektdokumentation; die privaten Primärbelege
-wurden für Issue #11 nicht eingesehen. Es gibt für diese Kandidaten weder
-einen neuen Geräteantwort- noch einen Benutzer-/Displayabgleich. Sie bleiben
-außerhalb des ausführbaren `core`-Profils und sind nicht als Messwerte/API-
-Signale verfügbar. Vor einem begründeten privaten FC03-Lauf müssen die
-Primärbelege Semantik und Decoder klären; der private Ziel-/Laufplan und der
-Ausschluss anderer Leser sind hier nicht verfügbar. Daher wurde kein
-Gerätezugriff unternommen und kein Zusatzintervall aktiviert. Der Kernplan
-bleibt unverändert: drei bestätigte Blöcke im 60-s-Raster; die Zusatzwerte
-haben kein eingeplantes Intervall.
+Die V2-Erweiterung hat die privaten Lese-, Konversions- und Anzeigepfade für
+den bereitgestellten Umfang statisch ausgewertet. Dies ersetzt weder
+Geräteantwort noch Display-/Hardwareabgleich. Es wurde keine Live-Anfrage
+ausgeführt und kein privater Zielwert in Beispiele übernommen.
+Kernblöcke bleiben mindestens 60 s, Zusatzblöcke mindestens 300 s auseinander,
+jeweils ab Abschluss. Der zentrale Sammler überspringt noch nicht fällige
+Zusätze, statt die Kernwerte bis zu deren 300-s-Termin warten zu lassen.
+Die API markiert Zusatzwerte nach 600 s als veraltet; Diagramme berücksichtigen
+das längere Intervall. Kein automatisches Nachholen verpasster Messungen.
 
 Ein erfolgreicher einzelner zukünftiger Read wäre kein Beleg für dauerhaft
 gültige Skalierung oder Betriebsfreigabe.

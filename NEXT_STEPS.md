@@ -25,10 +25,27 @@ Bedienung: [Modbus-Konfiguration](docs/MODBUS.md#aufzeichnung-konfigurieren).
 Offline mit synthetischen Daten und Loopback-Simulator abgenommen;
 Prüfnachweise im [Ergebnisbericht](reports/RESULTS.md).
 Vor Deployment neuen Build verwenden und konsistente SQLite-Sicherung erstellen:
-Schema 1/2 wird unter Erhalt der Historie auf 3 erweitert, kein Rückstart mit
-alter App auf dieser Datenbank. Unraid-/Live-Abnahme und Originalexportprüfung
-werden daraus nicht abgeleitet. Zusätzliche Register bleiben bis zu fachlicher
-Prüfung, Decoder und gesonderter begrenzter Inbetriebnahme gesperrt.
+Schema 1/2/3 wird unter Erhalt der Historie auf 4 erweitert, kein Rückstart mit
+alter App auf dieser Datenbank. Die V2-Erweiterung unterstützt jetzt alle
+80 bereitgestellten Register mit quellengeprüften Decodern oder ausdrücklich
+gekennzeichneten Herstellerrohwerten. Auf ausdrücklichen Betreiberwunsch sind
+sie auswählbar/aktivierbar. Beim Upload werden passende interpretierbare Einträge
+bereits im Entwurf vorgewählt, auch zuvor abgewählte hochgeladene Werte.
+Vor Speichern prüfen; ohne Speichern bleibt die aktive Auswahl unverändert.
+Nur fünf Register sind live bestätigt. Neun Read-to-clear-Protokollwerte
+beeinflussen bereits beim Lesen den Geräte-Zustand und sind entsprechend
+gekennzeichnet. Kein neuer Anlagenzugriff oder Unraid-Nachweis aus der
+Offline-Abnahme ableiten. Eine spätere Geräteprüfung weiterhin endlich,
+gezielt und ohne parallelen Leser planen.
+
+Wertbezogene Fehler werden nun mit Zeit, Ursache und Leseblock an der jeweiligen
+Anlagenkachel gespeichert/angezeigt. Fehlende Wetterdaten blockieren nicht mehr
+den Sammler; echte ungültige Signale und Modbus-Ablehnungen 2/3 werden isoliert
+ausgesetzt. Globale Geräte-/Protokoll-/Speicherfehler bleiben Stopps. Sperren
+überstehen Neustart und CSV-Speichern; Freigabe erst bewusst nach Ursachenprüfung.
+Die laufende Heizungs-App wurde dafür nicht neu gestartet oder quittiert.
+Vor Nutzung neuen Build laden, konsistent sichern und den bisherigen gespeicherten
+Fehlerstopp erst nach Prüfung bewusst quittieren. Details: [Fehlerverhalten](docs/FEHLERVERHALTEN.md).
 
 ## Domainaktionen hinter einem Reverse-Proxy
 

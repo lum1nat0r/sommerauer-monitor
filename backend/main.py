@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, ValidationError
 from backend.collector import Collector, CollectorStopped
 from backend.config import get_settings
 from backend.logging_config import MAX_REQUEST_BYTES, LoggingConfigError, merge_csv
+from backend.registers import CONTROL_CANDIDATES, SIGNAL_DEFINITIONS
 from backend.storage import LoggingConfigConflict, SQLiteStore, StorageError, utc_now
 
 
@@ -190,6 +191,17 @@ def _logging_config_response(
     }
 
 
+@app.get("/api/signals")
+def signal_definitions() -> dict[str, object]:
+    return {
+        "signals": [
+            {"signal_id": signal_id, **definition}
+            for signal_id, definition in SIGNAL_DEFINITIONS.items()
+        ],
+        "control_candidates": CONTROL_CANDIDATES,
+    }
+
+
 @app.get("/api/logging-config")
 def logging_config(request: Request) -> dict[str, object]:
     try:
@@ -241,7 +253,10 @@ def current_signals(request: Request) -> dict[str, object]:
             result.append({
                 "signal_id": row["signal_id"], "value": row["value"], "unit": row["unit"],
                 "observed_at": row["observed_at"], "age_seconds": age,
-                "quality": row["quality"], "fresh": age <= 120 and row["quality"] == "ok",
+                "quality": row["quality"],
+                "error_code": row["error_code"], "error_message": row["error_message"],
+                "block_offset": row["block_offset"], "register_count": row["register_count"],
+                "fresh": age <= 2 * SIGNAL_DEFINITIONS.get(row["signal_id"], {}).get("interval_seconds", 60) and row["quality"] == "ok",
             })
     except (StorageError, ValueError) as exc:
         raise HTTPException(503, "Signal data unavailable") from exc
@@ -257,10 +272,7 @@ def history(
     limit: int = Query(default=1000, ge=1, le=10_000),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, object]:
-    if signal_id not in {
-        "boiler.temperature", "buffer.top_temperature",
-        "buffer.bottom_temperature", "boiler.operating_minutes",
-    }:
+    if signal_id not in SIGNAL_DEFINITIONS:
         raise HTTPException(404, "Unknown signal")
     start_utc, end_utc = _range(start, end)
     storage = _storage(request)
@@ -301,6 +313,7 @@ def export_csv(
         writer.writerow([
             "observed_at", "observation_id", "signal_id", "value", "unit",
             "quality", "raw_words", "source", "profile_id", "profile_version", "decoder_version",
+            "error_code", "error_message",
         ])
         yield buffer.getvalue()
         for item in storage.stream_observations(start=start_utc, end=end_utc):
@@ -310,6 +323,7 @@ def export_csv(
                 item["observed_at"], item["observation_id"], item["signal_id"], item["value"],
                 item["unit"], item["quality"], json.dumps(item["raw_words"], separators=(",", ":")),
                 item["source"], item["profile_id"], item["profile_version"], item["decoder_version"],
+                item["error_code"], item["error_message"],
             ])
             yield buffer.getvalue()
 
