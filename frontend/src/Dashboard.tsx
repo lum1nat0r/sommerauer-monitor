@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import HistoryChart from './HistoryChart';
 import {
   ageLabel, availablePresets, blockLabel, boilerStateLabels, bufferDifference, chartPresets,
-  formatDate, kindLabels, loadHistory, localInputToUtc,
+  displayMeasurement, formatDate, isFresh, kindLabels, loadHistory, localInputToUtc,
   periods, requestJson, safeErrorCode, selectBoilerDisplay, shiftLocal, signalGroup, signalGroups, stateLabels,
 } from './dashboard';
 import type {
@@ -284,7 +284,7 @@ export default function Dashboard({ view }: { view: DashboardView }) {
   }
 
   const ageOf = (signal: Signal) => signal.age_seconds + Math.max(0, now - receivedAt) / 1000;
-  const fresh = (signal: Signal, interval: number) => signal.fresh && ageOf(signal) <= 2 * interval;
+  const fresh = (signal: Signal) => isFresh(signal, (now - receivedAt) / 1000);
   const signalById = useMemo(() => new Map(signals.map((signal) => [signal.signal_id, signal])), [signals]);
   const definitionById = useMemo(() => new Map(visibleDefinitions.map((definition) => [definition.signal_id, definition])), [visibleDefinitions]);
   const status = signalById.get('modbus.1001');
@@ -298,7 +298,7 @@ export default function Dashboard({ view }: { view: DashboardView }) {
   const errorList = signalById.get('modbus.1002');
   const errorListCurrent = Boolean(selectedIds.has('modbus.1002') && errorList && apiStatus === 'ok'
     && errorList.quality === 'ok' && errorList.value !== null && errorList.unit === 'Rohwert'
-    && fresh(errorList, definitionById.get('modbus.1002')?.interval_seconds || 300));
+    && fresh(errorList));
 
   const chartSeries = useMemo<ChartSeries[]>(() => effectivePreset === 'stratification'
     ? history['buffer.top_temperature'] && history['buffer.bottom_temperature'] ? [{
@@ -375,12 +375,13 @@ export default function Dashboard({ view }: { view: DashboardView }) {
   const renderValue = (definition: SignalDefinition, compact = false) => {
     const signal = signalById.get(definition.signal_id);
     const hasProblem = Boolean(signal && (signal.quality !== 'ok' || signal.value === null));
-    const current = signal && !hasProblem && fresh(signal, definition.interval_seconds || 300);
+    const current = signal && !hasProblem && fresh(signal);
+    const displayed = signal && displayMeasurement(signal.signal_id, signal.value, signal.unit);
     const block = blockLabel(signal?.block_offset, signal?.register_count);
     return <article key={definition.signal_id} className={`${compact ? 'metric-card' : 'value-row'}${hasProblem ? signal?.quality === 'invalid' ? ' signal-invalid' : ' signal-unavailable' : signal && !current ? ' stale' : ''}${definition.module_status === 'inactive' ? ' inactive' : ''}`}>
       <div className="value-name"><h3>{definition.label}</h3>{definition.module_status === 'inactive' && <p className="muted">Inaktives Modul / eigenständiger Kanal</p>}</div>
       <p className="signal-value">{signal && !hasProblem && signal.value !== null
-        ? <>{signal.value.toLocaleString('de-AT', { maximumFractionDigits: 2 })}<span>{signal.unit}</span></>
+        ? <>{displayed!.value!.toLocaleString('de-AT', { maximumFractionDigits: 2 })}<span>{displayed!.unit}</span></>
         : <span aria-label="Kein gültiger Messwert">—</span>}</p>
       <div className="value-quality"><p className={`freshness ${current && apiStatus === 'ok' ? 'fresh' : 'old'}`}>
         {hasProblem ? signal?.quality === 'invalid' ? 'Fehler' : signal?.quality === 'unavailable' ? 'Nicht verfügbar' : 'Kein gültiger Messwert'
@@ -401,7 +402,7 @@ export default function Dashboard({ view }: { view: DashboardView }) {
       </select></label>}
       {view === 'analysis' && effectivePreset === 'single' && <label>Signal<select value={effectiveSignal} disabled={!visibleDefinitions.length} onChange={(event) => setSelectedSignal(event.target.value)}>
         {!visibleDefinitions.length && <option value="">Keine Werte zur Aufzeichnung ausgewählt</option>}
-        {visibleDefinitions.map((definition) => <option key={definition.signal_id} value={definition.signal_id}>{definition.label} ({definition.unit || 'ohne Einheit'}){definition.read_to_clear ? ' · Read-to-clear' : ''}</option>)}
+        {visibleDefinitions.map((definition) => <option key={definition.signal_id} value={definition.signal_id}>{definition.label} ({displayMeasurement(definition.signal_id, null, definition.unit).unit || 'ohne Einheit'}){definition.read_to_clear ? ' · Read-to-clear' : ''}</option>)}
       </select></label>}
       <fieldset disabled={!visibleDefinitions.length}><legend>Zeitraum</legend><div className="periods">{periods.map(({ id, label }) => <button type="button" key={id} aria-pressed={period === id} className={`period-button ${period === id ? 'selected' : ''}`} onClick={() => setPeriod(id)}>{label}</button>)}</div></fieldset>
     </div>
@@ -457,11 +458,11 @@ export default function Dashboard({ view }: { view: DashboardView }) {
           <summary>Quelle und Aktualisierung</summary>
           {evidence.kind !== 'none' && <p>Quelle: {evidence.signal.signal_id}</p>}
           <p>Softwarezustand der Steuerung, keine unabhängige Flammenrückmeldung. Ein eigener Displayabgleich steht noch aus.</p>
-          <p>Abfrage alle 5 Minuten; nach 10 Minuten ohne neue Beobachtung gilt der Wert als veraltet. Keine sekundengenaue Liveanzeige.</p>
+          <p>Die Frischegrenze kommt aus dem Backend und beträgt das Vierfache des jeweiligen Erfassungsintervalls. Keine sekundengenaue Liveanzeige.</p>
         </details>
       </section>
       {errorListCurrent && errorList && <p className={errorList.value! > 0 ? 'alert warning' : 'status-meta'}>{errorList.value === 0 ? 'Fehlerliste leer' : `Fehlerliste: ${errorList.value! > 0 ? `Fehlernummer ${errorList.value}` : `Rohwert ${errorList.value}`} · Stand ${formatDate(errorList.observed_at, timeZone)}`}</p>}
-      <section className="metrics" aria-label="Ausgewählte Kessel- und Puffertemperaturen">{['boiler.temperature', 'buffer.top_temperature', 'buffer.bottom_temperature'].map((id) => definitionById.get(id)).filter((definition): definition is SignalDefinition => Boolean(definition)).map((definition) => renderValue(definition, true))}</section>
+      <section className="metrics" aria-label="Ausgewählte Kessel- und Pufferwerte">{['boiler.temperature', 'buffer.top_temperature', 'buffer.bottom_temperature', 'boiler.operating_minutes'].map((id) => definitionById.get(id)).filter((definition): definition is SignalDefinition => Boolean(definition)).map((definition) => renderValue(definition, true))}</section>
       {historyPanel}
     </>}
     {view === 'analysis' && historyPanel}

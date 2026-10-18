@@ -2,6 +2,8 @@ import csv
 import io
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from backend.collector import Collector
@@ -114,6 +116,44 @@ def test_freshness_respects_slow_extensions_instead_of_core_interval(tmp_path, m
         assert current["boiler.temperature"]["fresh"] is False
         assert current["modbus.100A"]["fresh"] is True
         assert current["modbus.100A"]["value"] == 24.5
+
+
+@pytest.mark.parametrize("interval_seconds", [7, 91])
+@pytest.mark.parametrize("boundary_offset", [-0.001, 0, 0.001])
+@pytest.mark.parametrize(
+    ("quality", "value"),
+    [("ok", 42), ("invalid", 42), ("ok", None), ("missing", None)],
+)
+def test_current_freshness_uses_four_signal_intervals(
+    tmp_path, monkeypatch, interval_seconds, boundary_offset, quality, value,
+):
+    settings = Settings(_env_file=None, DATA_DIR=tmp_path, COLLECTOR_ENABLED=False, MODBUS_HOST="")
+    monkeypatch.setattr("backend.main.get_settings", lambda: settings)
+    now = datetime(2026, 10, 18, tzinfo=timezone.utc)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now
+
+    monkeypatch.setattr("backend.main.datetime", FixedDatetime)
+    monkeypatch.setitem(SIGNAL_DEFINITIONS, "synthetic.interval", {"interval_seconds": interval_seconds})
+    age = 4 * interval_seconds + boundary_offset
+    row = {
+        "signal_id": "synthetic.interval", "value": value, "unit": "min",
+        "observed_at": (now - timedelta(seconds=age)).isoformat(),
+        "quality": quality, "error_code": None, "error_message": None,
+        "block_offset": 0, "register_count": 1,
+    }
+    with TestClient(app) as api:
+        monkeypatch.setattr(app.state.storage, "current_signals", lambda: [row])
+        response = api.get("/api/signals/current")
+        assert response.status_code == 200
+        current, = response.json()["signals"]
+        assert current["fresh_until_age_seconds"] == 4 * interval_seconds
+        assert current["age_seconds"] == pytest.approx(age)
+        assert current["fresh"] is (boundary_offset <= 0 and quality == "ok" and value is not None)
+        assert (current["value"], current["unit"]) == (value, "min")
 
 
 def test_new_percent_metadata_keeps_historical_observation_units_and_values(tmp_path, monkeypatch):

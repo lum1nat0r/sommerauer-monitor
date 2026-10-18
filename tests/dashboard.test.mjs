@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   availablePresets, bufferDifference, continuousSegments, decodeBoilerState, downsampleSegment,
-  isStepped, loadHistory, localInputToUtc, nearestPoint, selectBoilerDisplay, signalGroup, statusIntervals,
+  displayMeasurement, isFresh, isStepped, loadHistory, localInputToUtc, nearestPoint, selectBoilerDisplay, signalGroup, statusIntervals,
 } from '../frontend/src/dashboard.ts';
 
 const origin = Date.parse('2026-10-01T00:00:00Z');
@@ -13,6 +13,28 @@ const definition = (signal_id, extra = {}) => ({
   signal_id, label: signal_id, unit: '°C', kind: 'measurement', live_confirmed: false,
   verification_status: 'source_only', module_status: 'unknown', read_to_clear: false,
   description: '', interval_seconds: 300, ...extra,
+});
+
+test('Anlagenbetriebsstunden sind reine Darstellung der Originalminuten', () => {
+  for (const [minutes, hours] of [[90, 1.5], [1440, 24], [1, 1 / 60]]) {
+    assert.deepEqual(displayMeasurement('boiler.operating_minutes', minutes, 'min'), { value: hours, unit: 'h' });
+  }
+  assert.deepEqual(displayMeasurement('boiler.operating_minutes', null, 'min'), { value: null, unit: 'h' });
+  assert.deepEqual(displayMeasurement('stoker.operating_minutes', 90, 'min'), { value: 90, unit: 'min' });
+  assert.deepEqual(displayMeasurement('boiler.operating_minutes', 90, 'Rohwert'), { value: 90, unit: 'Rohwert' });
+});
+
+test('Browser übernimmt Backend-Frischegrenzen ohne eigene Intervallkonstante', () => {
+  for (const limit of [240, 1200]) {
+    const signal = observation(powerId, 50, { age_seconds: limit - 10, fresh_until_age_seconds: limit });
+    assert.equal(isFresh(signal, 9.999), true);
+    assert.equal(isFresh(signal, 10), true);
+    assert.equal(isFresh(signal, 10.001), false);
+    assert.equal(isFresh({ ...signal, quality: 'invalid' }, 0), false);
+    assert.equal(isFresh({ ...signal, value: null }, 0), false);
+    assert.equal(isFresh({ ...signal, fresh: false }, 0), false);
+    assert.equal(isFresh({ ...signal, fresh_until_age_seconds: undefined }, 0), false);
+  }
 });
 
 test('nur die sieben belegten Statuswörter werden dekodiert', () => {
@@ -30,7 +52,7 @@ const statusId = 'modbus.1001';
 const powerId = 'modbus.1003';
 const observation = (signal_id, value, extra = {}) => ({
   signal_id, ...point(0, value, signal_id === statusId ? 'Rohwert' : '%'),
-  age_seconds: 20, fresh: true, ...extra,
+  age_seconds: 20, fresh: true, fresh_until_age_seconds: 600, ...extra,
 });
 const boilerDisplay = (signals, extra = {}) => selectBoilerDisplay({
   signals: new Map(signals.map((signal) => [signal.signal_id, signal])),

@@ -284,13 +284,15 @@ def current_signals(request: Request) -> dict[str, object]:
         for row in storage.current_signals():
             measured = datetime.fromisoformat(row["observed_at"].replace("Z", "+00:00"))
             age = max(0.0, (now - measured).total_seconds())
+            fresh_until_age_seconds = 4 * SIGNAL_DEFINITIONS.get(row["signal_id"], {}).get("interval_seconds", 60)
             result.append({
                 "signal_id": row["signal_id"], "value": row["value"], "unit": row["unit"],
                 "observed_at": row["observed_at"], "age_seconds": age,
                 "quality": row["quality"],
                 "error_code": row["error_code"], "error_message": row["error_message"],
                 "block_offset": row["block_offset"], "register_count": row["register_count"],
-                "fresh": age <= 2 * SIGNAL_DEFINITIONS.get(row["signal_id"], {}).get("interval_seconds", 60) and row["quality"] == "ok",
+                "fresh_until_age_seconds": fresh_until_age_seconds,
+                "fresh": age <= fresh_until_age_seconds and row["quality"] == "ok" and row["value"] is not None,
             })
     except (StorageError, ValueError) as exc:
         raise HTTPException(503, "Signal data unavailable") from exc

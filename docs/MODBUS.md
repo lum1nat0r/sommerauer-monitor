@@ -103,7 +103,7 @@ kein sekundengenauer Countdown. Insbesondere sind `1` und `0x8000` allein
 keine gültigen Lesestatuswerte. Unbekannte Wörter bleiben mit Rohwort,
 `value=null`, `quality=invalid` und `unknown_boiler_state` erhalten.
 
-Zusatzintervall 300 s, API-Frische 600 s; kein neues Minutenpolling.
+Zusatzintervall 300 s, API-Frische 1200 s (vier Intervalle, Grenze inklusiv); kein neues Minutenpolling.
 Upgrade und Katalogabfrage ändern die gespeicherte Auswahl nicht.
 Zur ausdrücklich lokalen Aufnahme eine UTF-8-CSV mit der Zeile
 `Betriebsstatus;4097;1001` importieren, Auswahl prüfen und Entwurf speichern.
@@ -138,7 +138,7 @@ und `1013` (gewichteter Reinigungsintervallzähler in min, kein Countdown) werde
 ebenfalls dekodiert. Unbekannte Reinigungszustände sind Fehler, keine Nullwerte.
 
 Alle neuen Kanäle sind `source_only`, nicht automatisch live-/Touch-bestätigt,
-keine Read-to-clear-Werte, Intervall 300 s und API-Frische 600 s.
+keine Read-to-clear-Werte, Intervall 300 s und API-Frische 1200 s.
 Kein Upgrade ändert die Auswahl. Nur FC03-Einzelblöcke im bestehenden
 Leseprofil; Kernprofil, Signalsperren und Stopps unverändert. Keine Schreibfunktion.
 
@@ -158,7 +158,7 @@ Abgas, Sollwerten oder Anlagen-Betriebszähler.
 Bei abgewählten, fehlenden, veralteten, ungültigen oder einheitenfremden Quellen
 und bei API-Ausfall keine aktuelle Zustandsbehauptung. „Betriebszustand unbekannt“
 erklärt den konkreten Grund, nicht „Heizung aus“. Beide Quellen behalten 300 s
-Intervall und 600 s Frische einschließlich fortlaufendem Browseralter.
+Intervall und 1200 s Frische einschließlich fortlaufendem Browseralter.
 Die Ersatzanzeige erzeugt keine Reads, Auswahländerungen oder Statushistorie.
 Das Band verwendet ausschließlich gespeicherte `1001`-Statusbeobachtungen.
 
@@ -331,7 +331,10 @@ Zielwert in Beispiele übernommen.
 Kernblöcke bleiben mindestens 60 s, Zusatzblöcke mindestens 300 s auseinander,
 jeweils ab Abschluss. Der zentrale Sammler überspringt noch nicht fällige
 Zusätze, statt die Kernwerte bis zu deren 300-s-Termin warten zu lassen.
-Die API markiert Zusatzwerte nach 600 s als veraltet; Diagramme berücksichtigen
+Die API markiert Zusatzwerte nach Überschreiten von 1200 s als veraltet
+(`fresh_until_age_seconds = 4 * interval_seconds`, Grenze inklusiv).
+Kernwerte haben bei 60 s Intervall entsprechend 240 s Frische.
+Nur gültige, nichtleere Werte können frisch sein; Diagramme berücksichtigen
 das längere Intervall. Kein automatisches Nachholen verpasster Messungen.
 
 Ein erfolgreicher einzelner zukünftiger Read wäre kein Beleg für dauerhaft
