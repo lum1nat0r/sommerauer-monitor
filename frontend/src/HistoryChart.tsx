@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent } from 'react';
 import {
-  boilerStateLabels, continuousSegments, decodeBoilerState, downsampleSegment,
+  boilerStateLabels, continuousSegments, decodeBoilerState, displayMeasurement, downsampleSegment,
   formatDate, isStepped, nearestPoint, statusIntervals,
 } from './dashboard';
 import type { BoilerState, ChartSeries, Point } from './dashboard';
@@ -22,6 +22,7 @@ export default function HistoryChart({ start, end, timeZone, series, statusPoint
   const [width, setWidth] = useState(640);
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   const [cursor, setCursor] = useState<number | null>(null);
+  const [hover, setHover] = useState<{ x: number; y: number; scaleX: number; scaleY: number } | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const id = useId().replace(/:/g, '');
   useEffect(() => {
@@ -37,18 +38,24 @@ export default function HistoryChart({ start, end, timeZone, series, statusPoint
   const right = 16;
   const plotWidth = Math.max(1, width - left - right);
   const x = (time: number) => left + (time - start) / (end - start) * plotWidth;
-  const prepared = useMemo(() => series.map((entry, index) => ({
-    ...entry,
-    color: entry.id === 'boiler.temperature' ? 'var(--c1)'
-      : entry.id === 'buffer.top_temperature' ? 'var(--c2)'
-        : entry.id === 'buffer.bottom_temperature' ? 'var(--c3)' : `var(--c${index % 6 + 1})`,
-    dash: patterns[index % patterns.length],
-    segments: continuousSegments(entry.points, entry.intervalSeconds)
-      .map((segment) => ({ ...segment, points: segment.points.filter((point) => {
-        const time = Date.parse(point.observed_at);
-        return time >= start && time < end;
-      }) })).filter((segment) => segment.points.length > 0),
-  })), [series, start, end]);
+  const prepared = useMemo(() => series.map((entry, index) => {
+    const points = entry.id === 'boiler.operating_minutes'
+      ? entry.points.map((point) => point.unit === 'min'
+        ? { ...point, ...displayMeasurement(entry.id, point.value, point.unit) } : point)
+      : entry.points;
+    return {
+      ...entry, points, unit: displayMeasurement(entry.id, null, entry.unit).unit ?? entry.unit,
+      color: entry.id === 'boiler.temperature' ? 'var(--c1)'
+        : entry.id === 'buffer.top_temperature' ? 'var(--c2)'
+          : entry.id === 'buffer.bottom_temperature' ? 'var(--c3)' : `var(--c${index % 6 + 1})`,
+      dash: patterns[index % patterns.length],
+      segments: continuousSegments(points, entry.intervalSeconds)
+        .map((segment) => ({ ...segment, points: segment.points.filter((point) => {
+          const time = Date.parse(point.observed_at);
+          return time >= start && time < end;
+        }) })).filter((segment) => segment.points.length > 0),
+    };
+  }), [series, start, end]);
   const panels = useMemo(() => {
     const units = new Map<string, typeof prepared>();
     for (const entry of prepared) {
@@ -75,7 +82,7 @@ export default function HistoryChart({ start, end, timeZone, series, statusPoint
         }
         const points = entry.kind === 'status' ? segment.points : downsampleSegment(segment.points, start, end, plotWidth);
         reduced ||= points.length < segment.points.length;
-        return { entry, points };
+        return { entry, points, sourcePoints: segment.points };
       }));
       const empty = !Number.isFinite(min);
       if (empty) { min = 0; max = 1; }
@@ -103,6 +110,27 @@ export default function HistoryChart({ start, end, timeZone, series, statusPoint
   const bandTop = panelBottom + 18;
   const axisY = panelBottom + (statusPoints === undefined ? 8 : 66);
   const height = axisY + 58;
+  const hoveredPoint = useMemo(() => {
+    if (!hover || hover.x < left || hover.x > width - right) return undefined;
+    const time = start + (hover.x - left) / plotWidth * (end - start);
+    let nearest: { entry: (typeof prepared)[number]; point: Point; x: number; y: number } | undefined;
+    let distance = 8;
+    for (const panel of panels) {
+      if (hover.y < panel.top || hover.y > panel.top + 180) continue;
+      for (const { entry, sourcePoints } of panel.paths) {
+        const point = nearestPoint(sourcePoints, time, Infinity);
+        if (!point) continue;
+        const px = left + (Date.parse(point.observed_at) - start) / (end - start) * plotWidth;
+        const py = panel.top + 180 - (point.value! - panel.min) / (panel.max - panel.min) * 180;
+        const pixels = Math.hypot((px - hover.x) * hover.scaleX, (py - hover.y) * hover.scaleY);
+        if (pixels <= distance) {
+          distance = pixels;
+          nearest = { entry, point, x: px, y: py };
+        }
+      }
+    }
+    return nearest;
+  }, [hover, panels, start, end, plotWidth, width]);
   const inspectionTime = cursor !== null && cursor >= start && cursor < end ? cursor : undefined;
   const visibleEntries = prepared.filter((entry) => !hidden.has(entry.id));
   const details = visibleEntries.map((entry) => ({ entry, point: inspectionTime === undefined ? undefined : nearestPoint(entry.points, inspectionTime, entry.intervalSeconds) }));
@@ -116,10 +144,15 @@ export default function HistoryChart({ start, end, timeZone, series, statusPoint
     const coordinate = (event.clientX - bounds.left) * width / bounds.width;
     const time = start + Math.max(0, Math.min(1, (coordinate - left) / plotWidth)) * (end - start);
     setCursor(Math.min(end - 1, time));
+    setHover(event.pointerType === 'mouse' ? {
+      x: coordinate, y: (event.clientY - bounds.top) * height / bounds.height,
+      scaleX: bounds.width / width, scaleY: bounds.height / height,
+    } : null);
   }
   function inspectKey(event: KeyboardEvent<HTMLDivElement>) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || !timestamps.length) return;
     event.preventDefault();
+    setHover(null);
     let low = 0;
     let high = timestamps.length;
     const current = inspectionTime ?? timestamps[0];
@@ -163,9 +196,10 @@ export default function HistoryChart({ start, end, timeZone, series, statusPoint
       <svg className="chart-svg" width="100%" height={height} viewBox={`0 0 ${width} ${height}`}
         role="img" aria-labelledby={`${id}-title ${id}-description`} onPointerDown={inspectPointer}
         onPointerMove={(event) => { if (event.pointerType === 'mouse' || event.buttons > 0) inspectPointer(event); }}
+        onPointerLeave={() => setHover(null)}
         style={{ display: 'block', touchAction: 'pan-y', fontFamily: 'inherit', fontSize: 14 }}>
         <title id={`${id}-title`}>Messwerte im gewählten Zeitraum</title>
-        <desc id={`${id}-description`}>Getrennte Flächen je gespeicherter Einheit, gemeinsame Zeitachse. Lücken werden nicht überbrückt. Details unter dem Diagramm.</desc>
+        <desc id={`${id}-description`}>Getrennte Flächen je Anzeigeeinheit, gemeinsame Zeitachse. Lücken werden nicht überbrückt. Details unter dem Diagramm.</desc>
         <defs>
           <pattern id={`${id}-unknown`} width="8" height="8" patternUnits="userSpaceOnUse">
             <rect width="8" height="8" fill="var(--surface)" />
@@ -217,11 +251,21 @@ export default function HistoryChart({ start, end, timeZone, series, statusPoint
           })}
         </g>}
         {inspectionTime !== undefined && <line className="chart-cursor" x1={x(inspectionTime)} x2={x(inspectionTime)} y1="20" y2={axisY} stroke="var(--fg)" strokeWidth="1.5" strokeDasharray="4 3" />}
+        {hoveredPoint && <circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="4" fill={hoveredPoint.entry.color} stroke="var(--surface)" strokeWidth="1.5" pointerEvents="none" />}
         {ticks.map((time, index) => <text key={time} className="chart-axis-label" x={x(time)} y={axisY + 20}
           textAnchor={index === 0 ? 'start' : index === ticks.length - 1 ? 'end' : 'middle'} fill="var(--muted)">
           <tspan x={x(time)}>{tickDate.format(time)}</tspan><tspan x={x(time)} dy="18">{tickTime.format(time)}</tspan>
         </text>)}
       </svg>
+      {hoveredPoint && <div className="chart-tooltip" role="tooltip" style={{
+        ...(hoveredPoint.x < width / 2 ? { left: `${hoveredPoint.x / width * 100}%` } : { right: `${(width - hoveredPoint.x) / width * 100}%` }),
+        top: `${hoveredPoint.y / height * 100}%`,
+        transform: hoveredPoint.y < 110 ? 'translateY(12px)' : 'translateY(calc(-100% - 12px))',
+      }}>
+        <strong>{hoveredPoint.entry.label}</strong>
+        <span>{formatDate(hoveredPoint.point.observed_at, timeZone, { timeStyle: 'medium' })} ({timeZone})</span>
+        <span>{valueFormat.format(hoveredPoint.point.value!)} {hoveredPoint.point.unit ?? 'Einheit unbekannt'}</span>
+      </div>}
     </div>
     {statusPoints !== undefined && <p className="chart-status-note">Steuerungszustand alle 5 Minuten · Schraffiert: unbekannt oder Zustandswechsel zwischen zwei Abfragen.</p>}
     {statusPoints !== undefined && <div className="chart-status-legend" aria-label="Zustände im Statusband">

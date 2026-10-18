@@ -17,7 +17,7 @@ Kategorie, Beschreibung, Intervall, Live-Belegstatus und Read-to-clear-Hinweis
 sowie getrennte, nicht ausführbare START-/SOLL-Kandidaten. Das Dashboard
 verwendet diesen Katalog statt einer fest eingebauten Vierer-Auswahl.
 Zusatzwerte sind mindestens 300 s, Kernwerte mindestens 60 s auseinander;
-Frischegrenzen sind entsprechend 600 s beziehungsweise 120 s.
+Frischegrenzen sind entsprechend 1200 s beziehungsweise 240 s (vier Signalintervalle).
 
 Kategorien trennen Sensoren, Regelgrößen, Zähler, Settings, Status, Hersteller-
 rohwerte und Steuerungsdatum/-zeit. Eine auswählbare statische Zuordnung ist
@@ -96,12 +96,19 @@ Alle Leseendpunkte arbeiten ausschließlich mit SQLite; kein Refresh löst Modbu
 | `GET /api/logging-config` | Gespeicherte Einträge/Revision, aktive Einträge/Revision und Übernahmestatus |
 | `POST /api/logging-config/preview` | JSON `{revision, csv_text}`: validierter inkrementeller Entwurf ohne Speicherung/Read |
 | `PUT /api/logging-config` | JSON `{revision, entries}`: vollständige atomare Auswahl und Metadaten; HTTP 409 bei Versionskonflikt |
-| `GET /api/signals/current` | Letzter Wert, Einheit, Messzeit, Alter, Qualität und Freshness |
+| `GET /api/signals/current` | Letzter Originalwert, gespeicherte Einheit, Messzeit, `age_seconds`, Qualität, `fresh_until_age_seconds` und `fresh` |
 | `GET /api/history/{signal_id}` | ISO-8601-Zeitbereich, UTC-normalisiert, seitenweise bis 10.000 Rohpunkte |
 | `GET /api/events` | Neueste Ereignisse mit `limit`/`offset` |
 | `GET /api/export.csv` | Streamt alle passenden Originalmessungen ohne Downsampling |
 | `GET /api/collector/status` | Zustand und begrenzte Wiederaufnahme |
 | `POST /api/collector/pause`, `/resume`, `/acknowledge-and-start` | Geschützte Sammleraktionen, keine Heizungsbefehle |
+
+`fresh_until_age_seconds` beträgt viermal das Backend-`interval_seconds` des
+jeweiligen Signals. `fresh` ist nur bei Qualität `ok`, einem nichtleeren Wert
+(`value` ungleich `null`) und `age_seconds <= fresh_until_age_seconds` wahr;
+die Grenze ist inklusiv. Ungültige oder fehlende Werte sind niemals frisch.
+Das Dashboard verwendet dieselbe gelieferte Grenze für das fortlaufende Alter.
+Die Regel ändert weder Pollingintervalle noch gespeicherte Werte oder CSV-Originale.
 
 Zeitfilter müssen eine Zeitzone enthalten; Start ist inklusiv, Ende exklusiv.
 Historienseiten sortieren nach Messzeit und Beobachtungs-ID. CSV-Zeitstempel

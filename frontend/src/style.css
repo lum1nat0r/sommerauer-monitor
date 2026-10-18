@@ -97,7 +97,8 @@ legend { font-size: .875rem; margin-bottom: 8px; }
 .chart-legend-item { display: inline-flex; align-items: center; gap: 7px; font-size: .875rem; font-weight: 500; cursor: pointer; }
 .chart-swatch { flex-shrink: 0; }
 .chart-svg { max-width: 100%; }
-.chart-inspector { min-width: 0; border-radius: 4px; }
+.chart-inspector { position: relative; min-width: 0; border-radius: 4px; }
+.chart-tooltip { position: absolute; z-index: 1; display: grid; gap: 4px; width: max-content; max-width: min(300px, calc(100% - 16px)); padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; color: var(--fg); background: var(--surface); box-shadow: 0 3px 12px #0003; font-size: .875rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; pointer-events: none; }
 .chart-axis-label, .chart-unit { font-size: 14px; font-variant-numeric: tabular-nums; }
 .chart-status-note, .chart-compression-note, .chart-keyboard-help, .chart-inspection-time { font-size: .875rem; color: var(--muted); }
 .chart-compression-note { color: var(--accent); }

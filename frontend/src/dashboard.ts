@@ -5,7 +5,7 @@ export type CollectorStatus = {
 export type Config = { collector_enabled: boolean; host_configured: boolean; display_timezone: string };
 export type Signal = {
   signal_id: string; value: number | null; unit: string; observed_at: string;
-  age_seconds: number; quality: string; fresh: boolean;
+  age_seconds: number; quality: string; fresh: boolean; fresh_until_age_seconds: number;
   error_code?: string | null; error_message?: string | null; block_offset?: number; register_count?: number;
 };
 export type SignalDefinition = {
@@ -103,6 +103,18 @@ export function ageLabel(seconds: number) {
   if (seconds < 3600) return `vor ${Math.floor(seconds / 60)} min`;
   return `vor ${Math.floor(seconds / 3600)} h ${Math.floor((seconds % 3600) / 60)} min`;
 }
+export function displayMeasurement(signalId: string, value: number | null, unit: string | undefined) {
+  return signalId === 'boiler.operating_minutes' && unit === 'min'
+    ? { value: value === null ? null : value / 60, unit: 'h' }
+    : { value, unit };
+}
+export function isFresh(signal: Signal, elapsedSeconds: number) {
+  return signal.fresh === true && signal.quality === 'ok' && signal.value !== null
+    && Number.isFinite(signal.value) && Number.isFinite(signal.age_seconds) && signal.age_seconds >= 0
+    && Number.isFinite(elapsedSeconds) && Number.isFinite(signal.fresh_until_age_seconds)
+    && signal.fresh_until_age_seconds > 0
+    && signal.age_seconds + Math.max(0, elapsedSeconds) <= signal.fresh_until_age_seconds;
+}
 export function safeErrorCode(value: unknown): string | undefined {
   return typeof value === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(value) ? value : undefined;
 }
@@ -162,7 +174,7 @@ export function selectBoilerDisplay({ selectedIds, signals, apiStatus, elapsedSe
     if (signal.unit !== unit) return 'unit_mismatch';
     if (!Number.isFinite(Date.parse(signal.observed_at))) return 'invalid_time';
     if (!Number.isFinite(signal.age_seconds) || signal.age_seconds < 0 || !Number.isFinite(elapsedSeconds)) return 'invalid_age';
-    if (signal.fresh !== true || signal.age_seconds + Math.max(0, elapsedSeconds) > 600) return 'stale';
+    if (!isFresh(signal, elapsedSeconds)) return 'stale';
     return null;
   }
   const status = signals.get('modbus.1001');

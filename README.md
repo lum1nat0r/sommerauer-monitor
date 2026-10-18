@@ -126,7 +126,7 @@ Ohne brauchbare Quelle erscheint „Betriebszustand unbekannt“ mit konkretem G
 Veraltete/ungültige Werte und API-Ausfälle ergeben keinen aktuellen Ersatzbefund.
 Temperaturen, Abgas und Betriebszähler werden nicht zu Flammen-/Ein-Aus-Nachweisen
 umgedeutet. Das Statusband bleibt ausschließlich echten Statusbeobachtungen vorbehalten.
-Beide Quellen haben 300-s-Abtastintervall und 600-s-Frischegrenze, keine
+Beide Quellen haben 300-s-Abtastintervall und 1200-s-Frischegrenze (vier Intervalle, Grenze inklusiv), keine
 sekundengenaue Liveanzeige. Der Betreiber meldet die neue Gerätetabelle installiert;
 ein eigener Messwert-/Displayabgleich von `1001` steht noch aus:
 [Statuskanal und lokale CSV-Aufnahme](docs/MODBUS.md#kessel-steuerungszustand-nur-lesend-und-ausdrücklich-auswählen).
@@ -148,13 +148,17 @@ und werden lokal gemerkt. Die Historie wird vollständig seitenweise geladen,
 mit Fortschritt und **Laden abbrechen**, höchstens zwei Reihen gleichzeitig.
 Fehlende Seiten oder Reihen werden benannt. Messfehler, große Lücken und
 Einheitenwechsel werden nicht verbunden. Unterschiedliche gespeicherte Einheiten
-bleiben auf getrennten Diagrammflächen; es gibt keine nachträgliche Umrechnung.
+bleiben auf getrennten Diagrammflächen; gespeicherte Werte werden nicht umgerechnet.
 Das Statusband zeigt Zwischenräume verschiedener Zustände und fehlender
 Beobachtungen als unbekannt, ohne erfundene Schaltzeit.
 
 Die Legende schaltet nur die Darstellung um. Maus/Antippen oder fokussiertes
 Diagramm mit Links/Rechts und Pos1/Ende untersuchen Originalbeobachtungen samt
-Qualität, Originaleinheit und tatsächlicher Messzeit. Lange Kurven werden nur
+Qualität und tatsächlicher Messzeit. Hover über vorhandenen gültigen Messpunkten
+zeigt Signalname, Messzeit und Wert mit Einheit. Der Anlagen-Betriebszähler
+`boiler.operating_minutes` erscheint ausschließlich zur Anzeige in Stunden:
+90 min → 1,5 h, 1.440 min → 24 h, auch in Übersicht, Signalwahl und Tooltip.
+API, Speicherung und CSV behalten die Originalminuten. Lange Kurven werden nur
 visuell verdichtet; **CSV enthält weiterhin alle Originalbeobachtungen des
 Zeitbereichs**, auch Fehler und nicht im Vergleich gezeigte Signale.
 Einzelwerte und Zeitcursor erscheinen erst nach einer bewussten Zeitwahl,

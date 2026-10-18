@@ -1690,3 +1690,40 @@ TypeScript/Vite-Build erfolgreich. Keine neuen UI-Testabhängigkeiten.
 Gespeicherte und aktive Revision 6 sowie 76 ausgewählte Register unverändert,
 Collector weiterhin running. Kein PUT/Save, kein Start/Stopp/Quittieren,
 keine zusätzlichen direkten Anlagenanfragen. Kein Hardware-/Displayabgleich.
+
+## 18.10.2026 – Issue #56: Stunden, Zeitachse, Hover und Frische
+
+Nur Offline-Umsetzung mit synthetischen Daten; keine Anlagenanfragen und keine
+Änderung privater Konfiguration oder laufender Erfassung.
+
+- Anlagen-Betriebszähler in Übersicht, Werteliste, Signalwahl, Diagramm,
+  Inspektion und Hover in Dezimalstunden. Originalminuten, Signal-ID,
+  API und CSV bleiben unverändert; andere Minutensignale werden nicht umgerechnet.
+- Die bereits vorhandene feste Abfragezeitachse bleibt erhalten, einschließlich
+  leerer Randbereiche, innerer Lücken, Einzelpunkten und leerer Zeiträume.
+- Sichtbarer Hover zeigt ausschließlich nahe gültige Originalbeobachtungen mit
+  Signalname, tatsächlicher Messzeit in der Anzeigezeitzone und Wert/Einheit.
+- Current-API liefert `fresh_until_age_seconds = 4 * interval_seconds`.
+  Browseralter und Betriebsanzeige verwenden dieselbe Backendgrenze; auf der
+  Grenze noch frisch, erst darüber veraltet. Fehler/null bleiben nicht frisch.
+
+Tatsächlich ausgeführt:
+
+- `uv run pytest`: 416 bestanden; eine DeprecationWarning aus Starlette/AnyIO.
+- `uv run ruff check .`: erfolgreich.
+- `node --test tests/*.test.mjs`: 25 bestanden.
+- `npm run build`: TypeScript und Vite erfolgreich.
+- `git diff --check`: erfolgreich.
+- API-Grenztests mit synthetischen Intervallen 7 und 91 Sekunden, jeweils
+  1 ms vor, auf und nach der vierfachen Grenze; gültig, invalid, null und missing.
+- Tatsächlicher Chromium-Browser mit synthetischen API-Antworten: Übersicht
+  zeigt 90 Minuten als 1,5 h; alle fünf Zeitraumoptionen inklusive freier
+  Grenzen 01.–02.10.2026 durchlaufen und ausgewiesene Abfragegrenzen geprüft.
+- Isolierte tatsächliche Diagrammkomponente im Browser: Daten nur im mittleren
+  Teil des Fensters, innere Lücke, einzelner Zähler-/Temperaturpunkt und leeres
+  Fenster. Sichtbare Tooltips für 1,5 h, 24 h und 65 °C samt Europe/Vienna und
+  tatsächlicher Messzeit; in der leeren Fläche kein Tooltip. Screenshots geprüft.
+  Temporäre Prüfseite anschließend entfernt.
+
+Keine Geräte-, Display-, Unraid- oder Dauerbetriebsabnahme. Der Browsernachweis
+verwendet synthetische Quellen, keine privaten Messwerte.
