@@ -112,16 +112,90 @@ Anwendungsstart startet weder Sammler noch Simulator und führt keine Gerätezug
 Den Simulator lokal mit `uv run python -m backend.modbus_simulator` starten
 (Standardbindung `127.0.0.1:1502`); Faults sind per `--fault` wählbar.
 
+### Dashboard: Übersicht, Analyse und alle Werte
+
+Die Übersicht (`#/`) stellt die **Betriebsanzeige des Pelletkessels**
+und ausgewählte Kessel-/Puffertemperaturen in den Mittelpunkt. API-Erreichbarkeit
+und Erfassungszustand sind davon getrennt; „Erfassung abgeschlossen“ bedeutet
+nicht „Heizung aus“. Eine aktuelle gültige Beobachtung des ausgewählten
+Statuskanals `1001` hat Vorrang. Fehlt sie, verwendet die Anzeige eine
+ausgewählte aktuelle Istregelgröße `1003` in `%` als **indirekten Betriebshinweis**:
+über 0 % „Leistungsregelung aktiv“, bei 0 % „Betriebszustand nicht eindeutig“.
+0 % kann auch Gluterhaltung bedeuten, kein bestätigtes „Aus“.
+Ohne brauchbare Quelle erscheint „Betriebszustand unbekannt“ mit konkretem Grund.
+Veraltete/ungültige Werte und API-Ausfälle ergeben keinen aktuellen Ersatzbefund.
+Temperaturen, Abgas und Betriebszähler werden nicht zu Flammen-/Ein-Aus-Nachweisen
+umgedeutet. Das Statusband bleibt ausschließlich echten Statusbeobachtungen vorbehalten.
+Beide Quellen haben 300-s-Abtastintervall und 600-s-Frischegrenze, keine
+sekundengenaue Liveanzeige. Der Betreiber meldet die neue Gerätetabelle installiert;
+ein eigener Messwert-/Displayabgleich von `1001` steht noch aus:
+[Statuskanal und lokale CSV-Aufnahme](docs/MODBUS.md#kessel-steuerungszustand-nur-lesend-und-ausdrücklich-auswählen).
+
+Die Statuskarte zeigt im Normalfall nur Zustand, Beobachtungszeit und
+Abfrageintervall. Quellen-/Frischeinformationen sind unter **Quelle und
+Aktualisierung** aufklappbar; konkrete Probleme und indirekte Betriebshinweise
+bleiben direkt sichtbar.
+
+Unter **Analyse** (`#/analyse`) stehen passende Vergleiche nur für gespeicherte
+ausgewählte Quellen bereit: Puffer & Kessel, Pufferschichtung (oben minus unten
+in K, nur zeitgleiche gültige °C-Werte), interne Leistungsregelung in %,
+Heizkreis-Ist/Soll und Einzelwert. Kein Solarertrag, keine thermischen kW
+oder Flammenstunden werden daraus abgeleitet.
+
+Alle Reihen teilen feste Zeitgrenzen und die Anzeigezeitzone. Relative Fenster
+wandern beim 60-s-Refresh; freie Grenzen einschließlich DST-Prüfung bleiben fest
+und werden lokal gemerkt. Die Historie wird vollständig seitenweise geladen,
+mit Fortschritt und **Laden abbrechen**, höchstens zwei Reihen gleichzeitig.
+Fehlende Seiten oder Reihen werden benannt. Messfehler, große Lücken und
+Einheitenwechsel werden nicht verbunden. Unterschiedliche gespeicherte Einheiten
+bleiben auf getrennten Diagrammflächen; es gibt keine nachträgliche Umrechnung.
+Das Statusband zeigt Zwischenräume verschiedener Zustände und fehlender
+Beobachtungen als unbekannt, ohne erfundene Schaltzeit.
+
+Die Legende schaltet nur die Darstellung um. Maus/Antippen oder fokussiertes
+Diagramm mit Links/Rechts und Pos1/Ende untersuchen Originalbeobachtungen samt
+Qualität, Originaleinheit und tatsächlicher Messzeit. Lange Kurven werden nur
+visuell verdichtet; **CSV enthält weiterhin alle Originalbeobachtungen des
+Zeitbereichs**, auch Fehler und nicht im Vergleich gezeigte Signale.
+Einzelwerte und Zeitcursor erscheinen erst nach einer bewussten Zeitwahl,
+nicht automatisch an der ältesten Beobachtung. Fehlende Statusbeobachtungen
+beziehen sich ausschließlich auf diesen historischen Zeitpunkt (Suchnähe
+±2,5 Minuten), nicht auf die aktuelle Statuskarte.
+
+**Alle Werte** (`#/werte`) gruppiert jeden gespeicherten ausgewählten Wert einmal.
+Suche nach Name, ID oder Beschreibung ändert keine Aufzeichnung. Metadaten
+stehen in aufklappbaren Details; konkrete Wertfehler bleiben direkt sichtbar.
+**Einstellungen** (`#/einstellungen`) bündelt Erfassung, Zeitzone und Ereignisse.
+Die Modbus-Seite bleibt beim Navigieren gemountet; lokale Entwürfe bleiben erhalten.
+Der Übernahmestatus zeigt Registeranzahl, Status und gespeicherte Revision
+statt doppelter vollständiger Registerlisten. Bei ausstehender Übernahme
+bleiben aktive Registeranzahl und aktive Revision zusätzlich sichtbar.
+Import/Export sind einklappbar. Die Registertabelle zeigt kompakt Register
+mit Hexcode/Offset, Aufzeichnungsauswahl und Signalzuordnung. Eigene Einheit,
+Beschreibung und technische Quellenangaben stehen pro Zeile unter **Metadaten
+und Zuordnung**. Unveränderte Zeilen erhalten keine Änderungsplakette;
+Sperrgründe, inaktive Module und Read-to-clear-Risiken bleiben direkt sichtbar.
+Die Speicheraktionen stehen vor der Tabelle; Hinweise zur Bearbeitung sind
+aufklappbar. Diese Darstellung ändert weder Auswahl noch Import-/Speichervertrag.
+
+Der gemeinsame **Sonne-/Mond-Button** gilt auch für den Editor und merkt die Wahl
+lokal. Das Icon zeigt den angebotenen Wechsel: Mond zum Dunkelmodus, Sonne zum
+Hellmodus; Tooltip und zugängliche Beschriftung bleiben vorhanden. Ohne gültige
+explizite Auswahl gilt das Systemtheme. Storageausfälle verhindern die Bedienung
+nicht; keine externen Fonts oder neue UI-Abhängigkeiten.
+
+
 ### Modbus-Werte auswählen
 
 Die Navigation **Modbus-Aufzeichnung** öffnet eine separate Konfigurationsseite.
 CSV hochladen, **Aufzeichnen**, Einheit und Beschreibung bearbeiten, dann
 **Entwurf speichern**. Vorschau und Änderungen bleiben bis dahin unverbindlich.
 Die Auswahl steuert die tatsächliche Erfassung, nicht nur die Anzeige.
-Die 80 explizit unterstützten Register der V2-Auswahl sind bewusst aktivierbar.
-Die Betreiber-Notizen bestätigen für 79 Register den Touch-Abgleich / die Lesbarkeit;
-für `10D1` fehlt diese Bestätigung. Das ist kein unabhängiger Sensor-, Skalierungs-
-oder Aktornachweis. Der historische Live-Kernnachweis umfasst weiterhin fünf Register.
+Die explizit unterstützte V2-Auswahl und der separat ergänzte Statuskanal
+`1001` sind bewusst aktivierbar. Die Betreiber-Notizen bestätigen für 79
+V2-Register den Touch-Abgleich / die Lesbarkeit; für `10D1` und `1001` fehlt
+diese Bestätigung. Das ist kein unabhängiger Sensor-, Skalierungs- oder
+Aktornachweis. Der historische Live-Kernnachweis umfasst weiterhin fünf Register.
 Verständliche Anzeigenamen und Beschreibungen werden über `/api/signals` geliefert,
 getrennt von unveränderten CSV-Importnamen. Inaktive Netzmischer-/Speichermodule und
 eigenständige Puffer-2-Parameter sind gekennzeichnet; `9000` / `9001` bleiben aktive
@@ -145,6 +219,38 @@ Format, inkrementelle Importregeln und sichere Übernahme:
 [Modbus-Konfiguration](docs/MODBUS.md#aufzeichnung-konfigurieren).
 Die Funktion benötigt einen neuen App-/Image-Build; bestehende veröffentlichte
 Images werden nicht verändert.
+
+Die neue Gerätetabelle wird vollständig lesend unterstützt: zusätzlich Betriebsart
+`1000`, Kessel-Basis-Soll `1007`, Puffer-SOLL `9020` und Puffer-START `9040`.
+Temperatur-Basisparameter sind Einstellungen in ganzen °C, keine Sensormessungen.
+Auch die mit der V1-Vorlage übernommenen `1005` (Maximalregelgröße in %),
+`1012` (Software-Reinigung 0/1/2) und `1013` (gewichteter Intervallzähler in min)
+haben Decoder. Alle bleiben quellenbelegt mit 300-s-Intervall und ohne automatische
+Aufnahme in gespeicherte Auswahlen. Keine Schreibfunktion.
+
+
+#### Gespeicherte Aufzeichnung auf eine andere Instanz übertragen
+
+1. Auf der Quellinstanz **Modbus-Aufzeichnung** öffnen und
+   **Gespeicherte Aufzeichnung als JSON herunterladen** wählen.
+2. Auf der Zielinstanz im gleichen Bereich die Datei
+   `sommerauer-aufzeichnung.json` unter **JSON-Datei als Entwurf prüfen** hochladen.
+3. Vorschau prüfen und **Entwurf speichern** wählen.
+
+Auswahl, Abwahlen, Importnamen, Betreibereinheiten und Beschreibungen bleiben
+erhalten. Zusätzliche Register im Ziel bleiben gespeichert, werden aber
+abgewählt. CSV ergänzt dagegen weiterhin die Auswahl. Der Download enthält
+die gespeicherte Konfiguration, nicht ungespeicherte Änderungen oder eine
+eventuell ältere aktive Sammlerrevision. Vorschau allein speichert nichts;
+ein lokaler Entwurf wird nur nach Bestätigung ersetzt.
+
+**Beide Instanzen brauchen einen Build mit dieser Funktion und kompatiblen
+Registerzuordnungen.** Alte veröffentlichte Images erhalten den JSON-Import
+nicht automatisch. Host, Netzwerk, private Pfade, Erfassungsfreigaben,
+Fehlerquittierungen und Messhistorie werden nicht übertragen. Eigene Namen und
+Beschreibungen können persönliche Angaben enthalten: Datei nicht ungeprüft
+veröffentlichen. [Dateivertrag und Grenzen](docs/MODBUS.md#aufzeichnung-zwischen-instanzen-übertragen).
+
 
 Fehler einzelner Werte sind jetzt direkt an deren Kachel sichtbar. Fehlende
 Wetterdaten werden als „Nicht verfügbar“ weiter im normalen Intervall geprüft;

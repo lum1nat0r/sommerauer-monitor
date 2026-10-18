@@ -14,6 +14,87 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
+## Dashboard und neuer Steuerungszustand: Anlagengrenze
+
+Dashboardumbau und Leserweiterung `1001` sind lokal mit synthetischer App,
+Loopback, vollständigen Verlauf-/CSV-Daten und Browser abgenommen.
+330 Python- und 15 Node-Tests, Build und Ruff erfolgreich; Details und
+Nachweisgrenzen im [Ergebnisbericht](reports/RESULTS.md).
+Reale App, private Konfiguration, Aufzeichnungsauswahl und Gerätetabelle
+blieben unangetastet.
+
+Nachtrag: Sonne-/Mond-Iconbutton und instanzübergreifender JSON-Transfer der
+gespeicherten Aufzeichnung sind offline umgesetzt. Beide Instanzen benötigen
+einen passenden Build; Datei im Ziel als Entwurf prüfen und bewusst speichern.
+Ohne brauchbaren `1001`-Status verwendet die Betriebsanzeige ausschließlich eine
+ausgewählte aktuelle `1003`-Istregelgröße als klar bezeichneten indirekten Hinweis.
+0 % ist kein Aus-Nachweis; keine automatischen neuen Lesekanäle oder Geräteeingriffe.
+Prüfstand: 357 Python- und 23 Node-Tests, Build und Ruff erfolgreich.
+Übertragungsablauf: [README](README.md#gespeicherte-aufzeichnung-auf-eine-andere-instanz-übertragen).
+
+Der Betreiber bestätigt inzwischen die Installation der neuen Gerätetabelle
+einschließlich `1001`/4097. Das ist ein Betreiberbericht, kein eigener Read-/Displaynachweis.
+Vor einer neuen Statusabnahme andere Leser ausschließen. Bis dahin keine direkte Anlagenanfrage.
+Vor einer späteren Lesesitzung einen privaten endlichen Laufplan mit tatsächlichem Ziel aus aktueller
+Deploymentkonfiguration dokumentieren; öffentlich nur Alias `Anlage-aktuell`.
+Vorgesehene Grenze: Port aus derselben Konfiguration, FC03, Unit 255,
+Offset 4097, Anzahl 1, maximal eine Anfrage, 3-s-Gesamtdeadline,
+keine Wiederholung und kein paralleler Client. Zweck ist der zeitnahe
+Betreiber-Displayabgleich genau des beobachteten Software-Steuerungszustands.
+Bei Fehler, „unsupported“, Auffälligkeit oder Betreiber-Stopp sofort Ende,
+keine Folgeabfrage oder automatische Tabellenreparatur. Ein Erfolg beweist
+weder andere Zustände noch Dauerbetrieb.
+
+Eine nötige Mappingänderung ist nicht freigegeben; vorher gesonderte konkrete
+Erlaubnis mit Sicherung und Rückstellplan einholen. Status nicht automatisch
+in die reale Dauerauswahl aufnehmen, reale App nicht starten oder quittieren.
+Semantik und lokale CSV-Aufnahme: [Modbus](docs/MODBUS.md#kessel-steuerungszustand-nur-lesend-und-ausdrücklich-auswählen).
+
+### Vorbereitete Gerätetabelle mit Statuskanal
+
+Historischer Ausgangspunkt: Betreiber bestätigte zunächst die fehlende `1001`-Zuordnung;
+inzwischen meldet er die neue Tabelle installiert. Eigenständiger Geräteabgleich bleibt offen.
+Auf Auftrag offline `Modbus_P190317R_V3_Status.csv` aus der vollständigen
+bisherigen V1-Vorlage vorbereitet: aktuell 76 Zeilen, HK03–HK16 und sämtliche
+NM/SP entfernt. Neu sind Betriebsstatus `1001`, Betriebsart `1000`,
+Kessel-Soll `1007`, Puffer START `9040` und SOLL `9020` für Kanal 1.
+Die vier zusätzlichen Parameter wurden anschließend ausdrücklich beauftragt.
+Datei privat bereitgestellt; keine Übertragung oder Geräteabfrage.
+
+Vor manuellem Geräteimport aktuell aktive Tabelle separat sichern und alle
+Modbus-Leser pausieren. Der Tabellenimport ersetzt die bestehende Zuordnung,
+statt nur eine Zeile anzuhängen. Rückweg ist die gesicherte bisherige Tabelle;
+`.ls1`/`.ls2` sind dafür kein gezieltes Tabellenbackup. Bei abweichendem Menü,
+Importfehler oder Auffälligkeit stoppen, keine Wiederholung.
+Alle fünf neu zugeordneten Codes besitzen auch einen Schreibzweig: Die CSV
+erzwingt keinen reinen Lesezugriff. Monitor bleibt FC03-lesend; fremde
+Schreibclients ausschließen. Aufnahme in die Datei ist keine Schreibprüfung;
+Kodierung, konkrete Stellwerte und Rückstellplan bleiben vor Nutzung zu klären.
+Vor Wiederaufnahme die Monitor-Auswahl anpassen: entfernte NM/SP-Kanäle
+explizit abwählen; der ergänzende CSV-Import entfernt keine alten Auswahlen.
+Status erst nach bestätigtem Import und begrenztem Displayabgleich wie oben
+weiter abnehmen. Keine automatische Aktivierung durch diese Vorbereitung.
+Offlineprüfung der erweiterten Datei: 76 eindeutige Codes/Offsets, Filter
+erhalten, ASCII ohne BOM mit 76 CRLF-Zeilen, Monitorparser akzeptiert.
+SHA256: `8448d7c8f4e5cd31cb9095a5aa6fe306be10835d887fe75a876a5855461a94d7`.
+
+### Decoderabnahme nach gemeldetem Tabellenimport
+
+Decoder für `1000`, `1007`, `9020`, `9040` sowie die weiteren CSV-Lücken
+`1005`, `1012`, `1013` ergänzt; sämtliche 76 CSV-Zeilen sind jetzt zuordenbar.
+Betriebsart: 0/1/2/3/6/7/9/10; Kessel-Basis-Soll 60–90 °C,
+Puffer START/SOLL 10–90 °C. Unbekannte Kodierungen und ungültige Parameter
+bleiben Fehlerbeobachtungen mit Originalrohwort, nicht künstliche Nullwerte.
+392 Python-Tests, 23 Node-Tests, Build und Ruff erfolgreich.
+In der laufenden, vom Betreiber neu gestarteten API und im tatsächlichen Editor
+die vollständige CSV als ungespeicherten Entwurf geprüft. Keine Auswahländerung
+gespeichert, Revision 5 erhalten, Erfassung weiterhin `stopped_transport`.
+Vor Erfassung Ursache des Transportstopps klären; Decoderergänzung quittiert
+diesen nicht. Neue Gerätewerte und Displayübereinstimmung sind noch nicht geprüft.
+
+
+
+
 ## Individuelle Aufzeichnung (#55)
 
 Die separate Seite **Modbus-Aufzeichnung** unterstützt CSV-Entwurf,

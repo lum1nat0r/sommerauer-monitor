@@ -68,7 +68,7 @@ def test_import_selection_simulator_history_and_metadata(tmp_path, monkeypatch):
         protocol_definition = next(row for row in metadata["signals"] if row["signal_id"] == "modbus.12F0")
         assert protocol_definition["read_to_clear"] is True
         assert protocol_definition["live_confirmed"] is False
-        assert api.get("/api/history/modbus.9020").status_code == 404
+        assert api.get("/api/history/modbus.9020").json()["total"] == 0
         assert {row["code"] for row in metadata["control_candidates"]} == {"9020", "9040"}
 
 
@@ -159,3 +159,91 @@ def test_display_metadata_does_not_change_import_identity_or_saved_selection():
     assert all(row["change"] == "unchanged" and row["changed_fields"] == [] for row in reimported)
     assert REGISTER_DEFINITIONS["1106"]["name"] == "V1_Ist"
     assert SIGNAL_DEFINITIONS["modbus.1106"]["label"] != "V1_Ist"
+
+
+def test_status_requires_explicit_save_and_survives_loopback_and_error(tmp_path, monkeypatch):
+    settings = Settings(_env_file=None, DATA_DIR=tmp_path, COLLECTOR_ENABLED=False, MODBUS_HOST="")
+    monkeypatch.setattr("backend.main.get_settings", lambda: settings)
+    with TestClient(app) as api, ModbusSimulator() as simulator:
+        before = api.get("/api/logging-config").json()
+        assert not any(row["code"] == "1001" for row in before["entries"])
+        preview = api.post("/api/logging-config/preview", headers=HEADERS, json={
+            "revision": 0, "csv_text": "Betriebsstatus;4097;1001",
+        }).json()
+        status = next(row for row in preview["entries"] if row["code"] == "1001")
+        assert status["eligible"] and status["record"]
+        assert api.get("/api/logging-config").json()["entries"] == before["entries"]
+        wrong = api.post("/api/logging-config/preview", headers=HEADERS, json={
+            "revision": 0, "csv_text": "Betriebsstatus;4098;1001",
+        }).json()
+        assert not next(row for row in wrong["entries"] if row["code"] == "1001")["eligible"]
+        for row in preview["entries"]:
+            row["record"] = row["code"] == "1001"
+        assert api.put("/api/logging-config", headers=HEADERS, json={
+            "revision": 0, "entries": preview["entries"],
+        }).status_code == 200
+        selected = [row["code"] for row in api.get("/api/logging-config").json()["entries"] if row["record"]]
+        assert selected == ["1001"]
+        clock = Clock()
+        collector = Collector(
+            host=simulator.address[0], port=simulator.address[1],
+            store=app.state.storage, data_dir=tmp_path, max_requests=1,
+            max_duration_seconds=10, retry_on_transport_error=False,
+            monotonic=clock.monotonic, now=clock.now, wait=clock.wait,
+        )
+        collector.run()
+        assert collector.state == "completed"
+        point, = api.get("/api/history/modbus.1001").json()["items"]
+        assert (point["value"], point["raw_words"], point["unit"]) == (2, [2], "Rohwert")
+        current = {row["signal_id"]: row for row in api.get("/api/signals/current").json()["signals"]}
+        assert current["modbus.1001"]["value"] == 2
+        exported = list(csv.DictReader(io.StringIO(api.get("/api/export.csv").text)))
+        assert [(row["signal_id"], row["value"]) for row in exported] == [("modbus.1001", "2")]
+        invalid, = decode_register_block(4097, (0x8000,))
+        timestamp = (clock.now() + timedelta(seconds=300)).isoformat()
+        app.state.storage.record_cycle(
+            {"request_id": "invalid-status", "started_at": timestamp, "completed_at": timestamp,
+             "function_code": 3, "unit_id": 255, "offset": 4097, "register_count": 1, "outcome": "ok"},
+            [{"observation_id": "invalid-status", "signal_id": invalid.signal_id, "observed_at": timestamp,
+              "value": invalid.value, "unit": invalid.unit, "quality": invalid.quality,
+              "raw_words": list(invalid.raw_words), "error_code": invalid.error_code,
+              "error_message": invalid.error_message, "source": "synthetic",
+              "profile_id": "extended", "profile_version": "1", "decoder_version": "1"}],
+        )
+        current = {row["signal_id"]: row for row in api.get("/api/signals/current").json()["signals"]}
+        assert current["modbus.1001"]["value"] is None
+        assert current["modbus.1001"]["error_code"] == "unknown_boiler_state"
+
+
+def test_added_parameters_are_explicitly_selected_and_read_through_real_loopback(tmp_path, monkeypatch):
+    settings = Settings(_env_file=None, DATA_DIR=tmp_path, COLLECTOR_ENABLED=False, MODBUS_HOST="")
+    monkeypatch.setattr("backend.main.get_settings", lambda: settings)
+    expected = {"1000": (7, "Rohwert"), "1007": (65, "°C"), "9020": (60, "°C"),
+                "9040": (40, "°C"), "1005": (100, "%"), "1012": (0, "Rohwert"), "1013": (20, "min")}
+    with TestClient(app) as api, ModbusSimulator() as simulator:
+        before = api.get("/api/logging-config").json()
+        assert not any(row["code"] in expected for row in before["entries"])
+        csv_text = "\n".join(f"Test {code};{int(code, 16)};{code}" for code in expected)
+        preview = api.post("/api/logging-config/preview", headers=HEADERS,
+                           json={"revision": 0, "csv_text": csv_text}).json()
+        assert api.get("/api/logging-config").json()["entries"] == before["entries"]
+        for row in preview["entries"]:
+            row["record"] = row["code"] in expected
+        assert api.put("/api/logging-config", headers=HEADERS,
+                       json={"revision": 0, "entries": preview["entries"]}).status_code == 200
+        clock = Clock()
+        collector = Collector(host=simulator.address[0], port=simulator.address[1],
+                              store=app.state.storage, data_dir=tmp_path, max_requests=len(expected),
+                              max_duration_seconds=30, retry_on_transport_error=False,
+                              monotonic=clock.monotonic, now=clock.now, wait=clock.wait)
+        collector.run()
+        assert collector.state == "completed"
+        current = {row["signal_id"]: row for row in api.get("/api/signals/current").json()["signals"]}
+        exported = list(csv.DictReader(io.StringIO(api.get("/api/export.csv").text)))
+        for code, (value, unit) in expected.items():
+            signal_id = f"modbus.{code}"
+            assert (current[signal_id]["value"], current[signal_id]["unit"]) == (value, unit)
+            point, = api.get(f"/api/history/{signal_id}").json()["items"]
+            assert (point["value"], point["raw_words"], point["quality"]) == (value, [value], "ok")
+            row, = [row for row in exported if row["signal_id"] == signal_id]
+            assert (row["value"], row["unit"]) == (str(value), unit)

@@ -11,9 +11,10 @@ Modbus-START ändern denselben persistenten Basisparameter. Eine eigene temporä
 Fernvorgabe oder autonomer Ablauf auf den Touch-Wert ist im untersuchten Pfad
 nicht nachgewiesen. Das ist kein vollständiger Ausschluss aller Herstellerfunktionen.
 
-START intern 9040 hex / potenzieller Offset36928; SOLL 9020 hex / 36896.
-Beide nicht im importierten Leseprofil. Diese Adressen nicht als einsatzbereiten
-Stellweg verwenden. Zusätzlich ist im analysierten FC06-Pfad eine Dezimaltext-/Hex-
+START intern 9040 hex / Projekt-Offset 36928; SOLL 9020 hex / 36896.
+Beide sind jetzt ausdrücklich als lesbare Basisparameter im Leseprofil verfügbar.
+Die Gerätetabelle wurde laut Betreiber installiert; eigener Geräteabgleich offen.
+Diese Adressen nicht als einsatzbereiten Stellweg verwenden. Im analysierten FC06-Pfad ist die Dezimaltext-/Hex-
 Umwandlung problematisch; Werte/Kodierung nicht ungeprüft als Standard annehmen.
 Eine neue Zuordnungstabelle allein ergänzt keinen Rückfalltimer.
 
@@ -32,8 +33,8 @@ soll mit externem Alerting und gegebenenfalls manueller Rückstellung am Touch
 weitergeplant werden. Das ist eine bewusste betriebliche Entscheidung, keine
 technische Garantie für autonomen Rückfall. Alerting, Schreibkodierung,
 konkrete Werte/Rückstellplan und Geräteprüfung bleiben spätere Arbeit.
-Die App zeigt START/SOLL jetzt nur als getrennte statische Kandidaten an;
-es gibt weiterhin keinen Schreibadapter oder Schreibendpunkt.
+Die App kann START/SOLL jetzt lesend als Temperatur-Basisparameter erfassen.
+Eine spätere Schreibnutzung bleibt ein getrennter Kandidat; weiterhin kein Schreibadapter oder Schreibendpunkt.
 
 Benötigte Semantik, noch kein vorhandenes Gerätefeature:
 

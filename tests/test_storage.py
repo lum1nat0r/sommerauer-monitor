@@ -1,4 +1,5 @@
 from contextlib import closing
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import sqlite3
@@ -99,6 +100,21 @@ def test_error_observation_replaces_good_current_at_equal_timestamp(
         assert len(rows) == 2
         stored = next(row for row in rows if row["observation_id"] == "a-error")
         assert stored == {**failed, "request_id": "failed"}
+
+
+def test_original_export_survives_sequential_worker_thread_changes(tmp_path):
+    store = make_store(tmp_path)
+    store.record_cycle(request("good"), [observation("a-good")])
+    invalid = observation("b-invalid", quality="invalid")
+    invalid.update(value=None, error_code="invalid_value")
+    store.record_cycle(request("bad"), [invalid])
+    stream = store.stream_observations()
+    with ThreadPoolExecutor(max_workers=1) as first, ThreadPoolExecutor(max_workers=1) as second:
+        good = first.submit(next, stream).result()
+        bad = second.submit(next, stream).result()
+        assert second.submit(next, stream, None).result() is None
+    assert (good["value"], good["unit"], good["raw_words"]) == (42, "°C", [42])
+    assert (bad["value"], bad["quality"], bad["error_code"]) == (None, "invalid", "invalid_value")
 
 
 def test_error_cycle_failure_keeps_previous_current_and_can_be_retried(tmp_path):

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import csv
 import io
+import json
 import re
 from typing import Any
 
@@ -14,10 +15,13 @@ from backend.registers import REGISTER_DEFINITIONS, SIGNAL_DEFINITIONS
 MAX_CSV_BYTES = 1024 * 1024
 MAX_ENTRIES = 5000
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
+# Platz für die lokale Revision und die JSON-Anfragehülle beim Wiederimport.
+MAX_TRANSFER_BYTES = MAX_REQUEST_BYTES - 1024
 
 _CORE_CODES = ("1006", "7010", "7011", "9000", "9001")
 _COUNTER_GROUPS = (("7010", "7011"), ("7012", "7013"))
-_INPUT_FIELDS = {"code", "offset", "name", "record", "unit", "description"}
+_TRANSFER_FIELDS = ("code", "offset", "name", "record", "unit", "description")
+_INPUT_FIELDS = set(_TRANSFER_FIELDS)
 _ENTRY_FIELDS = _INPUT_FIELDS | {
     "signal_id", "eligible", "blocked_reason", "change", "changed_fields",
     "kind", "live_confirmed", "read_to_clear", "decoder", "information",
@@ -240,6 +244,48 @@ def prepare_save(entries: Any, current_entries: list[dict[str, Any]]) -> list[di
     if missing:
         raise LoggingConfigError(f"Register dürfen nicht gelöscht werden. Fehlende Codes: {', '.join(sorted(missing))}.")
     return normalized
+
+
+def export_configuration(entries: Any) -> bytes:
+    """Nur gespeicherte Eingabefelder übertragen; Freigaben bleiben Sache des Ziels."""
+    document = {
+        "version": 1,
+        "entries": [
+            {field: entry[field] for field in _TRANSFER_FIELDS}
+            for entry in normalize_entries(entries)
+        ],
+    }
+    content = (json.dumps(document, ensure_ascii=True, separators=(",", ":")) + "\n").encode("utf-8")
+    if len(content) > MAX_TRANSFER_BYTES:
+        raise LoggingConfigError("Die JSON-Aufzeichnungskonfiguration ist zu groß (maximal 4 MiB abzüglich 1 KiB Anfragehülle).")
+    return content
+
+
+def import_configuration(document: Any, current_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Exakte Dateiauswahl als Entwurf; nur lokal vorhandene Zeilen bleiben abgewählt."""
+    if not isinstance(document, dict) or set(document) != {"version", "entries"}:
+        raise LoggingConfigError("Die JSON-Datei benötigt genau version und entries; andere Einstellungen sind nicht übertragbar.")
+    if type(document["version"]) is not int or document["version"] != 1:
+        raise LoggingConfigError("Die JSON-Datei benötigt die ganzzahlige Formatversion 1.")
+    entries = document["entries"]
+    if not isinstance(entries, list) or any(
+        not isinstance(entry, dict) or set(entry) != _INPUT_FIELDS for entry in entries
+    ):
+        raise LoggingConfigError("JSON-Register benötigen ausschließlich code, offset, name, record, unit und description.")
+    imported = normalize_entries(entries)
+    export_configuration(imported)
+    previous = {entry["code"]: entry for entry in normalize_entries(current_entries)}
+    by_code = {code: {**entry, "record": False} for code, entry in previous.items()}
+    by_code.update({entry["code"]: entry for entry in imported})
+    draft = prepare_save(list(by_code.values()), current_entries)
+    for entry in draft:
+        old = previous.get(entry["code"])
+        fields = list(_TRANSFER_FIELDS) if old is None else [
+            field for field in _TRANSFER_FIELDS if entry[field] != old[field]
+        ]
+        entry["change"] = "new" if old is None else "changed" if fields else "unchanged"
+        entry["changed_fields"] = fields
+    return draft
 
 
 def selected_signal_ids(entries: list[dict[str, Any]]) -> frozenset[str]:

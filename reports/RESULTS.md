@@ -1331,3 +1331,362 @@ bei der Abnahme nicht erreichbar; deshalb gebaute App isoliert ohne Collector
 gestartet und im Browser geprüft: vier ausgewählte Signale, vier Diagrammoptionen,
 unzulässige gemerkte Auswahl nach Neuladen auf verfügbares Signal korrigiert.
 Keine Heizungsabfrage oder Änderung der tatsächlichen Aufzeichnungsauswahl.
+
+## 18.10.2026 – Dashboard „Ruhige Energiezentrale“
+
+### Umsetzung und Nachweisgrenzen
+
+Die Übersicht zeigt den Software-Steuerungszustand des Pelletkessels getrennt
+von API und Erfassung, ausgewählte Kessel-/Puffertemperaturen und einen
+gemeinsamen Verlauf mit abgetastetem Statusband. Analyse, gruppierte Werte,
+Einstellungen und der erhaltene Modbus-Editor nutzen einen gemeinsamen Rahmen
+mit persistentem Hell-/Dunkelmodus. Der Editor bleibt beim Navigieren gemountet.
+Die gespeicherte Auswahl (`logging.entries`) bleibt alleinige Anzeigegrundlage;
+Suche, Vergleichswahl, Upgrade und Katalogabfrage ändern diese Auswahl nicht.
+
+`1001`/4097 ist eine explizite reine FC03-Leserweiterung, ein Wort, 300-s-Intervall
+und 600-s-Frische. Nur die sieben belegten unsigned Statuswörter werden akzeptiert;
+Zusatzbit und Originalrohwort bleiben erhalten. Unbekannte Wörter ergeben
+`invalid`/`unknown_boiler_state`, niemals „Aus“. Der Status ist quellenbelegt,
+nicht live oder am Touch bestätigt. CSV `Betriebsstatus;4097;1001` konfiguriert
+nur nach ausdrücklichem Speichern den Monitor, keine Gerätetabelle.
+Kernprofil, Kernzyklen, Standardauswahl und Schutzstopps bleiben unverändert.
+Keine Datenbankmigration, neue UI-Abhängigkeit oder Geräte-Schreibfunktion.
+
+Historien werden vollständig mit festen Grenzen und höchstens zwei gleichzeitigen
+Signalabrufen paginiert. Relative Zeitfenster wandern, freie Grenzen bleiben
+fest und werden lokal wiederhergestellt. Teilfehler, Abbruch und widersprüchliche
+Seiten bleiben sichtbar. Linien und Stufen respektieren Qualität, Einheiten und
+Lücken; Min-/Max-Verdichtung verändert nur die Darstellung, nicht Inspektion oder
+CSV. Pufferschichtung verwendet ausschließlich zeitgleiche gültige °C-Werte,
+ohne Interpolation. Statuswechselbereiche und fehlende Beobachtungen bleiben
+unbekannt; keine sekundengenaue Schaltkante, Flammenstunden oder Solarzuordnung.
+
+### Automatisierte Prüfungen
+
+- `uv run pytest -q`: **330 bestanden**. Eine bekannte Starlette-/AnyIO-
+  DeprecationWarning zum `BlockingPortal`-Alias, keine Testfehler.
+- `node --test tests/dashboard.test.mjs`: **15 bestanden**, ohne neue
+  Testabhängigkeit, Import der seiteneffektfreien TypeScript-Helfer.
+- `npm run build`: TypeScript und Vite erfolgreich, auch nach den letzten
+  visuellen Korrekturen.
+- `uv run ruff check .`: erfolgreich.
+- Decodergrenzen einschließlich `0x8002/3/4` und Fehlerwörtern, explizite
+  Preview-/Save-Auswahl, falscher Offset, endlicher Loopback-Statuslauf mit
+  genau einer Anfrage und Current-/History-/CSV-Vertrag geprüft.
+- Frontend-Verhalten: Zustandsband, negative/zeitversetzte Pufferschichtung,
+  Gruppenpriorität, einheitentreue Segmente, einzelne Temperaturspitzen,
+  Lückengrenzen, Originalpunktnähe, DST, vollständige 44.640-Punkt-Pagination,
+  inkonsistente Seiten und Abbruch geprüft.
+- Obsolete feste Umfangszahlen wurden aus den Profil-/Simulatortests entfernt,
+  nicht auf neue Zahlen umgepinnt; Allowlist-/Offset-/Kernschutz bleibt erhalten.
+
+### Tatsächliche Offline-App und Browser
+
+Die echte FastAPI-App lief mit explizit isolierten Einstellungen:
+`_env_file=None`, neues temporäres Datenverzeichnis, Sammler deaktiviert,
+leerer Modbus-Host und leerer öffentlicher Origin. Seeds ausschließlich
+synthetisch über `SQLiteStore.record_cycle` und explizite
+`save_logging_config`-Auswahl. Keine echte Datenbank oder private `.env` als
+Fixture. Vite für den UI-Smoke; zusätzlich gebautes Frontend im
+wegwerfbaren Smokeprogramm unter demselben API-Origin bereitgestellt.
+Zeit-/Race-/Fehlerfälle wurden ergänzend mit synthetischen Browserantworten
+geprüft; Weiterleitungen ausschließlich an diese isolierte Loopback-API,
+keine Geräteverbindung.
+
+Tatsächlich bedient und beobachtet:
+
+- Alle Routen, unbekannter Hash als Übersicht, genau ein sichtbares `main`,
+  `aria-current` und Fokus auf der Inhaltsüberschrift nach Navigation.
+  Lokaler Editorentwurf bleibt über Übersicht und Rückkehr erhalten.
+- Status 0 → „Aus“, `0x8003` → „Ein · Gluterhaltung“ mit Mindestlaufzeit-
+  Kennzeichen, fehlende Messung, ungültiger Status, Alter über 600 s und
+  nicht verfügbare Statusquelle mit getrennten Aussagen. `completed` bleibt
+  „Erfassung abgeschlossen“, keine Aussage zum Heizungszustand.
+  Fehlerliste 0 als leer, positive Nummer als Warnhinweis.
+- Statusband enthält unbestimmte Wechsel, Fehler und eine Lücke über 600 s.
+  Mobile Zwischenlinien wurden entfernt, damit die Zustandsflächen nicht
+  durch die einzelnen sehr schmalen 5-Minuten-Rechteckränder verdeckt werden.
+  Beobachtungen selbst werden nicht reduziert.
+- 31-Tage-Bereich mit **44.640 Minutenpunkten je Temperaturreihe** vollständig
+  bis Offset 40.000 geladen. Inspektion zeigt Anfang und tatsächliches Ende,
+  nicht nur die ersten 10.000 Punkte. Fehler auf späterer Seite trennt die
+  Kurven in sechs Segmente für drei Reihen.
+- Vorzeitig leere Seite: namentlicher unvollständiger Abruf, keine fertige
+  Kurve dieser Reihe; andere Reihen sichtbar. Gemessene maximale Parallelität:
+  zwei Historienabrufe. Ladeabbruch und verspätete Antwort nach Presetwechsel
+  überschreiben die neue Auswahl nicht.
+- Alle sechs Presets bedient; Heizkreis 1/2 und interne Leistungs-Ist/Soll-
+  Vergleiche sichtbar. Historischer Wechsel `Rohwert` → `%` auf getrennten
+  Flächen, ohne Umrechnung. Originalpunktinspektion mit Tastatur und mobiler
+  Zeitauswahl; tatsächliche, auch voneinander abweichende Messzeiten sichtbar.
+- Browserzeit um eine Minute fortgeschaltet: relativer Bereich wandert,
+  freier Bereich bleibt fest. Herbstzeit `25.10.2026 02:30 Europe/Vienna`
+  ergibt `00:30Z`; Frühlingslücke `29.03.2026 02:30` wird abgewiesen.
+  Freie Start-/Endwerte nach Reload wiederhergestellt.
+- API-Ausfall: kein aktuelles Ein/Aus; Datenalter steigt von neun auf zehn
+  Minuten weiter. API- und synthetischer Speicherstopp auch im Editor sichtbar.
+- 15 gespeicherte Signale → 15 eindeutige Wertezeilen, fachlich gruppiert.
+  Wetterfehler `missing_weather` direkt sichtbar. Suche verändert nur die
+  Ansicht. Bei leerer gespeicherter Auswahl keine erzwungenen Kacheln/Werte,
+  Vergleich und Export deaktiviert, selbst bei abweichenden `active_entries`.
+- Tatsächlicher HTTP-409-Konflikt gegen isolierte API: lokaler Editorentwurf
+  bleibt erhalten. Zeitzonen-PUT erfolgreich, Collectoraktion ohne aktivierten
+  Sammler erwartungsgemäß HTTP 409; beide behalten `X-Requested-With`.
+  Der Vite-Fremdorigin wurde bei einer Mutation zuvor sicher mit HTTP 403
+  abgewiesen; die Same-Origin-Abnahme erfolgte deshalb mit dem gebauten
+  Frontend. Keine Sicherheitsprüfung gelockert.
+- Screenshots bei 1440×1000, 390×844 und 320×740 gesichtet, beide Themes
+  einschließlich Editor, Formulare und Warnungen. Kein Dokumentüberlauf;
+  nur Registertabellenregion intern scrollbar. Systemthemewechsel ohne
+  explizite Wahl, manueller Wechsel und Reload geprüft. Texttokens auf
+  Flächen erfüllen rechnerisch mindestens 4,5:1 in beiden Paletten.
+- Keine JavaScript-Ausnahme im regulären Lauf. Erwartete `ERR_ABORTED`-
+  Netzwerkeinträge entstehen bei StrictMode-/Navigations-/Ladeabbrüchen.
+
+### Während der CSV-Abnahme gefundener und behobener Altfehler
+
+Der tatsächliche große Download brach zunächst vorzeitig ab. Servertrace:
+Starlette setzt den synchronen Generator auf wechselnden Workerthreads fort;
+die darin gehaltene SQLite-Verbindung hatte `check_same_thread=True`.
+Der deterministische Regressionstest mit zwei getrennten, sequenziell
+verwendeten Workerthreads scheiterte vor der Korrektur mit demselben Fehler.
+
+Nur die eigene Exportverbindung erlaubt nun diesen sequenziellen Threadwechsel
+und wird am Streamende geschlossen. Andere Speicheroperationen behalten ihre
+bisherige Threadbindung. Kein Vollpuffer, keine Exportverdichtung und keine
+Änderung der Daten. Regression anschließend bestanden.
+
+Erneuter tatsächlicher Browserdownload: **16.245.786 Byte**, je **44.641**
+Temperaturbeobachtungen im dafür um eine Minute erweiterten Prüfbereich,
+285 Statusbeobachtungen und alle anderen ausgewählten Reihen. CSV eingelesen:
+Originaleinheiten, Rohwörter und Fehlerzeilen mit leerem Wert und konkretem
+Fehlercode erhalten; nicht auf Preset oder visuelle Punktzahl beschränkt.
+
+### Offen ausschließlich an der Anlage
+
+Keine Geräteanfrage, kein Mappingimport, Start/Stop, Neustart oder Quittieren
+einer realen App. Die bekannte Gerätetabelle enthält `1001` nicht; ihr aktueller
+Bereitstellungsnachweis fehlt. Deshalb keine echte Statusabnahme behauptet.
+Nächster begrenzter Schritt und Stopps stehen in [NEXT_STEPS](../NEXT_STEPS.md):
+erst Mappingnachweis und Ausschluss anderer Leser, dann eigener privater Plan
+für maximal eine FC03-Anfrage an `Anlage-aktuell` mit Displayabgleich.
+Eine Tabellenänderung ist dadurch nicht erlaubt. Keine automatische Aufnahme
+in die reale Dauerauswahl, kein Unraid-/Dauerbetriebsnachweis.
+
+Eigene Prüfserver und Browsertab beendet; wegwerfbares Smokeprogramm entfernt.
+Keine Git-Aktionen, Commits, Pushes oder Pull Requests.
+
+## 18.10.2026 – Themeicons, Aufzeichnungstransfer und ehrliche Betriebsanzeige
+
+### Änderungen
+
+- Der Themebutton enthält native SVG-Icons: Mond bietet Dunkelmodus an,
+  Sonne Hellmodus. 44×44 px Bedienfläche, Tooltip, zugänglicher Name und
+  `aria-pressed`; Persistenz und Systemtheme unverändert. Keine Iconbibliothek.
+- `GET /api/logging-config/export` liefert die gespeicherte Konfiguration als
+  `sommerauer-aufzeichnung.json`. Version 1, ausschließlich Eingabefelder
+  `code`, `offset`, `name`, `record`, `unit`, `description`, einschließlich
+  Abwahlen. Kein ungespeicherter Entwurf und keine ältere aktive Revision.
+- `POST /api/logging-config/import-preview` übernimmt die Datei mit aktueller
+  lokaler Revision in einen Entwurf. JSON ersetzt Auswahl/Betreibertexte;
+  nur im Ziel vorhandene Register samt Metadaten bleiben erhalten, aber
+  abgewählt. CSV bleibt ergänzend. Erst das bestehende PUT speichert atomar.
+  Lokalen Entwurf nur nach ausdrücklicher Bestätigung ersetzen.
+- Beide Instanzen benötigen einen kompatiblen Build. Fremde Formatversionen,
+  Zusatz-/Freigabefelder, ungeeignete ausgewählte Register, Duplikate,
+  fehlerhafte Zählerpaare und zu große Dateien werden abgelehnt. Keine
+  Geräteadressen, privaten Pfade, Laufzeitfreigaben, Budgets oder Historien
+  übertragen. Eigene Namen/Beschreibungen vor Weitergabe prüfen.
+- Die Betriebsanzeige verwendet `1001` vorrangig, sofern ausgewählt, aktuell,
+  gültig und in `Rohwert`. Ohne brauchbaren Status wird ausschließlich eine
+  vorhandene ausgewählte aktuelle `1003`-Beobachtung in `%` verwendet:
+  positive interne Istregelgröße → „Leistungsregelung aktiv“ als deutlich
+  **indirekter Betriebshinweis**; 0 % → „Betriebszustand nicht eindeutig“.
+  Keine bestätigte Ein-/Aus- oder Flammenaussage aus Leistungsregelung,
+  Temperaturen, Abgas oder Anlagenzähler. Keine brauchbare Quelle →
+  „Betriebszustand unbekannt“ mit konkretem Grund. Fehler einer Statusquelle
+  bleiben auch beim Leistungsersatz sichtbar. Das Statusband bleibt `1001`
+  vorbehalten; keine synthetische Zustandsgeschichte.
+
+### Tatsächlich ausgeführte Prüfungen
+
+- `uv run pytest -q`: **357 bestanden**, eine bekannte Starlette-/AnyIO-
+  DeprecationWarning. Neue Fälle für JSON-Roundtrip, leere Auswahl,
+  Format-/Feld-/Größenvalidierung, Revisionskonflikte und Same-Origin.
+  Historie, harte Stopps, verbrauchte Budgets und Signalsperren bleiben bei
+  Vorschau und Speichern erhalten.
+- `node --test tests/dashboard.test.mjs`: **23 bestanden**. Quellenpriorität,
+  mehrdeutige Null, Qualität/Einheit/Auswahl, fortlaufendes Alter,
+  API-Ausfall und keine Rückkehr zu früheren Gutwerten geprüft.
+- `npm run build`: TypeScript/Vite erfolgreich, abschließend auch nach
+  Button-/Transferabständen. `uv run ruff check .`: erfolgreich.
+- Zwei echte isolierte API-Instanzen mit neuem temporärem Datenverzeichnis,
+  `_env_file=None`, leerem Modbus-Host und deaktiviertem Sammler gestartet.
+  Ausschließlich synthetische Daten über die bestehende Speicherung gesät.
+  Belegte Ports 8000/5173 nur lesend festgestellt und unangetastet gelassen;
+  eigene API-/Frontendprozesse auf getrennten Loopbackports.
+- Echter Download über den UI-Button, nativ per Chromium-Downloadevent bis
+  `completed` beobachtet und Datei gelesen: 967 Byte, 9 Registereinträge,
+  davon 7 ausgewählt. Eine vorher lokal ungespeicherte Beschreibung ist
+  nicht enthalten; gespeicherte Beschreibung/Betreibereinheit unverändert.
+- Datei in der zweiten laufenden Instanz per Upload übernommen:
+  abgelehnte Entwurfsersetzung erzeugt keine Vorschauanfrage und erhält
+  den lokalen Text. Bestätigte Vorschau übernimmt die Quelldaten, belässt
+  die Datenbank unverändert und wählt das zielseitige Zusatzregister ab.
+  Nach bewusstem Speichern und Reload alle Quell-Eingabefelder gleich,
+  Zusatzregister erhalten/abgewählt; Collector weiterhin `completed`,
+  vorhandene 61 Kesselbeobachtungen unverändert. Schutzheader vorhanden.
+- Tatsächlicher konkurrierender Speichervorgang im isolierten Ziel:
+  JSON-Vorschau erhält HTTP 409, der bisherige lokale Entwurf bleibt erhalten.
+- Neun Browser-Statusfälle mit ergänzend synthetischen API-Antworten:
+  echtes Aus vor positiver Regelgröße, Gluterhaltung mit Mindestlaufzeitbit,
+  positiver indirekter Befund, 0 %, abgewählte/falsche Einheit/veraltete
+  Istregelgröße, ungültiger Status bei brauchbarer Regelgröße und API-Ausfall.
+  Keine automatische Auswahländerung, keine neue Geräteabfrage.
+- Sonne/Mond-Wechsel, Tooltip, gedrückter Zustand und Reload-Persistenz in
+  der laufenden Oberfläche geprüft. Screenshots der Betriebsanzeige und des
+  Transfers bei Desktop und 320 px gesichtet, zusätzlich 390 px geprüft:
+  kein Dokumentüberlauf, Themebutton 44 px. Hell/Dunkel auch im Editor.
+  Abschließender regulärer Lauf ohne JavaScript-Fehler.
+
+### Grenze und Übergabe
+
+Die Bereitstellung von `1001` am Gerät ist weiterhin nicht nachgewiesen;
+die Softwarequelle selbst ist belegt. Die indirekte Istregelgröße behebt
+diesen Hardware-Nachweis nicht. 0 % kann insbesondere Gluterhaltung bedeuten,
+nicht „Heizung aus“. Keine Mappingänderung oder automatische Aktivierung.
+
+Keine reale App, private Konfiguration, Datenbank oder Produktionsauswahl
+gelesen/verändert; keine Heizungsabfrage oder tatsächliche Erfassungsfreigabe.
+Der Übertragungs-Smoke verwendete ausschließlich eigene Wegwerf-Instanzen,
+keine Produktionsdatei. Bedienung und kompatibler Build sind in README und
+Modbus-Dokumentation beschrieben. Eigene Prüfserver/Browsertabs beendet,
+Smokeprogramm und synthetische Transferdatei entfernt. Keine Git-Aktionen.
+
+## 18.10.2026 – Gerätetabellen-CSV mit Betriebsstatus vorbereitet
+
+Auf ausdrücklichen Auftrag eine separate private Datei
+`Modbus_P190317R_V3_Status.csv` vorbereitet. Basis: vorhandene vollständige
+V1-Gerätetabelle, nicht die um Freitext ergänzte V2-Notizdatei.
+Von 199 Zuordnungen 84 HK03–HK16-, 8 NM- und 36 SP-Zeilen entfernt;
+HK01/HK02 und alle anderen Zeilen in ursprünglicher Reihenfolge erhalten.
+Einzige neue Zuordnung: `Betriebsstatus;4097;1001`. Ergebnis 72 Einträge.
+Keine privaten Originaldateien ins Repository übernommen.
+
+Offline tatsächlich geprüft: drei Semikolonspalten, ASCII ohne BOM mit CRLF,
+eindeutige Codes und Offsets, numerischer Hexcode gleich dezimalem Offset,
+exakte Filterung und unveränderter Rest gegenüber der Vorlage, Kernregister
+und Status vorhanden. Bestehender Monitor-CSV-Parser akzeptiert die Datei.
+SHA256: `a8d3e38df6b6947dc4c9a73a0f41214569a7231986d915df70c729bfc19085fc`.
+
+Kein Geräteimport/-zugriff oder aktiver Monitor-Auswahlwechsel. Tatsächliche
+Importakzeptanz und Displayübereinstimmung nicht geprüft. Betreiber bestätigt
+die bisher fehlende Zuordnung. Vor Import aktuelle Gerätetabelle als Rückweg
+sichern, Leser pausieren und entfernte Kanäle im Monitor abwählen.
+`1001` besitzt einen Schreibzweig; die Tabelle selbst kann keine reine
+Lesefreigabe erzwingen. Sicherheits- und Abnahmegrenze in NEXT_STEPS ergänzt.
+
+## 18.10.2026 – Decoder nach installiert gemeldeter Gerätetabelle
+
+Betreiber meldet die neue CSV an der Heizung installiert. Die Lesepfade und
+Parameterdefinitionen erneut in den privaten Originalquellen geprüft; keine
+Originaltexte übernommen. Ergänzt: Betriebsart `1000` (Lesecodes
+0/1/2/3/6/7/9/10), Kessel-Basis-Soll `1007` (60–90 °C), Puffer-SOLL
+`9020` und START `9040` (10–90 °C). Grenzen einschließlich, Rohwörter erhalten;
+ungültige Einstellungen und unbekannte Zustände werden Fehlerbeobachtungen.
+Zusätzlich die CSV-Decoderlücken `1005` (30–100 % Maximalregelgröße),
+`1012` (Software-Reinigung 0/1/2) und `1013` (gewichteter Intervallzähler in min)
+geschlossen. Alle neuen Kanäle source-only, Intervall 300 s, nicht automatisch
+ausgewählt oder als livebestätigt markiert. Keine Schreibfunktion.
+
+Tatsächlich ausgeführt: 392 Python-Tests, 23 Node-Tests, TypeScript/Vite-Build
+und Ruff erfolgreich. Eine bekannte Starlette-/AnyIO-DeprecationWarning.
+Regressionen für zulässige und unzulässige Kodierungen/Parametergrenzen,
+Originalrohwort-Erhalt, explizite Auswahl und endlichen Loopback-Collector
+mit sieben Anfragen; Current, History und CSV geprüft. Überholte Ausschluss-
+annahmen für nun lesbare START/SOLL-Offsets aus betroffenen Tests entfernt.
+
+Die tatsächlich laufende API war zunächst `stopped_transport`, ohne neue
+Kanäle in der gespeicherten Auswahl und ohne deren Beobachtungen.
+Der Betreiber wählte den eigenen VS-Code-Neustart; danach lieferte die
+laufende API die neuen Definitionen. Die vollständige reale CSV als reine
+Vorschau gegen diese API geprüft: HTTP 200, alle 76 Zeilen zuordenbar.
+Auch im tatsächlichen Vite-Editor die CSV als ungespeicherten Entwurf
+hochgeladen, neue Decoderzuordnungen sichtbar geprüft und Screenshot gesichtet.
+Kein PUT/Save und keine Quittierung: gespeicherte Revision 5 unverändert,
+Collector weiter `stopped_transport`. Eigenen Prüftab danach geschlossen.
+
+Keine direkte Modbus-Anfrage, kein zusätzlicher Anlagenclient, keine
+Geräteschreibaktion, kein Eingriff in die laufende Prozessverwaltung durch
+den Assistenten. Tatsächliche neue Anlagenwerte/Displayübereinstimmung bleiben
+offen. Der Transportstopp ist nicht durch neue Decoder behoben oder
+quittiert; seine Ursache vor einer begrenzten erneuten Lesesitzung klären.
+
+## 18.10.2026 – Dashboardhinweise und Aufzeichnungsübersicht gekürzt
+
+Die laufende Oberfläche zeigte beim automatischen Zeitcursor die älteste
+Temperaturbeobachtung, während die Statushistorie erst später begann. Der
+Text „Keine Messung an dieser Stelle“ war deshalb historisch richtig, aber
+ohne bewusste Zeitwahl leicht als aktueller Gerätefehler misszuverstehen.
+Keine Änderung an Messwerten, Decodern oder Lücken-/Frischegrenzen.
+
+Zeitcursor und Einzelwerte erscheinen jetzt erst bei Maus-, Touch- oder
+Tastaturinspektion. Fehlende Statusbeobachtungen benennen den gewählten
+Zeitpunkt und die Suchnähe ±2,5 Minuten. Die aktuelle Kesselkarte bleibt davon
+unabhängig. Im Normalfall nur Zustand, Beobachtungszeit und Abfrageintervall;
+technische Hinweise in aufklappbaren Quellendetails. Konkrete Probleme und
+indirekte Hinweise bleiben sichtbar. Den pauschalen Garantiehinweis bei
+leerer Fehlerliste entfernt, ohne die Fehleranzeige abzuschalten.
+
+Modbus-Konfiguration: doppelte vollständige gespeicherte/aktive Registerlisten
+entfernt. Kompakter Status mit Anzahl, Übernahmestatus und Revision;
+aktive Anzahl/Revision zusätzlich nur bei ausstehender Übernahme. Einleitung
+gekürzt, irreführendes Offline-Etikett durch Modbus-Konfiguration ersetzt.
+Import-/Exportfunktionen und Read-to-clear-Warnung unverändert.
+
+In der laufenden Vite-Oberfläche mit laufender API geprüft: 76 ausgewählte
+Register, Übernahme aktiv, Revision 6, kompakte Statuskarte statt Listen.
+Browserprüfungen für anfänglich ausgeblendete Einzelwerte, historische
+Statuslücke, gezielte Inspektion einer echten Statusbeobachtung, unabhängige
+aktuelle Statuskarte und bedienbare Quellendetails. Mobile Anzeige bei 390 px
+ohne horizontalen Seitenüberlauf und erfolgreiche Touch-Statusinspektion;
+Screenshots der tatsächlichen Desktop-/Mobiloberfläche gesichtet.
+Ausstehende Übernahme zusätzlich ausschließlich im eigenen Browsertab mit
+synthetischer API-Antwort geprüft: gespeicherte und aktive Anzahl getrennt.
+TypeScript/Vite-Build erfolgreich. Keine neue UI-Testsuite eingeführt.
+
+Keine Konfiguration gespeichert, keine Erfassung gestartet/gestoppt/quittiert
+und keine zusätzlichen Geräteanfragen durch den Assistenten. Die laufende
+Erfassung des Betreibers bleibt unberührt. Keine Hardware-/Displayabnahme.
+
+## 18.10.2026 – Modbus-Seite auf Registerauswahl fokussiert
+
+CSV-Import und JSON-Transfer als zwei standardmäßig geschlossene Bereiche.
+Anleitungen gekürzt, überholten ständigen Statuskanal-Einzelimporthinweis
+entfernt. CSV-Ergänzung und JSON-Ersatz einschließlich Abwahlen bleiben
+ausdrücklich unterschieden. Auswahl und Metadaten werden weiterhin nur
+als Entwurf geändert, erst der bestehende Save übernimmt.
+
+Registertabelle von sieben auf drei Spalten reduziert: Name mit Hexcode/
+Offset, Aufzeichnung und Signal/Details. Eigene Einheiten/Beschreibungen sowie
+Decoder-/Quellenangaben je Zeile aufklappbar. Unverändert-Plaketten entfernt,
+neue/geänderte Felder weiterhin hervorgehoben. Sperrgründe, inaktive Module
+und Read-to-clear-Warnungen bleiben sichtbar; ausgewählte Protokollregister
+zusätzlich unmittelbar vor den Speicheraktionen angekündigt. Speicheraktionen
+vor die Tabelle verschoben, allgemeine Bearbeitungshinweise eingeklappt.
+Keine Request-, Import-, Auswahl-, Konflikt- oder Speicherlogik geändert.
+
+Tatsächlich laufende API/Vite-App im Browser geprüft: 88 vorhandene und 76
+ausgewählte Register. Lokale Beschreibungs-/Auswahländerung blieb über
+Navigation erhalten. Metadateneditor aufklappbar, gesperrte Register weiter
+deaktiviert, Protokollwarnungen erreichbar. JSON-Download HTTP 200;
+CSV-Vorschau HTTP 200 und eigene ungespeicherte Beschreibung erhalten.
+Eigener Prüftab ohne Speicherung verworfen und geschlossen.
+
+Desktop-Screenshots sowie mobile Darstellung bei 390 und 320 px geprüft:
+kein horizontaler Dokumentüberlauf, nur die Tabelle intern scrollbar.
+TypeScript/Vite-Build erfolgreich. Keine neuen UI-Testabhängigkeiten.
+Gespeicherte und aktive Revision 6 sowie 76 ausgewählte Register unverändert,
+Collector weiterhin running. Kein PUT/Save, kein Start/Stopp/Quittieren,
+keine zusätzlichen direkten Anlagenanfragen. Kein Hardware-/Displayabgleich.

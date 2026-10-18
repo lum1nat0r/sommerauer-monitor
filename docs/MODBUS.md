@@ -27,8 +27,8 @@ die unbestätigte Außentemperatur übertragen.
 
 Das bestätigte Kernprofil `core` bleibt in
 [`backend/registers.py`](../backend/registers.py) unverändert. Das explizite
-`READ_PROFILE` ergänzt ausschließlich die weiteren 75 Wörter der bereitgestellten
-V2-Auswahl: insgesamt 80 Registerwörter und 78 Signale. Die beiden Zählerpaare
+`READ_PROFILE` ergänzt die expliziten Wörter der bereitgestellten V2-Auswahl
+und den separat quellenbelegten Steuerungszustand `1001`. Die beiden Zählerpaare
 ergeben jeweils ein Signal. Keine beliebigen Adressen und kein Vollscan.
 Neue Signale tragen Herkunft `extended/1/1`; alte Kernmessungen behalten
 `core/1/1`. Der 199er-Katalog bleibt eine historische statische Referenz,
@@ -47,9 +47,10 @@ BO01/BO02 bezeichnen an dieser Anlage oben/unten desselben Puffers.
 
 ## Betreiberabgleich und Feldbedeutung
 
-Die ergänzten Betreiber-Notizen bestätigen für **79 von 80 Registerwörtern**
-den Touch-Abgleich / die Lesbarkeit; nur `10D1` ist nicht bestätigt.
-`verification_status` unterscheidet `operator_touch_confirmed` von `source_only`.
+Die ergänzten Betreiber-Notizen bestätigen für 79 Wörter der ursprünglichen
+V2-Auswahl den Touch-Abgleich / die Lesbarkeit. Für `10D1` und den neu ergänzten
+Steuerungszustand `1001` fehlt diese Bestätigung. `verification_status`
+unterscheidet `operator_touch_confirmed` von `source_only`.
 Das bestätigt weder eine unabhängige Sensorprüfung noch jede physikalische
 Interpretation. Der bestehende `live_confirmed`-Wert bleibt als historischer
 Nachweis des fünf Wörter umfassenden Kernprofils erhalten, nicht als pauschale
@@ -88,6 +89,80 @@ zusätzlich auf 0–100 bzw. 10/50/90. Frühere Beobachtungen behalten ihre gesp
 Einheit in Current-/History-API und CSV; es gibt keine Datenmigration oder
 Umdeutung alter `Rohwert`-Beobachtungen. Das Dashboard zeichnet unterschiedliche
 gespeicherte Einheiten getrennt und verbindet sie nicht zu einer gemeinsamen Linie.
+
+## Kessel-Steuerungszustand: nur lesend und ausdrücklich auswählen
+
+`modbus.1001` (FC03, Offset 4097, ein Wort) ist als reine Leserweiterung
+quellenbelegt, nicht live oder am Touch bestätigt. Zulässig sind ausschließlich
+die unveränderten unsigned Wörter `0`, `2`, `3`, `4`, `0x8002`, `0x8003`,
+`0x8004`. Basiszustand `raw & 0x7FFF`: 0 Aus, 2 Regelbetrieb,
+3 Gluterhaltung, 4 Zündung. Die letzten drei Zustände werden als „Ein“
+angezeigt; das ist ein Software-Steuerungszustand, keine unabhängige Flammen-
+oder Aktorrückmeldung. Bit `0x8000` ist ein Mindestlaufzeit-Kennzeichen,
+kein sekundengenauer Countdown. Insbesondere sind `1` und `0x8000` allein
+keine gültigen Lesestatuswerte. Unbekannte Wörter bleiben mit Rohwort,
+`value=null`, `quality=invalid` und `unknown_boiler_state` erhalten.
+
+Zusatzintervall 300 s, API-Frische 600 s; kein neues Minutenpolling.
+Upgrade und Katalogabfrage ändern die gespeicherte Auswahl nicht.
+Zur ausdrücklich lokalen Aufnahme eine UTF-8-CSV mit der Zeile
+`Betriebsstatus;4097;1001` importieren, Auswahl prüfen und Entwurf speichern.
+Vorschau allein speichert nichts. Dieser Import ändert ausschließlich den
+Monitor, niemals die Gerätetabelle. Kein Schreibadapter und keine Migration.
+
+**Anlagengrenze:** Der Betreiber meldet die neue Tabelle mit dieser Zuordnung
+inzwischen installiert. Das ist kein eigener Messwert-/Displaynachweis.
+Neue Reads weiterhin endlich planen, andere Leser ausschließen und Stopps beachten.
+Keine automatische Tabellenreparatur; lokale Software-/Simulatorprüfung und
+die laufende CSV-Vorschau ersetzen keine Geräteabnahme.
+
+### Neu zugeordnete Betriebsart und Basisparameter
+
+Die Decoder unterstützen `1000` (Offset 4096) als Betriebsart mit exakt den
+Lesecodes 0, 1, 2, 3, 6, 7, 9 und 10. Code 2 fasst Boiler-/Mehrkesselbetrieb
+zusammen; −1/`0xFFFF` und andere unbekannte Wörter sind
+`invalid`/`unknown_boiler_mode`, kein gültiger Aus-Zustand.
+Die vollständige Bedeutungszuordnung steht in den Signalmetadaten.
+
+`1007`/4103 ist die eingestellte Kessel-Basis-Solltemperatur, ganze °C,
+einschließlich der Grenzen 60–90. `9020`/36896 (Puffer 1 SOLL) und
+`9040`/36928 (Puffer 1 START) sind ganze °C einschließlich 10–90.
+Außerhalb dieser quellenbelegten Parametergrenzen entsteht
+`invalid_temperature_setting` mit unverändertem Rohwort und leerem Wert.
+Keine Skalierung oder Umdeutung als Temperaturmessung. Wirksame Schaltschwellen
+können durch weitere Anforderungen und Zeit-/Wettermodifikatoren abweichen.
+
+Die zusätzlich aus der vollständigen CSV übernommenen Kanäle `1005` (maximale
+interne Normalbetriebs-Regelgröße, 30–100 %), `1012` (Software-Reinigung 0/1/2)
+und `1013` (gewichteter Reinigungsintervallzähler in min, kein Countdown) werden
+ebenfalls dekodiert. Unbekannte Reinigungszustände sind Fehler, keine Nullwerte.
+
+Alle neuen Kanäle sind `source_only`, nicht automatisch live-/Touch-bestätigt,
+keine Read-to-clear-Werte, Intervall 300 s und API-Frische 600 s.
+Kein Upgrade ändert die Auswahl. Nur FC03-Einzelblöcke im bestehenden
+Leseprofil; Kernprofil, Signalsperren und Stopps unverändert. Keine Schreibfunktion.
+
+
+### Betriebsanzeige ohne bereitgestellten Statuskanal
+
+Eine gültige, frische und ausdrücklich ausgewählte Beobachtung von `modbus.1001`
+hat Vorrang, auch „Aus“ vor einer positiven Istregelgröße. Fehlt ein brauchbarer
+Status, nutzt das Dashboard vorhandene ausgewählte gültige `modbus.1003`-
+Beobachtungen in der gespeicherten Einheit `%` als **indirekten Betriebshinweis**.
+Ein positiver Wert ergibt „Leistungsregelung aktiv“ mit Originalregelgröße und
+Beobachtungszeit, keinen bestätigten Steuerungs- oder Flammenzustand.
+0 % bleibt „Betriebszustand nicht eindeutig“: Aus oder Gluterhaltung sind möglich,
+andere Zustände nicht ausgeschlossen. Kein Schwellwertmodell aus Temperaturen,
+Abgas, Sollwerten oder Anlagen-Betriebszähler.
+
+Bei abgewählten, fehlenden, veralteten, ungültigen oder einheitenfremden Quellen
+und bei API-Ausfall keine aktuelle Zustandsbehauptung. „Betriebszustand unbekannt“
+erklärt den konkreten Grund, nicht „Heizung aus“. Beide Quellen behalten 300 s
+Intervall und 600 s Frische einschließlich fortlaufendem Browseralter.
+Die Ersatzanzeige erzeugt keine Reads, Auswahländerungen oder Statushistorie.
+Das Band verwendet ausschließlich gespeicherte `1001`-Statusbeobachtungen.
+
+
 
 
 ## Aufzeichnung konfigurieren
@@ -146,7 +221,7 @@ physikalische Normierung. Settings, Regelgrößen, Steuerungsdatum/-zeit und Mes
 sind im Dashboard unterschieden. Raumtemperatur 0 und Abgastemperatur 299 können
 Initialzustände oder echte Werte sein; diese Mehrdeutigkeit bleibt dokumentiert.
 
-Folgeimporte erhalten Betreibertexte und alle nicht mehr enthaltenen Einträge.
+CSV-Folgeimporte erhalten Betreibertexte und alle nicht mehr enthaltenen Einträge.
 Identische/umsortierte Importe erzeugen weder Duplikate noch falsche Importfeld-
 Änderungsmarker. Sie setzen jedoch die Vorbelegung hochgeladener geeigneter
 Zeilen erneut; zuvor gespeicherte Abwahlen dieser Zeilen werden im Entwurf
@@ -180,11 +255,49 @@ Modbus-Ausnahmen 2/3 werden persistent ausgesetzt; gesunde Nachbarn bleiben
 auslesbar. Globale Geräte-/Protokollfehler bleiben Stopps.
 Details und bewusste Freigabe: [Fehlerverhalten](FEHLERVERHALTEN.md).
 
+### Aufzeichnung zwischen Instanzen übertragen
+
+Unter **Modbus-Aufzeichnung** liefert **Gespeicherte Aufzeichnung als JSON
+herunterladen** die Datei `sommerauer-aufzeichnung.json`.
+`GET /api/logging-config/export` liest ausschließlich die gespeicherte Auswahl,
+nicht den Browserentwurf oder eine eventuell noch ältere aktive Sammlerrevision.
+Die Datei enthält Formatversion `1` und `entries`; je Eintrag ausschließlich
+`code`, `offset`, `name`, `record`, `unit`, `description`. Abgewählte und
+gesperrte Einträge bleiben als solche erhalten.
+
+Im Ziel **JSON-Datei als Entwurf prüfen** verwenden. Anders als der ergänzende
+CSV-Import ersetzt JSON die Auswahl und übernimmt die Betreibertexte aus der
+Datei. Nur im Ziel vorhandene Zeilen samt Metadaten bleiben erhalten, aber
+`record=false`; kein Löschen vorhandener Einträge. Auch eine leere Auswahl ist
+gültig. Der Benutzer muss einen vorhandenen lokalen Entwurf vor dessen Ersetzung
+ausdrücklich bestätigen.
+
+`POST /api/logging-config/import-preview` erwartet
+`{"revision": <aktuelle lokale Revision>, "configuration": <Dateiobjekt>}`.
+Die Vorschau schreibt nichts; erst das bestehende revisionsgesicherte PUT
+übernimmt sie atomar. Formatversion, Felder, Registerzuordnung, Zählerpaare,
+Duplikate und Datenlimits werden lokal erneut validiert. Nicht kompatible
+ausgewählte Register werden abgelehnt, nicht stillschweigend aktiviert.
+Quelle und Ziel benötigen einen kompatiblen neuen Build. Unbekannte Format-
+oder Freigabefelder werden abgelehnt; kein Übernehmen fremder Revisionen.
+HTTP 409 erhält den bisherigen Entwurf.
+
+UTF-8-JSON, kanonischer Download höchstens 4 MiB abzüglich 1 KiB Anfragehülle;
+gesamte Importanfrage höchstens 4 MiB. Zu große Konfigurationen ergeben einen
+sichtbaren Fehler statt einer nicht wieder importierbaren Datei.
+Keine Geräteadresse, Netzwerkeinstellung, privaten Dateipfade, Sammlerzustände,
+Anfragebudgets, Signalsperren, Decoderfreigaben oder Messhistorie enthalten.
+Export/Vorschau starten keine Erfassung; Speichern setzt keine Schutzstopps
+oder Budgets zurück. Bei laufendem Sammler kann die bewusst gespeicherte Auswahl
+wie bisher an einer Zyklusgrenze wirksam werden. Eigene Namen/Beschreibungen vor
+Weitergabe auf persönliche Angaben prüfen.
+
+
 ## FC03-Transport und Offline-Simulator
 
 `backend/modbus.py` akzeptiert nur vollständig übereinstimmende `RegisterBlock`-
 Einträge des expliziten `READ_PROFILE` und sendet FC03/Unit 255 mit maximal
-zwei Registern. START/SOLL sind nicht Teil dieses Leseprofils. Jede synchrone
+zwei Registern. START/SOLL sind jetzt ausdrücklich lesend unterstützt. Jede synchrone
 Socketanfrage verwendet eine feste 3-s-Gesamtdeadline
 (einschließlich Warten auf den Client-Lock, Verbindungsaufbau und Empfang).
 Es gibt keine Retry- oder parallele Request-Ebene.
@@ -197,7 +310,7 @@ nach Teilantwort ist `IncompleteResponseError`; fehlerhafte vollständige Protok
 sind `ProtocolError`. TCP-Fragmentierung wird bis zur Deadline zusammengesetzt.
 
 `backend/modbus_simulator.py` liefert ausdrücklich synthetische Werte für alle
-80 Register und bildet das Leeren der Protokollakkumulatoren nach. Bestehende
+unterstützten Register (Steuerungszustand 2) und bildet das Leeren der Protokollakkumulatoren nach. Bestehende
 Faults bleiben erhalten. Modulstart bindet ausschließlich auf Loopback;
 Bibliotheks-/API-Start aktiviert keinen Simulator. Kein Schreibbefehl/Diagnosemodus.
 
@@ -236,9 +349,10 @@ Felder: Offset, interner Code, Projektname, Wortanzahl, dokumentierter Importsta
 Prüfstatus, Einheit/Decoder soweit bekannt. Unbekannte Semantik bleibt unbekannt.
 Alle `polling_enabled` sind absichtlich false: Dokumentation ist keine Aktivierung.
 
-Nicht enthalten im importierten Profil: Zustandskanal 4097; START-Code 9040 hex
-(potenzieller Offset 36928), SOLL-Code 9020 hex (potenzieller Offset 36896).
-Diese Zahlen sind keine nutzbaren Schreibadressen. Die internen Wetterausgaben
+Der Betreiber meldet die Zuordnungen für `1001`/4097, Betriebsart `1000`/4096,
+Kessel-Basis-Soll `1007`/4103, START `9040`/36928 und SOLL `9020`/36896
+mit der neuen Tabelle installiert. Eigener Messwertabgleich bleibt offen.
+Keine dieser Zuordnungen ist eine abgenommene Schreibfunktion. Die internen Wetterausgaben
 4128–4131 sind kein nachgewiesener Eingang für externe Prognosen.
 
 Bekannte Altfehler: Exception 2 bei nicht geeigneten Adress-/Tabellenkombinationen.

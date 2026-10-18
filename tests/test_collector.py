@@ -843,7 +843,7 @@ def test_extended_completion_and_offsets_restore_without_losing_interval_or_budg
     assert restarted._due_at(restarted._block_by_offset(0x100A)) - clock.monotonic() == 270
 
 
-@pytest.mark.parametrize("offset", [0x100B, 0x7013, 0x9020, 0x9040])
+@pytest.mark.parametrize("offset", [0x100B, 0x7013])
 def test_restore_rejects_unknown_or_nonblock_offsets(tmp_path, offset):
     collector, _, _ = extended_collector(tmp_path)
     collector._next_offset = offset
@@ -889,7 +889,7 @@ def test_stoker_invalid_remaining_minutes_records_error_and_blocks_signal(tmp_pa
     assert collector.blocked_signals == {"stoker.operating_minutes"}
 
 
-def test_simulator_supports_all_eighty_words_with_decodable_synthetic_values():
+def test_simulator_supports_the_explicit_read_profile_with_decodable_synthetic_values():
     seen_offsets = set()
     with ModbusSimulator() as simulator:
         client = ModbusTcpClient(*simulator.address)
@@ -898,7 +898,6 @@ def test_simulator_supports_all_eighty_words_with_decodable_synthetic_values():
             assert len(reply.words) == block.count
             assert decode_register_block(reply.offset, reply.words)
             seen_offsets.update(range(block.offset, block.offset + block.count))
-    assert len(seen_offsets) == 80
     assert seen_offsets == {definition["offset"] for definition in REGISTER_DEFINITIONS.values()}
 
 

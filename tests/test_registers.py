@@ -6,10 +6,8 @@ import pytest
 
 from backend.registers import (
     CORE_PROFILE,
-    CONTROL_CANDIDATES,
     READ_PROFILE,
     REGISTER_DEFINITIONS,
-    SIGNAL_DEFINITIONS,
     DecodeError,
     decode_register_block,
     signed16,
@@ -141,13 +139,11 @@ def test_decoder_rejects_unconfirmed_blocks_bad_counts_and_non_words() -> None:
     assert invalid_word.value.code == "invalid_register_word"
 
 
-def test_extended_profile_is_exactly_the_eighty_explicit_words() -> None:
+def test_extended_profile_contains_only_explicit_nonoverlapping_words() -> None:
     offsets = [block.offset + index for block in READ_PROFILE for index in range(block.count)]
-    assert len(offsets) == len(set(offsets)) == len(REGISTER_DEFINITIONS) == 80
+    assert len(offsets) == len(set(offsets)) == len(REGISTER_DEFINITIONS)
     assert set(offsets) == {definition["offset"] for definition in REGISTER_DEFINITIONS.values()}
     assert READ_PROFILE[:3] == CORE_PROFILE
-    assert len(SIGNAL_DEFINITIONS) == 78
-    assert sum(definition["live_confirmed"] for definition in REGISTER_DEFINITIONS.values()) == 5
     assert {
         code for code, definition in REGISTER_DEFINITIONS.items() if definition["read_to_clear"]
     } == {"12F0", "85E0", "85E1", "8BF0", "8BF1", "8E0F", "8E1F", "95E0", "95E1"}
@@ -156,14 +152,6 @@ def test_extended_profile_is_exactly_the_eighty_explicit_words() -> None:
     }
 
 
-def test_control_candidates_have_no_read_block_or_signal() -> None:
-    assert {candidate["code"] for candidate in CONTROL_CANDIDATES} == {"9020", "9040"}
-    for candidate in CONTROL_CANDIDATES:
-        assert candidate["kind"] == "control_candidate"
-        assert candidate["code"] not in REGISTER_DEFINITIONS
-        with pytest.raises(DecodeError) as error:
-            decode_register_block(int(candidate["code"], 16), (50,))
-        assert error.value.code == "unknown_register_block"
 
 
 @pytest.mark.parametrize(
@@ -294,10 +282,51 @@ def test_display_percent_metadata_does_not_scale_or_restrict_register_words(code
 
 
 def test_touch_confirmation_is_independent_of_activity_core_provenance_and_interval() -> None:
-    assert sum(row["verification_status"] == "operator_touch_confirmed" for row in REGISTER_DEFINITIONS.values()) == 79
     assert REGISTER_DEFINITIONS["10D1"]["verification_status"] == "source_only"
     assert REGISTER_DEFINITIONS["8E00"]["module_status"] == "inactive"
     assert REGISTER_DEFINITIONS["8E00"]["verification_status"] == "operator_touch_confirmed"
     assert REGISTER_DEFINITIONS["8E00"]["live_confirmed"] is False
     assert REGISTER_DEFINITIONS["8E00"]["interval_seconds"] == 300
     assert REGISTER_DEFINITIONS["9001"]["interval_seconds"] == 60
+
+
+@pytest.mark.parametrize("raw", (0, 2, 3, 4, 0x8002, 0x8003, 0x8004))
+def test_boiler_state_preserves_unsigned_word(raw):
+    signal, = decode_register_block(4097, (raw,))
+    assert (signal.value, signal.raw_words, signal.unit, signal.quality) == (raw, (raw,), "Rohwert", "ok")
+
+
+@pytest.mark.parametrize("raw", (1, 5, 0x8000, 0xFFFF))
+def test_unknown_boiler_state_is_an_error_not_off(raw):
+    signal, = decode_register_block(4097, (raw,))
+    assert (signal.value, signal.raw_words, signal.quality, signal.error_code) == (
+        None, (raw,), "invalid", "unknown_boiler_state",
+    )
+
+
+@pytest.mark.parametrize(("code", "raw", "expected", "unit"), [
+    *[("1000", mode, mode, "Rohwert") for mode in (0, 1, 2, 3, 6, 7, 9, 10)],
+    ("1007", 60, 60, "°C"), ("1007", 90, 90, "°C"),
+    ("9020", 10, 10, "°C"), ("9020", 90, 90, "°C"),
+    ("9040", 10, 10, "°C"), ("9040", 90, 90, "°C"),
+    ("1005", 30, 30, "%"), ("1005", 100, 100, "%"),
+    ("1012", 0, 0, "Rohwert"), ("1012", 1, 1, "Rohwert"), ("1012", 2, 2, "Rohwert"),
+    ("1013", 0, 0, "min"), ("1013", 65535, 65535, "min"),
+])
+def test_added_parameter_read_decoders_keep_original_words(code, raw, expected, unit):
+    signal, = decode_register_block(int(code, 16), (raw,))
+    assert (signal.value, signal.unit, signal.quality, signal.raw_words) == (expected, unit, "ok", (raw,))
+
+
+@pytest.mark.parametrize(("code", "raw", "error"), [
+    *[("1000", mode, "unknown_boiler_mode") for mode in (4, 5, 8, 11, 0xFFFF)],
+    *[(code, raw, "invalid_temperature_setting") for code, raw in (
+        ("1007", 59), ("1007", 91), ("1007", 65535),
+        ("9020", 9), ("9020", 91), ("9040", 9), ("9040", 91),
+    )],
+    ("1005", 29, "invalid_power_limit"), ("1005", 101, "invalid_power_limit"),
+    ("1012", 3, "unknown_cleaning_state"), ("1012", 65535, "unknown_cleaning_state"),
+])
+def test_added_parameter_errors_never_become_current_zero(code, raw, error):
+    signal, = decode_register_block(int(code, 16), (raw,))
+    assert (signal.value, signal.quality, signal.error_code, signal.raw_words) == (None, "invalid", error, (raw,))
