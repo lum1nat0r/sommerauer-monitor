@@ -14,6 +14,22 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
+## Individuelle Aufzeichnung (#55)
+
+Die separate Seite **Modbus-Aufzeichnung** unterstützt CSV-Entwurf,
+inkrementellen Abgleich, Betreiber-Metadaten und atomare persistente Auswahl.
+Der Sammler übernimmt sie an einer Zyklusgrenze; gespeicherte und aktive Revision
+sind sichtbar. Keine zusätzlichen Decoder oder Gerätezugriffe durch den Import.
+Bedienung: [Modbus-Konfiguration](docs/MODBUS.md#aufzeichnung-konfigurieren).
+
+Offline mit synthetischen Daten und Loopback-Simulator abgenommen;
+Prüfnachweise im [Ergebnisbericht](reports/RESULTS.md).
+Vor Deployment neuen Build verwenden und konsistente SQLite-Sicherung erstellen:
+Schema 1/2 wird unter Erhalt der Historie auf 3 erweitert, kein Rückstart mit
+alter App auf dieser Datenbank. Unraid-/Live-Abnahme und Originalexportprüfung
+werden daraus nicht abgeleitet. Zusätzliche Register bleiben bis zu fachlicher
+Prüfung, Decoder und gesonderter begrenzter Inbetriebnahme gesperrt.
+
 ## Domainaktionen hinter einem Reverse-Proxy
 
 Die Originprüfung unterstützt jetzt die optionale private Deploymentvariable

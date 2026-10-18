@@ -1,6 +1,7 @@
 import { StrictMode, useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
+import LoggingConfig from './LoggingConfig';
 
 type CollectorStatus = {
   state: string;
@@ -381,4 +382,19 @@ function App() {
   </main>;
 }
 
-createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);
+function Navigation() {
+  const [route, setRoute] = useState(() => window.location.hash);
+  useEffect(() => {
+    const navigate = () => setRoute(window.location.hash);
+    window.addEventListener('hashchange', navigate);
+    return () => window.removeEventListener('hashchange', navigate);
+  }, []);
+  const modbus = route === '#/modbus';
+  return <>
+    <nav className="app-navigation" aria-label="Hauptnavigation"><a href="#/" aria-current={!modbus ? 'page' : undefined}>Dashboard</a><a href="#/modbus" aria-current={modbus ? 'page' : undefined}>Modbus-Aufzeichnung</a></nav>
+    <div hidden={modbus}><App /></div>
+    <div hidden={!modbus}><LoggingConfig /></div>
+  </>;
+}
+
+createRoot(document.getElementById('root')!).render(<StrictMode><Navigation /></StrictMode>);

@@ -903,3 +903,93 @@ Tatsächlich ausgeführte Offline-Prüfungen:
 Keine Live-Heizungsabfrage, kein Container-/Unraid-Lauf, kein Deployment und
 kein neues Image/Release. Bereits veröffentlichte Images enthalten den Rückbau
 nicht automatisch; vor einem Deployment ist ein neuer Build erforderlich.
+
+## 18.10.2026 – Individuelle Modbus-Aufzeichnung (#55)
+
+Quelle für den Importvertrag: öffentliches Betreiberbeispiel im Kommentar zu
+Issue #55 (`Name;dezimaler Offset;interner Hexcode`, ohne Kopfzeile).
+Kein privater Originalexport und keine Anlage unabhängig geprüft. Alle neuen
+Prüfdaten, Namen und Betreibertexte waren synthetisch.
+
+Implementiert: separate navigierbare Konfigurationsseite mit CSV-Entwurf,
+farblich/textlich markiertem inkrementellem Abgleich, Aufzeichnungsauswahl und
+Betreiber-Metadaten. Codebasierte Identität, Erhalt fehlender Zeilen und Texte,
+Ablehnung mehrdeutiger Codes/Offsets, atomare revisionsgeschützte Speicherung,
+No-op bei identischem Inhalt. Schema 1/2 wird additiv auf 3 erweitert, ohne
+alte Tabellen oder Beobachtungen zu löschen. Nur vorhandene bestätigte Decoder
+sind aktivierbar; CSV-Zeilen erzeugen weder Decoder noch Gerätefreigaben.
+
+Der Sammler verwendet einen festen Snapshot pro Kerndurchlauf, überspringt
+abgewählte Blöcke und speichert bei gemeinsam gelesenen Wörtern nur ausgewählte
+Signale. 7010/7011 bleiben ein gemeinsam geschalteter Mehrwortzähler. Pause,
+harte Stopps, Anfrage-/Wiederaufnahmebudget und Mindestabstände bleiben wirksam.
+Mit Teilprofil kein automatischer Budgetreset ohne drei vollständige Kernzyklen.
+Betreiber-Einheiten ändern weder Rohwerte noch Decoder-Einheiten.
+
+Tatsächlich ausgeführte Offline-Prüfungen:
+
+- CPython **3.12.9**, `uv` **0.12.2**, Node **26.12.0**, npm **12.2.1**.
+  Abhängigkeiten mit `uv sync --locked --python 3.12.9` und `npm ci` installiert.
+  Das zunächst installierte `uv` 0.13.1 wurde vor der Abnahme auf 0.12.2 korrigiert.
+- `uv run pytest -q`: abschließend **148 bestanden**, eine bekannte
+  Starlette-/AnyIO-DeprecationWarning. Schutzfälle für echte pausierte/gestoppte/
+  wiederaufnehmende Collectorinstanzen ergänzt; einen bisherigen Test auf exakte
+  Tabellennamen statt Nutzerverhalten entfernt.
+  Abgedeckt: Import/Delta/Reihenfolge, Metadaten, Mehrwortfreigabe, Manipulation,
+  echte konkurrierende CAS-Saves, SQLite-Fehler/Rollback, Schema-1-/2-Erhalt,
+  Neustart, sichere Zyklusgrenze, leere Auswahl und unverändertes Retrybudget.
+- `uv run ruff check .`: **All checks passed!**
+- `npm run build`: TypeScript und Vite erfolgreich, **29 Module**.
+- `uv build --wheel --python 3.12.9`: Wheel erfolgreich erstellt.
+- Gitleaks über Backend, Frontendquellen, Tests und Dokumentation:
+  **keine gefundenen Geheimnisse**; Betreiber-/Netzwerkdaten manuell ausgeschlossen.
+- Gebaute Oberfläche durch echten Uvicorn-Loopbackserver ausgeliefert und im
+  Chromium-Browser bedient: Upload → Tabelle bearbeiten → Speichern → bewusstes
+  Fortsetzen → endlicher Simulatorlauf. Vor Upload bestand ein synthetischer
+  vollständiger Kernzyklus; danach nur Kessel und Puffer oben ausgewählt.
+  Insgesamt **fünf FC03-Anfragen** an den Loopback-Simulator, keine Wiederaufnahme,
+  Endzustand `completed`. SQLite-Integrität **ok**.
+
+| Signal | Beobachtungen vor Auswahländerung | Nach endlichem Folgezyklus |
+|---|---:|---:|
+| `boiler.temperature` | 1 | 2 |
+| `buffer.top_temperature` | 1 | 2 |
+| `buffer.bottom_temperature` | 1 | 1 |
+| `boiler.operating_minutes` | 1 | 1 |
+
+Die tatsächlichen Anfrageblöcke waren 4102/1, 28688/2, 36864/2, danach
+4102/1 und 36864/2. Historische Zähler-/Puffer-unten-Werte blieben erhalten.
+Trotz synthetischer Betreibereinheit „Testgrad“ blieben Kesselmessungen 42 °C.
+
+Weitere tatsächliche Browserprüfungen:
+
+- Upload ohne Speichern ließ Revision 0, Pausenzustand und Historie unverändert.
+  Unbestätigte Zeilen waren sichtbar gesperrt; beide Zählercheckboxen schalteten
+  gemeinsam. Neuladen erhielt Auswahl, Einheit und Beschreibung.
+- Folgeimport ergänzte genau einen Eintrag und änderte einen Namen; fehlende
+  Zeilen und Betreibertexte blieben erhalten. Neue/geänderte Zeilen standen mit
+  Markierung oben. Umsortierter identischer Import hatte keine Änderungsmarker
+  und erhöhte beim Speichern die Revision nicht.
+- Widersprüchliche doppelte CSV-Zeile und ungültige UTF-8-Datei verständlich
+  abgewiesen. Ein temporärer SQLite-Trigger erzwang einen realen Savefehler:
+  HTTP 503, alte gespeicherte/aktive Revision und Historie unverändert.
+  Trigger anschließend entfernt.
+- App-Prozess beendet und auf demselben synthetischen Datenverzeichnis neu
+  gestartet: gespeicherte Konfiguration geladen, `completed` erhalten, keine
+  weitere Anfrage. Parallele Speicherung während Browserentwurf führte zu
+  sichtbarem Versionskonflikt; lokaler Entwurf blieb bis zum Verwerfen erhalten.
+- Desktop und 390-px-Ansicht per Screenshot gesichtet. Ein anfangs beobachteter
+  mobiler Seitenüberlauf durch absolut positionierte Tabellenlabels wurde mit
+  relativ positioniertem Scrollcontainer korrigiert. Final Seitenbreite 390 px;
+  breite Tabelle nur innerhalb ihres eigenen Scrollcontainers. Keine JS-Fehler.
+
+Der erste Versuch über Vites Entwicklungsproxy wurde korrekt vom Origin-Schutz
+mit HTTP 403 abgewiesen; die Abnahme erfolgte danach mit der gebauten Oberfläche
+direkt aus derselben App-Origin. Keine pauschale Origin-/Proxyfreigabe ergänzt.
+Prüfprozesse, Browseransicht und Wegwerfskripte anschließend beendet/entfernt;
+synthetische SQLite-Belege bleiben lokal im ignorierten Datenverzeichnis.
+
+Grenzen: kein Heizungszugriff, keine Schreibbefehle, kein neuer Decoder,
+kein Container-/Unraid-Lauf und kein Deployment oder Image-Release.
+Vor Deployment konsistent sichern und einen neuen Build verwenden;
+alte App-Versionen können die auf Schema 3 migrierte Datenbank nicht öffnen.

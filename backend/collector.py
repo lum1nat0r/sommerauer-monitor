@@ -144,7 +144,13 @@ class Collector:
         self.state = "paused"
         self.error: str | None = None
         self._has_saved_state = False
+        self._logging_config: dict[str, Any] = {"revision": 0, "entries": []}
         self._restore_state()
+        try:
+            self._logging_config = self.store.get_logging_config()
+        except StorageError as exc:
+            self.state = "stopped_storage"
+            self.error = str(exc)
         if self.state == "paused":
             self._paused.set()
 
@@ -179,6 +185,29 @@ class Collector:
             "next_action": self._last_action,
             "profile_id": PROFILE_ID,
         }
+
+    def logging_status(self, saved_revision: int | None = None) -> dict[str, Any]:
+        """Aktiven Zyklus-Snapshot getrennt vom gespeicherten Entwurf melden."""
+        active = self._logging_config
+        if saved_revision is None:
+            saved_revision = self.store.get_logging_config()["revision"]
+        return {
+            "active_revision": active["revision"],
+            "active_entries": active["entries"],
+            "apply_status": "aktiv" if saved_revision == active["revision"] else "ausstehend",
+        }
+
+    def _selected_signals(self) -> set[str]:
+        return {
+            entry["signal_id"] for entry in self._logging_config["entries"]
+            if entry["record"] and entry["eligible"] and entry["signal_id"] is not None
+        }
+
+    def _advance_block(self, block) -> None:
+        self._next_offset = CORE_PROFILE[
+            (next(i for i, candidate in enumerate(CORE_PROFILE) if candidate.offset == block.offset) + 1)
+            % len(CORE_PROFILE)
+        ].offset
 
     def _restore_state(self) -> None:
 
@@ -343,7 +372,23 @@ class Collector:
                     self._retry_monotonic_deadline = None
                     self._persist_state()
                 else:
+                    # Configuration is immutable for a whole cycle and never changes a retry.
+                    if self._next_offset == CORE_PROFILE[0].offset or not self._selected_signals():
+                        saved_config = self.store.get_logging_config()
+                        if saved_config["revision"] != self._logging_config["revision"]:
+                            self._logging_config = saved_config
+                            self._successful_core_cycles = 0
+                            self._successful_blocks_in_cycle = 0
+                            self._next_offset = CORE_PROFILE[0].offset
+                    selected = self._selected_signals()
+                    if not selected:
+                        self._last_action = "Keine freigegebenen Signale ausgewählt"
+                        self.wait(self._stop, 0.25)
+                        continue
                     block = self._block_by_offset(self._next_offset)
+                    if not selected.intersection(block.signal_ids):
+                        self._advance_block(block)
+                        continue
                     if not self._wait_until(self._due_at(block)):
                         break
                     if self._stop.is_set() or self._paused.is_set():
@@ -475,6 +520,7 @@ class Collector:
                 validate_operating_counter_progression(
                     previous_value, counter.value, observed - previous_time
                 )
+            selected = self._selected_signals()
             observations = [
                 {
                     "observation_id": str(uuid4()),
@@ -490,15 +536,13 @@ class Collector:
                     "decoder_version": item.decoder_version,
                 }
                 for item in decoded
+                if item.signal_id in selected
             ]
             request.update(completed_at=observed.isoformat(), outcome="ok")
             self.store.record_cycle(request, observations)
             if counter is not None:
                 self._last_counter = (counter.value, observed)
-            self._next_offset = CORE_PROFILE[
-                (next(i for i, candidate in enumerate(CORE_PROFILE) if candidate.offset == block.offset) + 1)
-                % len(CORE_PROFILE)
-            ].offset
+            self._advance_block(block)
             expected = CORE_PROFILE[self._successful_blocks_in_cycle].offset
             if block.offset == expected:
                 self._successful_blocks_in_cycle += 1
@@ -585,6 +629,7 @@ class Collector:
                 "next_offset": self._next_offset,
                 "next_action": self._last_action,
                 "request_in_flight": self._request_in_flight,
+                "logging_revision": self._logging_config["revision"],
             },
             self.now().isoformat(),
         )

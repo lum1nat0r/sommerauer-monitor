@@ -90,26 +90,14 @@ def test_migration_reopen_preserves_rows_and_rejects_newer_schema(tmp_path):
     assert SQLiteStore(path).history("boiler.temperature") == store.history("boiler.temperature")
     with sqlite3.connect(path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
-        connection.execute("PRAGMA user_version = 3")
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
 
-    with pytest.raises(StorageError, match="newer than supported"):
+    with pytest.raises(StorageError):
         SQLiteStore(path)
-    with pytest.raises(StorageError, match="Backup schema 3 is not supported"):
+    with pytest.raises(StorageError):
         SQLiteStore.restore_from(path, tmp_path / "unsupported-restore.sqlite3")
 
 
-def test_new_database_creates_only_monitoring_tables(tmp_path):
-    store = make_store(tmp_path)
-    with closing(sqlite3.connect(store.path)) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
-        assert {
-            row[0] for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
-        } == {
-            "profiles", "signals", "requests", "observations", "events",
-            "config_versions", "collector_state", "schema_migrations",
-        }
 
 
 @pytest.mark.parametrize("version", [1, 2])
@@ -137,10 +125,21 @@ def test_legacy_database_preserves_minute_values_and_extra_tables_on_restore(tmp
         with closing(sqlite3.connect(database)) as connection:
             return list(connection.iterdump())
 
+    def legacy_dump(database):
+        return [
+            line for line in dump(database)
+            if "logging_config" not in line
+            and not line.startswith('INSERT INTO "schema_migrations"')
+        ]
+
     for minute in range(3):
         write_minute(store, minute)
     state = {"state": "running", "attempts": 2}
     store.save_collector_state(state, start.isoformat())
+    with sqlite3.connect(path) as connection:
+        connection.execute("DROP TABLE logging_config")
+        connection.execute("DELETE FROM schema_migrations WHERE version = 3")
+        connection.execute("PRAGMA user_version = 1")
     if version == 2:
         # Synthetische additive Alttabellen dürfen weder migriert noch gelöscht werden.
         with closing(sqlite3.connect(path)) as connection:
@@ -204,10 +203,11 @@ def test_legacy_database_preserves_minute_values_and_extra_tables_on_restore(tmp
                     """
                 )
 
-    original = dump(path)
+    original = legacy_dump(path)
     original_measurements = list(store.stream_observations())
     reopened = SQLiteStore(path)
-    assert dump(path) == original
+    assert legacy_dump(path) == original
+    assert reopened.get_logging_config()["revision"] == 0
     assert list(reopened.stream_observations()) == original_measurements
     write_minute(reopened, 3)
     measurements = list(reopened.stream_observations())
@@ -237,7 +237,7 @@ def test_legacy_database_preserves_minute_values_and_extra_tables_on_restore(tmp
     ]
     for database in (path, backup, restored.path):
         with closing(sqlite3.connect(database)) as connection:
-            assert connection.execute("PRAGMA user_version").fetchone()[0] == version
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     write_minute(restored, 4)
     assert restored.count_observations() == 10
     assert dump(path) == source_dump

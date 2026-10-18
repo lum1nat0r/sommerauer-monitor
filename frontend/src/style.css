@@ -137,3 +137,48 @@ footer { display: flex; justify-content: space-between; gap: 12px; padding: 17px
   .chart-caption { flex-wrap: wrap; font-size: .65rem; }
   footer { flex-direction: column; }
 }
+
+.app-navigation { display: flex; flex-wrap: wrap; gap: 8px; width: min(1120px, calc(100% - 48px)); margin: 20px auto 0; }
+.app-navigation a { padding: 10px 14px; color: var(--accent); border-radius: 7px; font-size: .88rem; font-weight: 700; text-decoration: none; }
+.app-navigation a[aria-current='page'] { background: var(--accent); color: white; }
+.logging-intro { margin: 22px 0; line-height: 1.6; }
+.logging-status, .logging-import { padding: 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.logging-status h2, .logging-import h2 { margin-bottom: 14px; }
+.logging-status dl { display: flex; flex-wrap: wrap; gap: 20px 40px; margin: 0 0 18px; }
+.logging-status dt { color: var(--muted); font-size: .8rem; }
+.logging-status dd { margin: 5px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+.logging-status p, .logging-import p, #logging-metadata-help { font-size: .88rem; line-height: 1.6; overflow-wrap: anywhere; }
+.logging-status p:last-child { margin-bottom: 0; }
+.logging-notice { padding: 14px; background: #e8eee7; border-left: 3px solid var(--accent); }
+.logging-import input[type='file'] { width: 100%; min-height: 44px; padding: 8px 0; }
+.logging-table-wrap { position: relative; overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.logging-table { width: 100%; border-collapse: collapse; font-size: .82rem; text-align: left; }
+.logging-table caption { padding: 14px; text-align: left; color: var(--muted); line-height: 1.5; }
+.logging-table th, .logging-table td { padding: 13px 10px; border-top: 1px solid var(--border); vertical-align: top; }
+.logging-table thead { background: #e8eee7; }
+.logging-table th[scope='row'] { min-width: 170px; max-width: 260px; overflow-wrap: anywhere; font-weight: 600; }
+.logging-table small { display: block; margin-top: 8px; line-height: 1.5; font-weight: 400; overflow-wrap: anywhere; }
+.logging-table input[type='text'], .logging-table textarea { width: 100%; min-width: 100px; min-height: 42px; padding: 8px; border: 1px solid #a9b9ac; border-radius: 6px; font: inherit; background: white; color: #192720; }
+.logging-table textarea { min-width: 180px; resize: vertical; }
+.logging-check { display: flex; align-items: center; min-width: 125px; min-height: 42px; gap: 8px; font-size: .78rem; }
+.logging-check input { width: 20px; height: 20px; accent-color: var(--accent); flex-shrink: 0; }
+.logging-change { display: block; width: fit-content; margin-top: 8px; padding: 3px 7px; border: 1px solid #bcc7be; border-radius: 4px; font-size: .73rem; }
+.logging-row-new { background: #edf7ee; }
+.logging-row-new .logging-change { color: #205d32; border-color: #8eaf95; }
+.logging-row-changed { background: #fff4df; }
+.logging-row-changed .logging-change { color: #704b13; border-color: #c9aa73; }
+.import-field-changed { font-weight: 800; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.logging-eligible { color: #205d32; }
+.logging-blocked { color: #873d30; }
+.logging-table td:last-child { min-width: 190px; max-width: 280px; overflow-wrap: anywhere; }
+.logging-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0 12px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 760px) {
+  .app-navigation { width: calc(100% - 32px); }
+  .logging-status, .logging-import { padding: 16px; }
+}
+@media (max-width: 430px) {
+  .app-navigation { width: calc(100% - 24px); }
+  .app-navigation a { padding: 10px; font-size: .8rem; }
+  .logging-actions .button { width: 100%; }
+}

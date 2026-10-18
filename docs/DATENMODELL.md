@@ -45,6 +45,14 @@ UTC intern; Europe/Vienna für Anzeige. CSV mit ISO-8601-Zeit/Offset, Einheit un
 Qualität, frei wählbarem Zeitraum. Keine doppelten/ausgelassenen Stunden beim
 Sommerzeitwechsel. Große Exporte streamen; Abfrageumfang/Sortierung deterministisch.
 
+Die individuelle Registerauswahl liegt mit Revision und Betreiber-Metadaten
+atomar in `logging_config` derselben Datenbank (Schema 3). Die Migration von
+Schema 1/2 ergänzt nur Tabellen/Metadaten; Minutenhistorie und alte zusätzliche
+Tabellen bleiben erhalten. Ein konkurrierender veralteter Entwurf wird über
+Revisionsvergleich unter `BEGIN IMMEDIATE` abgewiesen. Inhaltlich unveränderte
+Speicherung ist ein No-op. Die aktive Zyklusrevision steht zusätzlich im
+Sammlerzustand; Importfelder sind keine nachträgliche Decoderänderung.
+
 ## HTTP-API
 
 FastAPI veröffentlicht OpenAPI unter `/openapi.json` und Swagger UI unter `/docs`.
@@ -55,6 +63,9 @@ Alle Leseendpunkte arbeiten ausschließlich mit SQLite; kein Refresh löst Modbu
 | `GET /api/health` | App- und Datenbankstatus; unabhängig vom Sammlerzustand |
 | `GET /api/config` | Redigierte Konfiguration; Hostwert und Datenpfad fehlen |
 | `PUT /api/config` | Nur `display_timezone`; speichert Version und Ereignis |
+| `GET /api/logging-config` | Gespeicherte Einträge/Revision, aktive Einträge/Revision und Übernahmestatus |
+| `POST /api/logging-config/preview` | JSON `{revision, csv_text}`: validierter inkrementeller Entwurf ohne Speicherung/Read |
+| `PUT /api/logging-config` | JSON `{revision, entries}`: vollständige atomare Auswahl und Metadaten; HTTP 409 bei Versionskonflikt |
 | `GET /api/signals/current` | Letzter Wert, Einheit, Messzeit, Alter, Qualität und Freshness |
 | `GET /api/history/{signal_id}` | ISO-8601-Zeitbereich, UTC-normalisiert, seitenweise bis 10.000 Rohpunkte |
 | `GET /api/events` | Neueste Ereignisse mit `limit`/`offset` |
@@ -78,7 +89,9 @@ Zugangsdaten; die private Freigabe erscheint nicht in `/api/config`.
 Dies ist CSRF-Schutz, kein Ersatz für Netzwerk-/Betriebssystem-Zugriffsschutz:
 App nur im vertrauenswürdigen LAN/Tailscale bereitstellen.
 
-Die API-Konfiguration ändert ausschließlich die Anzeigezeitzone. Modbus-Ziel,
-Port, Unit, Profil und Datenpfad bleiben Deployment-Konfiguration und werden
-niemals per Verwaltungsroute geändert. Verwaltungsaktionen benötigen einen
-konfigurierten Collector; fehlt er, antwortet die Route mit HTTP 409.
+`PUT /api/config` ändert ausschließlich die Anzeigezeitzone; die separate
+Aufzeichnungskonfiguration Auswahl und Betreiber-Metadaten; nur bestätigte
+Signale sind zur Erfassung aktivierbar. Modbus-Ziel, Port, Unit, Profil und
+Datenpfad bleiben unveränderliche Deployment-Konfiguration. Sammleraktionen benötigen einen konfigurierten
+Collector (sonst HTTP 409); CSV-Vorschau und Speicherung sind auch offline ohne
+Collector möglich. Import-/Save-Anfragen sind auf 4 MiB JSON begrenzt.

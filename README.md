@@ -71,6 +71,19 @@ Anwendungsstart startet weder Sammler noch Simulator und führt keine Gerätezug
 Den Simulator lokal mit `uv run python -m backend.modbus_simulator` starten
 (Standardbindung `127.0.0.1:1502`); Faults sind per `--fault` wählbar.
 
+### Modbus-Werte auswählen
+
+Die Navigation **Modbus-Aufzeichnung** öffnet eine separate Konfigurationsseite.
+CSV hochladen, **Aufzeichnen**, Einheit und Beschreibung bearbeiten, dann
+**Entwurf speichern**. Vorschau und Änderungen bleiben bis dahin unverbindlich.
+Die Auswahl steuert die tatsächliche Erfassung, nicht nur die Anzeige.
+Nur bestätigte Kernsignale sind aktivierbar; Betreibertexte verändern weder
+Decoder noch Messwerteinheiten. Bestehende Historie bleibt erhalten.
+Format, inkrementelle Importregeln und sichere Übernahme:
+[Modbus-Konfiguration](docs/MODBUS.md#aufzeichnung-konfigurieren).
+Die Funktion benötigt einen neuen App-/Image-Build; bestehende veröffentlichte
+Images werden nicht verändert.
+
 ## Docker und Unraid
 
 Für Unraid steht [compose.unraid.yaml](compose.unraid.yaml) als eigenständiger

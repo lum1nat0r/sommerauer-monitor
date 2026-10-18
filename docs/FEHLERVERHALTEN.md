@@ -45,6 +45,30 @@ rohen Transport-/Speicherfehler oder Konfigurations-Fingerprints zurück. Ein ex
 `acknowledge_and_start` setzt harte Stopps erst nach Ursachenklärung zurück;
 Prozessstart quittiert sie nicht.
 
+### Änderungen der Aufzeichnungsauswahl
+
+CSV-Vorschau und Speichern erzeugen selbst keine Modbus-Anfrage und verändern
+weder Pause/Fehlerstopp noch das Wiederaufnahmebudget. Der Sammler übernimmt die
+gespeicherte Auswahl vor dem nächsten Kerndurchlauf als festen Zyklus-Snapshot;
+ein laufender Zyklus einschließlich Retry wird nicht dazwischen umkonfiguriert.
+Gespeicherte und aktive Revision/Auswahl sind über `/api/logging-config` sichtbar.
+Bei Pause oder hartem Stopp kann eine neue Revision bis zum nächsten bewussten
+Start ausstehen. Bei Prozessstart wird die gespeicherte Auswahl geladen; der
+gespeicherte Fehlerzustand und die konservative Retry-Wartezeit bleiben wirksam.
+
+Abgewählte Blöcke entfallen aus dem normalen Plan. Bei einem teilweise
+ausgewählten Zweierblock werden beide Wörter unverändert validiert, aber nur
+ausgewählte Signale gespeichert. Bereits geplante begrenzte Wiederaufnahmen
+bleiben am selben bestätigten Block, auch wenn dessen Signale inzwischen
+abgewählt wurden; unter der neuen Auswahl entstehen dafür keine Beobachtungen.
+Eine vollständig leere Auswahl wartet ohne normale Reads; kein Busy-Loop.
+
+Eine Auswahländerung setzt keinen Versuchszähler zurück. Drei vollständige
+erfolgreiche **Kernzyklen aller drei Blöcke** bleiben Voraussetzung für den
+automatischen Budgetreset. Mit einem Teilprofil bleibt das verbrauchte Budget
+daher konservativ bestehen. Bestehende Minutenhistorie bleibt bei jeder
+Konfigurationsänderung unverändert.
+
 ## Reine Verbindungsfehler
 
 TCP-Verbindungsfehler oder Timeout ohne empfangene Antwortbytes dürfen in

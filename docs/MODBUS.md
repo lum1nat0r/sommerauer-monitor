@@ -43,6 +43,65 @@ konservative Schranke setzt weder Heizungs-Tastgrad noch Zählerrücksetzung ode
 Es sind Anlagen-Betriebsminuten, nicht bewiesene Flammenlaufzeit oder Brennerstarts.
 BO01/BO02 bezeichnen an dieser Anlage oben/unten desselben Puffers.
 
+## Aufzeichnung konfigurieren
+
+Unter **Modbus-Aufzeichnung** (`#/modbus`) wird ausschließlich die lokale
+Monitor-Auswahl bearbeitet, niemals die Modbus-Tabelle der Heizung.
+Formatquelle ist das [Betreiberbeispiel in Issue #55](https://github.com/lum1nat0r/sommerauer-monitor/issues/55#issuecomment-6218867012);
+ein privater Originalexport wurde nicht unabhängig geprüft.
+
+1. CSV als UTF-8 (optionaler BOM), ohne Kopfzeile hochladen:
+   `Name;dezimaler Offset;interner Hexcode`, z. B. `Kessel_Ist;4102;1006`.
+   Der interne Code besteht aus vier Hexzeichen; Groß-/Kleinschreibung ist
+   unerheblich. Maximal 1 MiB und 5.000 Einträge. CSV-Anführungszeichen für
+   Namen mit Semikolon werden unterstützt.
+2. Die Vorschau ergänzt/aktualisiert nach **internem Code als stabiler Identität**,
+   nicht nach Reihenfolge oder Name. Neue Zeilen stehen grün als „Neu“, geänderte
+   gelb als „Geändert“ oben; betroffene Importfelder sind benannt.
+3. **Aufzeichnen**, **Einheit** und **Beschreibung** bearbeiten. Einheit/Beschreibung
+   sind Betreiber-Metadaten, keine Umrechnung oder fachliche Bestätigung.
+   Messungen, Diagramme und CSV-Messwertexport behalten ihre Decoder-Einheit.
+4. **Entwurf speichern** schreibt alle Einträge und Einstellungen atomar in
+   `monitor.sqlite3` im persistenten Datenverzeichnis. Ohne Speichern bleibt
+   die bisherige Konfiguration unverändert. „Entwurf verwerfen und neu laden“
+   verwirft lokale Änderungen ausdrücklich.
+
+Neue Einträge sind zunächst abgewählt. Nur exakte bestätigte Code-/Offset-
+Zuordnungen des `core`-Profils haben einen Decoder; andere Einträge sind mit
+Begründung gesperrt. Offsetänderungen deaktivieren die betroffene Auswahl,
+beim Mehrwortzähler beide Wörter. Bei wiederhergestellter bestätigter Zuordnung
+ist eine bewusste erneute Auswahl möglich. Eine reine Namensänderung erhält
+die Auswahl. **7010/7011** werden gemeinsam geschaltet und als ein
+Anlagen-Betriebsminutensignal dekodiert. Die beiden Pufferkanäle sind separat
+abwählbar; technisch wird weiterhin der bestätigte Zweierblock gelesen und
+validiert, aber nur der ausgewählte Kanal gespeichert.
+
+Folgeimporte erhalten Betreibertexte und alle nicht mehr enthaltenen Einträge.
+Identische/umsortierte Importe erzeugen weder Duplikate noch Änderungsmarker;
+inhaltlich unverändertes Speichern erhöht auch die Revision nicht. Doppelte
+Codes oder Offsets, widersprüchliche Zuordnungen und ungültige Dateien werden
+vollständig abgelehnt. Ein neuer Import basiert auf der gespeicherten
+Konfiguration; vorangehende ungespeicherte Importfelder daher zuerst speichern,
+wenn sie Grundlage des nächsten Imports sein sollen.
+
+Gespeicherte und tatsächlich im Sammler geladene Revision/Auswahl sind getrennt
+sichtbar. Ein laufender Zyklus einschließlich Wiederaufnahme verwendet seinen
+festen Snapshot; Übernahme erst am Beginn des nächsten Kerndurchlaufs. Eine
+pausierte/gestoppte Erfassung bleibt pausiert/gestoppt; Änderungen können bis zum
+nächsten Start als „ausstehend“ erscheinen. Bei Prozessstart wird die gespeicherte
+Auswahl geladen, ohne einen gespeicherten Stopp zu quittieren. Fehlgeschlagenes
+Speichern oder ein Versionskonflikt verändert weder Speicherung noch aktive
+Auswahl; nach Konflikt ausdrücklich neu laden. Upload und Speichern führen selbst
+keinen Gerätezugriff aus. Bei leerer Auswahl wartet der normale Zeitplan ohne Reads.
+Wiederaufnahmebudget und harte Stopps bleiben erhalten, siehe
+[Fehlerverhalten](FEHLERVERHALTEN.md).
+
+Ohne gespeicherte Auswahl bleiben die fünf bestätigten Register wie bisher
+ausgewählt; weder CSV-Upload noch Installation aktiviert die Erfassung.
+Historische Beobachtungen werden nicht gelöscht oder anhand neuer Importfelder
+umgedeutet. Schema 1/2 wird additiv auf 3 migriert; vor Upgrade eine konsistente
+Sicherung erstellen. Alte App-Versionen unterstützen Schema 3 nicht.
+
 ## FC03-Transport und Offline-Simulator
 
 `backend/modbus.py` akzeptiert nur `RegisterBlock`-Einträge des ausführbaren

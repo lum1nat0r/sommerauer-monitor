@@ -15,7 +15,8 @@ from pydantic import BaseModel, Field, ValidationError
 
 from backend.collector import Collector, CollectorStopped
 from backend.config import get_settings
-from backend.storage import SQLiteStore, StorageError, utc_now
+from backend.logging_config import MAX_REQUEST_BYTES, LoggingConfigError, merge_csv
+from backend.storage import LoggingConfigConflict, SQLiteStore, StorageError, utc_now
 
 
 @asynccontextmanager
@@ -52,7 +53,7 @@ class AppConfigUpdate(BaseModel):
 def _storage(request: Request) -> SQLiteStore:
     storage = getattr(request.app.state, "storage", None)
     if storage is None:
-        raise HTTPException(503, "Database is unavailable")
+        raise HTTPException(503, "Datenbank ist nicht verfügbar.")
     return storage
 
 
@@ -94,7 +95,7 @@ async def protect_mutations(request: Request, call_next):
         ):
             from fastapi.responses import JSONResponse
 
-            return JSONResponse(status_code=403, content={"detail": "Same-origin request required"})
+            return JSONResponse(status_code=403, content={"detail": "Anfrage aus derselben Herkunft mit gültigem Anwendungskopf erforderlich."})
     return await call_next(request)
 
 
@@ -151,6 +152,81 @@ def update_config(payload: AppConfigUpdate, request: Request) -> dict[str, objec
     except StorageError as exc:
         raise HTTPException(503, "Configuration could not be saved") from exc
     return {"display_timezone": updated.display_timezone}
+
+
+async def _logging_payload(request: Request, content_field: str) -> dict[str, object]:
+    # Begrenztes Streaming verhindert, dass schon das JSON-Lesen beliebig viel RAM belegt.
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > MAX_REQUEST_BYTES:
+            raise HTTPException(413, "Die Aufzeichnungskonfiguration darf höchstens 4 MiB groß sein.")
+        body.extend(chunk)
+    try:
+        payload = json.loads(body)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(422, "Die Anfrage muss gültiges JSON enthalten.") from exc
+    if not isinstance(payload, dict) or set(payload) != {"revision", content_field}:
+        raise HTTPException(422, f"Die Anfrage benötigt genau revision und {content_field}.")
+    if type(payload["revision"]) is not int or payload["revision"] < 0:
+        raise HTTPException(422, "Die Revision muss eine nichtnegative ganze Zahl sein.")
+    return payload
+
+
+def _logging_config_response(
+    request: Request, snapshot: dict[str, object], draft: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    collector = getattr(request.app.state, "collector", None)
+    status = collector.logging_status(saved_revision=snapshot["revision"]) if collector is not None else {
+        "active_revision": snapshot["revision"],
+        "active_entries": snapshot["entries"],
+        "apply_status": "inaktiv",
+    }
+    return {
+        "revision": snapshot["revision"],
+        "entries": snapshot["entries"] if draft is None else draft,
+        "active_revision": status["active_revision"],
+        "active_entries": status["active_entries"],
+        "apply_status": status["apply_status"],
+    }
+
+
+@app.get("/api/logging-config")
+def logging_config(request: Request) -> dict[str, object]:
+    try:
+        return _logging_config_response(request, _storage(request).get_logging_config())
+    except StorageError as exc:
+        raise HTTPException(503, "Die Aufzeichnungskonfiguration ist nicht verfügbar.") from exc
+
+
+@app.post("/api/logging-config/preview")
+async def preview_logging_config(request: Request) -> dict[str, object]:
+    payload = await _logging_payload(request, "csv_text")
+    try:
+        snapshot = _storage(request).get_logging_config()
+        if payload["revision"] != snapshot["revision"]:
+            raise LoggingConfigConflict("Die Aufzeichnungskonfiguration wurde zwischenzeitlich geändert. Bitte neu laden und den Import erneut prüfen.")
+        draft = merge_csv(snapshot["entries"], payload["csv_text"])
+        return _logging_config_response(request, snapshot, draft)
+    except LoggingConfigConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except LoggingConfigError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except StorageError as exc:
+        raise HTTPException(503, "Die Aufzeichnungskonfiguration ist nicht verfügbar.") from exc
+
+
+@app.put("/api/logging-config")
+async def update_logging_config(request: Request) -> dict[str, object]:
+    payload = await _logging_payload(request, "entries")
+    try:
+        snapshot = _storage(request).save_logging_config(payload["revision"], payload["entries"])
+        return _logging_config_response(request, snapshot)
+    except LoggingConfigConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except LoggingConfigError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except StorageError as exc:
+        raise HTTPException(503, "Die Aufzeichnungskonfiguration konnte nicht gespeichert werden.") from exc
 
 
 @app.get("/api/signals/current")

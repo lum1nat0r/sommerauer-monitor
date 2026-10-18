@@ -523,3 +523,84 @@ def test_changed_target_cannot_resume_saved_retry_state(tmp_path):
     assert restarted.state == "paused"
     assert restarted.error == "Saved state belongs to a different target or profile"
     assert client.starts == []
+
+
+def test_logging_selection_changes_only_at_cycle_boundary_and_keeps_history(tmp_path):
+    collector, client, _ = make_collector(tmp_path, limit=5)
+    read = client.read
+
+    def save_during_first_read(block):
+        result = read(block)
+        if len(client.starts) == 1:
+            snapshot = collector.store.get_logging_config()
+            for entry in snapshot["entries"]:
+                if entry["signal_id"] in {"boiler.temperature", "buffer.bottom_temperature"}:
+                    entry["record"] = False
+            collector.store.save_logging_config(snapshot["revision"], snapshot["entries"])
+            assert collector.logging_status()["apply_status"] == "ausstehend"
+        return result
+
+    client.read = save_during_first_read
+    collector.run()
+
+    assert [offset for offset, _ in client.starts] == [4102, 28688, 36864, 28688, 36864]
+    assert collector.store.count_observations(signal_id="boiler.temperature") == 1
+    assert collector.store.count_observations(signal_id="buffer.bottom_temperature") == 1
+    assert collector.store.count_observations(signal_id="buffer.top_temperature") == 2
+    assert collector.store.count_observations(signal_id="boiler.operating_minutes") == 2
+    assert collector.store.history("buffer.bottom_temperature")[0]["value"] == 20
+    assert collector.logging_status()["active_revision"] == 1
+    assert collector.logging_status()["apply_status"] == "aktiv"
+
+
+def test_empty_logging_selection_waits_without_reads_and_can_be_replaced(tmp_path):
+    collector, client, clock = make_collector(tmp_path, limit=1, duration=2)
+    snapshot = collector.store.get_logging_config()
+    for entry in snapshot["entries"]:
+        entry["record"] = False
+    collector.store.save_logging_config(0, snapshot["entries"])
+    wait = clock.wait
+
+    def enable_buffer_after_idle(event, seconds):
+        result = wait(event, seconds)
+        if clock.elapsed >= 0.5 and collector.store.get_logging_config()["revision"] == 1:
+            assert client.starts == []
+            saved = collector.store.get_logging_config()
+            next(entry for entry in saved["entries"] if entry["code"] == "9000")["record"] = True
+            collector.store.save_logging_config(1, saved["entries"])
+        return result
+
+    collector.wait = enable_buffer_after_idle
+    collector.run()
+
+    assert client.starts == [(36864, 0.5)]
+    assert collector.store.count_observations() == 1
+    assert collector.store.history("buffer.top_temperature")[0]["value"] == 30
+    assert collector.state == "completed"
+
+
+def test_save_during_recovery_keeps_retry_block_delay_and_budget(tmp_path):
+    collector, client, clock = make_collector(tmp_path, limit=5)
+    read = client.read
+    attempts = []
+
+    def fail_and_change_selection(block):
+        attempts.append((block.offset, clock.elapsed))
+        if len(attempts) == 1:
+            snapshot = collector.store.get_logging_config()
+            for entry in snapshot["entries"]:
+                entry["record"] = entry["code"] == "9000"
+            collector.store.save_logging_config(0, snapshot["entries"])
+            raise ModbusConnectionError("synthetischer Verbindungsfehler")
+        return read(block)
+
+    client.read = fail_and_change_selection
+    collector.run()
+
+    assert [offset for offset, _ in attempts] == [4102, 4102, 28688, 36864, 36864]
+    assert attempts[1][1] - attempts[0][1] >= 60
+    assert collector.status()["reconnect_attempts"] == 1
+    assert collector.logging_status()["active_revision"] == 1
+    assert collector.store.count_observations(signal_id="boiler.temperature") == 1
+    assert collector.store.count_observations(signal_id="buffer.bottom_temperature") == 1
+    assert collector.store.count_observations(signal_id="buffer.top_temperature") == 2
