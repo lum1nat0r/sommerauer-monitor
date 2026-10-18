@@ -15,7 +15,9 @@ from pydantic import BaseModel, Field, ValidationError
 
 from backend.collector import Collector, CollectorStopped
 from backend.config import get_settings
-from backend.storage import SQLiteStore, StorageError, utc_now
+from backend.logging_config import MAX_REQUEST_BYTES, LoggingConfigError, merge_csv
+from backend.registers import CONTROL_CANDIDATES, SIGNAL_DEFINITIONS
+from backend.storage import LoggingConfigConflict, SQLiteStore, StorageError, utc_now
 
 
 @asynccontextmanager
@@ -52,7 +54,7 @@ class AppConfigUpdate(BaseModel):
 def _storage(request: Request) -> SQLiteStore:
     storage = getattr(request.app.state, "storage", None)
     if storage is None:
-        raise HTTPException(503, "Database is unavailable")
+        raise HTTPException(503, "Datenbank ist nicht verfügbar.")
     return storage
 
 
@@ -94,7 +96,7 @@ async def protect_mutations(request: Request, call_next):
         ):
             from fastapi.responses import JSONResponse
 
-            return JSONResponse(status_code=403, content={"detail": "Same-origin request required"})
+            return JSONResponse(status_code=403, content={"detail": "Anfrage aus derselben Herkunft mit gültigem Anwendungskopf erforderlich."})
     return await call_next(request)
 
 
@@ -153,6 +155,92 @@ def update_config(payload: AppConfigUpdate, request: Request) -> dict[str, objec
     return {"display_timezone": updated.display_timezone}
 
 
+async def _logging_payload(request: Request, content_field: str) -> dict[str, object]:
+    # Begrenztes Streaming verhindert, dass schon das JSON-Lesen beliebig viel RAM belegt.
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > MAX_REQUEST_BYTES:
+            raise HTTPException(413, "Die Aufzeichnungskonfiguration darf höchstens 4 MiB groß sein.")
+        body.extend(chunk)
+    try:
+        payload = json.loads(body)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(422, "Die Anfrage muss gültiges JSON enthalten.") from exc
+    if not isinstance(payload, dict) or set(payload) != {"revision", content_field}:
+        raise HTTPException(422, f"Die Anfrage benötigt genau revision und {content_field}.")
+    if type(payload["revision"]) is not int or payload["revision"] < 0:
+        raise HTTPException(422, "Die Revision muss eine nichtnegative ganze Zahl sein.")
+    return payload
+
+
+def _logging_config_response(
+    request: Request, snapshot: dict[str, object], draft: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    collector = getattr(request.app.state, "collector", None)
+    status = collector.logging_status(saved_revision=snapshot["revision"]) if collector is not None else {
+        "active_revision": snapshot["revision"],
+        "active_entries": snapshot["entries"],
+        "apply_status": "inaktiv",
+    }
+    return {
+        "revision": snapshot["revision"],
+        "entries": snapshot["entries"] if draft is None else draft,
+        "active_revision": status["active_revision"],
+        "active_entries": status["active_entries"],
+        "apply_status": status["apply_status"],
+    }
+
+
+@app.get("/api/signals")
+def signal_definitions() -> dict[str, object]:
+    return {
+        "signals": [
+            {"signal_id": signal_id, **definition}
+            for signal_id, definition in SIGNAL_DEFINITIONS.items()
+        ],
+        "control_candidates": CONTROL_CANDIDATES,
+    }
+
+
+@app.get("/api/logging-config")
+def logging_config(request: Request) -> dict[str, object]:
+    try:
+        return _logging_config_response(request, _storage(request).get_logging_config())
+    except StorageError as exc:
+        raise HTTPException(503, "Die Aufzeichnungskonfiguration ist nicht verfügbar.") from exc
+
+
+@app.post("/api/logging-config/preview")
+async def preview_logging_config(request: Request) -> dict[str, object]:
+    payload = await _logging_payload(request, "csv_text")
+    try:
+        snapshot = _storage(request).get_logging_config()
+        if payload["revision"] != snapshot["revision"]:
+            raise LoggingConfigConflict("Die Aufzeichnungskonfiguration wurde zwischenzeitlich geändert. Bitte neu laden und den Import erneut prüfen.")
+        draft = merge_csv(snapshot["entries"], payload["csv_text"])
+        return _logging_config_response(request, snapshot, draft)
+    except LoggingConfigConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except LoggingConfigError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except StorageError as exc:
+        raise HTTPException(503, "Die Aufzeichnungskonfiguration ist nicht verfügbar.") from exc
+
+
+@app.put("/api/logging-config")
+async def update_logging_config(request: Request) -> dict[str, object]:
+    payload = await _logging_payload(request, "entries")
+    try:
+        snapshot = _storage(request).save_logging_config(payload["revision"], payload["entries"])
+        return _logging_config_response(request, snapshot)
+    except LoggingConfigConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except LoggingConfigError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except StorageError as exc:
+        raise HTTPException(503, "Die Aufzeichnungskonfiguration konnte nicht gespeichert werden.") from exc
+
+
 @app.get("/api/signals/current")
 def current_signals(request: Request) -> dict[str, object]:
     storage = _storage(request)
@@ -165,7 +253,10 @@ def current_signals(request: Request) -> dict[str, object]:
             result.append({
                 "signal_id": row["signal_id"], "value": row["value"], "unit": row["unit"],
                 "observed_at": row["observed_at"], "age_seconds": age,
-                "quality": row["quality"], "fresh": age <= 120 and row["quality"] == "ok",
+                "quality": row["quality"],
+                "error_code": row["error_code"], "error_message": row["error_message"],
+                "block_offset": row["block_offset"], "register_count": row["register_count"],
+                "fresh": age <= 2 * SIGNAL_DEFINITIONS.get(row["signal_id"], {}).get("interval_seconds", 60) and row["quality"] == "ok",
             })
     except (StorageError, ValueError) as exc:
         raise HTTPException(503, "Signal data unavailable") from exc
@@ -181,10 +272,7 @@ def history(
     limit: int = Query(default=1000, ge=1, le=10_000),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, object]:
-    if signal_id not in {
-        "boiler.temperature", "buffer.top_temperature",
-        "buffer.bottom_temperature", "boiler.operating_minutes",
-    }:
+    if signal_id not in SIGNAL_DEFINITIONS:
         raise HTTPException(404, "Unknown signal")
     start_utc, end_utc = _range(start, end)
     storage = _storage(request)
@@ -225,6 +313,7 @@ def export_csv(
         writer.writerow([
             "observed_at", "observation_id", "signal_id", "value", "unit",
             "quality", "raw_words", "source", "profile_id", "profile_version", "decoder_version",
+            "error_code", "error_message",
         ])
         yield buffer.getvalue()
         for item in storage.stream_observations(start=start_utc, end=end_utc):
@@ -234,6 +323,7 @@ def export_csv(
                 item["observed_at"], item["observation_id"], item["signal_id"], item["value"],
                 item["unit"], item["quality"], json.dumps(item["raw_words"], separators=(",", ":")),
                 item["source"], item["profile_id"], item["profile_version"], item["decoder_version"],
+                item["error_code"], item["error_message"],
             ])
             yield buffer.getvalue()
 

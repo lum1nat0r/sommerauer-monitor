@@ -1,6 +1,7 @@
 import { StrictMode, useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
+import LoggingConfig from './LoggingConfig';
 
 type CollectorStatus = {
   state: string;
@@ -23,25 +24,46 @@ type Signal = {
   age_seconds: number;
   quality: string;
   fresh: boolean;
+  error_code?: string | null;
+  error_message?: string | null;
+  block_offset?: number;
+  register_count?: number;
 };
-type Point = { observed_at: string; value: number | null; quality: string };
+type SignalDefinition = {
+  signal_id: string;
+  label: string;
+  unit: string;
+  kind: string;
+  live_confirmed: boolean;
+  verification_status: string;
+  module_status: string;
+  read_to_clear: boolean;
+  description: string;
+  interval_seconds: number;
+};
+type ControlCandidate = {
+  code: string;
+  name: string;
+  description: string;
+  kind: string;
+};
+type Point = { observed_at: string; value: number | null; quality: string; unit?: string };
 type EventItem = {
   event_id: string;
   occurred_at: string;
   kind: string;
   severity: string;
   message: string;
+  details?: Record<string, unknown> | null;
 };
 type Period = '1h' | '24h' | 'week' | 'month' | 'custom';
 type SignalId = Signal['signal_id'];
 
-const signalInfo: Record<SignalId, { label: string; unit: string }> = {
-  'boiler.temperature': { label: 'Kesseltemperatur', unit: '°C' },
-  'buffer.top_temperature': { label: 'Puffer oben', unit: '°C' },
-  'buffer.bottom_temperature': { label: 'Puffer unten', unit: '°C' },
-  'boiler.operating_minutes': { label: 'Anlagen-Betriebszähler', unit: 'min' },
+const kindLabels: Record<string, string> = {
+  measurement: 'Messwert', derived: 'Abgeleiteter Wert / Regelgröße', counter: 'Zähler',
+  status: 'Status / Kennung', setting: 'Einstellung', raw: 'Herstellerrohwert',
+  device_time: 'Steuerungsdatum / -zeit', control_candidate: 'Steuerungskandidat',
 };
-const signalIds = Object.keys(signalInfo) as SignalId[];
 const stateLabels: Record<string, string> = {
   unconfigured: 'Ersteinrichtung – noch nicht konfiguriert',
   paused: 'Pausiert',
@@ -58,7 +80,6 @@ const periods: { id: Period; label: string }[] = [
   { id: 'week', label: 'Woche' }, { id: 'month', label: 'Monat' },
   { id: 'custom', label: 'Freier Zeitraum' },
 ];
-const CHART_GAP_THRESHOLD_MS = 180_000;
 
 function localParts(date: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -129,13 +150,34 @@ function ageLabel(seconds: number) {
   return `vor ${hours} h ${minutes} min`;
 }
 
+function safeErrorCode(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(value) ? value : undefined;
+}
+
+function blockLabel(offset: unknown, count?: unknown): string | undefined {
+  if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0 || offset > 65535) return undefined;
+  const registers = typeof count === 'number' && Number.isInteger(count) && count > 0 && count <= 125
+    ? ` · ${count} Register` : '';
+  return `Blockoffset ${offset}${registers}`;
+}
+
+function EventDetails({ details }: { details: EventItem['details'] }) {
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
+  const signalId = typeof details.signal_id === 'string' && /^[a-zA-Z0-9_.-]{1,160}$/.test(details.signal_id)
+    ? details.signal_id : undefined;
+  const errorCode = safeErrorCode(details.error_code);
+  const block = blockLabel(details.block_offset, details.register_count);
+  if (!signalId && !errorCode && !block) return null;
+  return <p className="event-details">{[signalId && `Signal: ${signalId}`, errorCode && `Fehlercode: ${errorCode}`, block].filter(Boolean).join(' · ')}</p>;
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json() as Promise<T>;
 }
 
-function Chart({ points, unit, timeZone }: { points: Point[]; unit: string; timeZone: string }) {
+function Chart({ points, unit, timeZone, gapThresholdMs }: { points: Point[]; unit: string; timeZone: string; gapThresholdMs: number }) {
   const valid = points.filter((point) => point.value !== null && point.quality === 'ok');
   if (valid.length === 0) return <p className="empty-chart">Für diesen Zeitraum liegen keine gültigen Messwerte vor.</p>;
   const values = valid.map((point) => point.value as number);
@@ -149,18 +191,23 @@ function Chart({ points, unit, timeZone }: { points: Point[]; unit: string; time
   const span = Math.max(end - start, 1);
   const x = (point: Point) => 48 + ((Date.parse(point.observed_at) - start) / span) * 704;
   const y = (point: Point) => 176 - (((point.value as number) - minY) / (maxY - minY)) * 148;
-  const paths: string[] = [];
+  const runs: Point[][] = [];
   let run: Point[] = [];
-  for (const point of valid) {
+  for (const point of points) {
+    if (point.value === null || point.quality !== 'ok') {
+      if (run.length) runs.push(run);
+      run = [];
+      continue;
+    }
     const previous = run[run.length - 1];
-    if (previous && Date.parse(point.observed_at) - Date.parse(previous.observed_at) > CHART_GAP_THRESHOLD_MS) {
-      if (run.length > 1) paths.push(run.map((item, i) => `${i ? 'L' : 'M'} ${x(item).toFixed(1)} ${y(item).toFixed(1)}`).join(' '));
+    if (previous && Date.parse(point.observed_at) - Date.parse(previous.observed_at) > gapThresholdMs) {
+      runs.push(run);
       run = [];
     }
     run.push(point);
   }
-  if (run.length > 1) paths.push(run.map((item, i) => `${i ? 'L' : 'M'} ${x(item).toFixed(1)} ${y(item).toFixed(1)}`).join(' '));
-  const gaps = valid.slice(1).filter((point, i) => Date.parse(point.observed_at) - Date.parse(valid[i].observed_at) > CHART_GAP_THRESHOLD_MS).length;
+  if (run.length) runs.push(run);
+  const gaps = Math.max(runs.length - 1, 0);
   const yLabels = [minY, (minY + maxY) / 2, maxY];
   return <>
     <div className="chart-wrap" role="img" aria-label={`${valid.length} gültige Messpunkte in ${unit}; ${gaps} gekennzeichnete Messlücken`}>
@@ -169,28 +216,38 @@ function Chart({ points, unit, timeZone }: { points: Point[]; unit: string; time
           const yy = 176 - ((value - minY) / (maxY - minY)) * 148;
           return <g key={i}><line x1="48" x2="752" y1={yy} y2={yy} className="gridline" /><text x="40" y={yy + 4} textAnchor="end" className="axis-label">{value.toLocaleString('de-AT', { maximumFractionDigits: 1 })}</text></g>;
         })}
-        {paths.map((path, index) => <path key={index} d={path} className="chart-line" />)}
-        {valid.length === 1 && <circle cx={x(valid[0])} cy={y(valid[0])} r="4" className="chart-dot" />}
+        {runs.map((segment, index) => segment.length === 1
+          ? <circle key={index} cx={x(segment[0])} cy={y(segment[0])} r="4" className="chart-dot" />
+          : <path key={index} d={segment.map((item, i) => `${i ? 'L' : 'M'} ${x(item).toFixed(1)} ${y(item).toFixed(1)}`).join(' ')} className="chart-line" />)}
       </svg>
     </div>
     <div className="chart-caption"><span>{formatDate(valid[0].observed_at, timeZone)}</span><span>{valid.length} Werte · {gaps ? `${gaps} Messlücken` : 'keine erkannten Messlücken'}</span><span>{formatDate(valid[valid.length - 1].observed_at, timeZone)}</span></div>
   </>;
 }
+function SignalMetadata({ definition }: { definition: SignalDefinition }) {
+  return <div className="signal-metadata">
+    <p className="signal-tags"><span>{kindLabels[definition.kind] || definition.kind}</span><span>{definition.verification_status === 'operator_touch_confirmed' ? 'Touch-Abgleich: Betreiberbestätigung' : 'Quellenbelegt · Touch-Abgleich offen'}</span><span>{definition.module_status === 'inactive' ? 'Modul / eigenständiger Kanal laut Betreiber inaktiv' : definition.module_status === 'active' ? 'Anlagenkanal laut Betreiber aktiv' : 'Modulaktivität nicht bestätigt'}</span></p>
+    <p className="muted">Der Touch-Abgleich bestätigt die notierte Anzeige / Lesbarkeit, nicht unabhängig Sensorik, physikalische Skalierung oder Aktorzustand.</p>
+    <p>{definition.description}</p>
+    {definition.read_to_clear && <p className="read-clear-warning">Read-to-clear: Jede Auslesung leert die aufgesammelten Modul-Ausgangsbits. Andere Leser können dadurch Werte verlieren.</p>}
+  </div>;
+}
+
 
 function App() {
   const [config, setConfig] = useState<Config | null>(null);
   const [collector, setCollector] = useState<CollectorStatus | null>(null);
   const [signals, setSignals] = useState<Signal[]>([]);
+  const [definitions, setDefinitions] = useState<SignalDefinition[] | null>(null);
+  const [controlCandidates, setControlCandidates] = useState<ControlCandidate[]>([]);
+  const [recordedSignalIds, setRecordedSignalIds] = useState<SignalId[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [apiStatus, setApiStatus] = useState<'loading' | 'ok' | 'degraded' | 'error'>('loading');
   const [period, setPeriod] = useState<Period>(() => {
     const saved = localStorage.getItem('dashboard-period');
     return periods.some(({ id }) => id === saved) ? saved as Period : '24h';
   });
-  const [selectedSignal, setSelectedSignal] = useState<SignalId>(() => {
-    const saved = localStorage.getItem('dashboard-signal');
-    return signalIds.includes(saved as SignalId) ? saved as SignalId : 'boiler.temperature';
-  });
+  const [selectedSignal, setSelectedSignal] = useState<SignalId>(() => localStorage.getItem('dashboard-signal') || 'boiler.temperature');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [history, setHistory] = useState<Point[]>([]);
@@ -203,15 +260,20 @@ function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [health, current, status, settings, eventResult] = await Promise.all([
+      const [health, current, status, settings, eventResult, catalog, logging] = await Promise.all([
         requestJson<{ status: 'ok' | 'degraded' }>('/api/health'),
         requestJson<{ signals: Signal[] }>('/api/signals/current'),
         requestJson<CollectorStatus>('/api/collector/status'),
         requestJson<Config>('/api/config'),
         requestJson<{ items: EventItem[] }>('/api/events?limit=20'),
+        requestJson<{ signals: SignalDefinition[]; control_candidates: ControlCandidate[] }>('/api/signals'),
+        requestJson<{ entries: { record: boolean; signal_id: string | null }[]; active_entries: { record: boolean; signal_id: string | null }[] }>('/api/logging-config'),
       ]);
       setApiStatus(health.status);
       setSignals(current.signals);
+      setDefinitions(catalog.signals);
+      setControlCandidates(catalog.control_candidates);
+      setRecordedSignalIds([...new Set(logging.entries.filter((entry) => entry.record && entry.signal_id).map((entry) => entry.signal_id as string))]);
       setCollector(status);
       setConfig(settings);
       setTimezoneDraft((existing) => existing === (config?.display_timezone || 'Europe/Vienna') ? settings.display_timezone : existing);
@@ -228,9 +290,19 @@ function App() {
   }, [refresh]);
 
   useEffect(() => {
-    localStorage.setItem('dashboard-period', period);
+    if (!definitions) return;
+    const available = definitions.filter((definition) => recordedSignalIds.includes(definition.signal_id));
+    if (!available.some((definition) => definition.signal_id === selectedSignal)) {
+      setSelectedSignal(available[0]?.signal_id || '');
+      setHistory([]);
+      setHistoryTotal(0);
+      setHistoryError('');
+      return;
+    }
     localStorage.setItem('dashboard-signal', selectedSignal);
-  }, [period, selectedSignal]);
+  }, [definitions, recordedSignalIds, selectedSignal]);
+
+  useEffect(() => { localStorage.setItem('dashboard-period', period); }, [period]);
 
   const range = useMemo(() => {
     const now = new Date();
@@ -241,7 +313,10 @@ function App() {
     return { start: localInputToUtc(customStart, timeZone), end: localInputToUtc(customEnd, timeZone) };
   }, [period, customStart, customEnd, timeZone]);
 
-  const loadHistory = useCallback(async () => {
+  const selectedDefinition = definitions?.find((definition) => definition.signal_id === selectedSignal && recordedSignalIds.includes(definition.signal_id));
+  const selectedSignalKnown = Boolean(selectedDefinition);
+  const loadHistory = useCallback(async (abortSignal: AbortSignal) => {
+    if (!selectedSignalKnown) return;
     if (!range.start || !range.end || range.start >= range.end) {
       setHistory([]);
       setHistoryTotal(0);
@@ -250,19 +325,25 @@ function App() {
     }
     const query = new URLSearchParams({ start: range.start.toISOString(), end: range.end.toISOString(), limit: '10000' });
     try {
-      const result = await requestJson<{ total: number; items: Point[] }>(`/api/history/${encodeURIComponent(selectedSignal)}?${query}`);
+      const result = await requestJson<{ total: number; items: Point[] }>(`/api/history/${encodeURIComponent(selectedSignal)}?${query}`, { signal: abortSignal });
+      if (abortSignal.aborted) return;
       setHistory(result.items);
       setHistoryTotal(result.total);
       setHistoryError('');
     } catch {
+      if (abortSignal.aborted) return;
       setHistoryError('Der Verlauf konnte nicht geladen werden. Die API bleibt unabhängig von der Erfassung verfügbar.');
     }
-  }, [range, selectedSignal, period]);
+  }, [range, selectedSignal, selectedSignalKnown, period]);
 
   useEffect(() => {
-    void loadHistory();
-    const timer = window.setInterval(() => void loadHistory(), 60_000);
-    return () => window.clearInterval(timer);
+    const controller = new AbortController();
+    setHistory([]);
+    setHistoryTotal(0);
+    setHistoryError('');
+    void loadHistory(controller.signal);
+    const timer = window.setInterval(() => void loadHistory(controller.signal), 60_000);
+    return () => { controller.abort(); window.clearInterval(timer); };
   }, [loadHistory]);
 
   const runCollectorAction = async (action: 'pause' | 'resume' | 'acknowledge-and-start') => {
@@ -304,6 +385,9 @@ function App() {
   };
 
   const selected = signals.find((signal) => signal.signal_id === selectedSignal);
+  const historyUnit = history.find((point) => point.unit)?.unit || selected?.unit || selectedDefinition?.unit || '';
+  const historyUnits = [...new Set(history.map((point) => point.unit ?? historyUnit))];
+  const visibleDefinitions = (definitions || []).filter((definition) => recordedSignalIds.includes(definition.signal_id));
   const lastSuccessfulAt = signals
     .filter((signal) => signal.value !== null && signal.quality === 'ok')
     .reduce<string | undefined>((latest, signal) => !latest || signal.observed_at > latest ? signal.observed_at : latest, undefined);
@@ -338,39 +422,76 @@ function App() {
     {notice && <p className="notice" role="status">{notice}</p>}
 
     <section aria-labelledby="signals-title"><div className="section-heading"><div><p className="eyebrow">LETZTE BEKANNTE MESSWERTE</p><h2 id="signals-title">Anlagenübersicht</h2></div><p className="muted">Anzeigezeit: {timeZone}</p></div>
+      <p className="muted">Anlagenübersicht und Verlauf zeigen nur die gespeicherten, zur Aufzeichnung ausgewählten Werte. Die Historie abgewählter Signale bleibt gespeichert.</p>
       <div className="signal-grid">
-        {signalIds.map((id) => {
+        {visibleDefinitions.map((definition) => {
+          const id = definition.signal_id;
           const signal = signals.find((item) => item.signal_id === id);
-          const fresh = signal?.fresh && signal.quality === 'ok';
-          return <article className={`signal-card ${signal && !fresh ? 'stale' : ''}`} key={id}>
-            <h3>{signalInfo[id].label}</h3>
-            {signal?.value !== null && signal?.quality === 'ok' ? <p className="signal-value">{signal.value.toLocaleString('de-AT', { maximumFractionDigits: 1 })}<span>{signal.unit}</span></p> : <p className="signal-value unavailable">—</p>}
-            <p className={`freshness ${signal ? fresh ? 'fresh' : 'old' : ''}`}>{signal ? fresh ? 'Aktuell' : signal.quality !== 'ok' ? `Ungültige Messqualität: ${signal.quality}` : 'Veraltet' : 'Noch keine Messung'}</p>
-            {signal && <p className="sample-time">{formatDate(signal.observed_at, timeZone)}<br />Datenalter: {ageLabel(signal.age_seconds)}</p>}
+          const hasProblem = signal && (signal.quality !== 'ok' || signal.value === null);
+          const fresh = signal?.fresh && !hasProblem;
+          const invalid = signal?.quality === 'invalid';
+          const unavailable = signal?.quality === 'unavailable';
+          const errorCode = safeErrorCode(signal?.error_code);
+          const missingWeather = errorCode === 'missing_weather';
+          const block = blockLabel(signal?.block_offset, signal?.register_count);
+          const problemLabel = invalid ? 'Fehler' : unavailable ? 'Nicht verfügbar'
+            : signal?.quality === 'ok' ? 'Kein Messwert' : 'Messqualität unbekannt';
+          const problemMessage = typeof signal?.error_message === 'string' && signal.error_message.trim()
+            ? signal.error_message
+            : missingWeather ? 'Für diesen Wettersensor liegen keine Wetterdaten vor.'
+              : invalid ? 'Der gelieferte Messwert ist ungültig.'
+                : unavailable ? 'Für dieses Signal liegt aktuell kein Messwert vor.'
+                  : signal?.quality === 'ok' ? 'Die aktuelle Beobachtung enthält keinen Messwert.'
+                    : 'Der Messwert kann wegen unbekannter Messqualität nicht angezeigt werden.';
+          return <article className={`signal-card ${hasProblem ? invalid ? 'signal-invalid' : unavailable ? 'signal-unavailable' : 'signal-unknown' : signal && !fresh ? 'stale' : ''}`} key={id}>
+            <h3>{definition.label}</h3>
+            {signal && !hasProblem && signal.value !== null ? <p className="signal-value">{signal.value.toLocaleString('de-AT', { maximumFractionDigits: 1 })}<span>{signal.unit}</span></p> : <p className="signal-value unavailable" aria-label="Kein gültiger Messwert">—</p>}
+            <p className={`freshness ${hasProblem ? invalid ? 'invalid' : 'old' : signal ? fresh ? 'fresh' : 'old' : ''}`}>{hasProblem ? problemLabel : signal ? fresh ? 'Aktuell' : 'Veraltet' : 'Noch keine Messung'}</p>
+            {hasProblem && <div className="signal-problem">
+              <p>{problemMessage}</p>
+              {invalid && <p><strong>Wert ausgesetzt – Ursache prüfen.</strong> Keine automatische Wiederholung dieses Signals.</p>}
+              {missingWeather && !invalid && <p>Bei laufender Erfassung: erneute Abfrage im normalen Intervall.</p>}
+              {errorCode && <p className="signal-error-code">Fehlercode: {errorCode}</p>}
+            </div>}
+            {signal && <p className="sample-time">Beobachtung: {formatDate(signal.observed_at, timeZone)}<br />Datenalter: {ageLabel(signal.age_seconds)}{block && <><br />{block}</>}</p>}
+            <SignalMetadata definition={definition} />
+            <button type="button" className="signal-history-button" aria-pressed={selectedSignal === id} onClick={() => setSelectedSignal(id)}>Im Verlauf auswählen</button>
           </article>;
         })}
       </div>
+      {definitions === null && <p className="muted">Signaldefinitionen werden geladen …</p>}
     </section>
 
     <section className="history-panel" aria-labelledby="history-title"><div className="section-heading"><div><p className="eyebrow">GESPEICHERTE ORIGINALMESSUNGEN</p><h2 id="history-title">Verlauf</h2></div>
-      {range.start && range.end && <a className="button secondary download" href={`/api/export.csv${csvQuery}`} download>CSV herunterladen</a>}
+      {selectedDefinition && range.start && range.end && <a className="button secondary download" href={`/api/export.csv${csvQuery}`} download>CSV herunterladen</a>}
     </div>
       <div className="history-controls">
-        <label>Signal<select value={selectedSignal} onChange={(event) => setSelectedSignal(event.target.value as SignalId)}>{signalIds.map((id) => <option key={id} value={id}>{signalInfo[id].label} ({signalInfo[id].unit})</option>)}</select></label>
+        <label>Signal<select value={selectedDefinition ? selectedSignal : ''} disabled={!visibleDefinitions.length} onChange={(event) => setSelectedSignal(event.target.value)}>{!selectedDefinition && <option value="">{definitions === null ? 'Signaldefinitionen werden geladen …' : 'Keine Werte zur Aufzeichnung ausgewählt'}</option>}{visibleDefinitions.map((definition) => <option key={definition.signal_id} value={definition.signal_id}>{definition.label} ({definition.unit}){definition.read_to_clear ? ' · Read-to-clear' : ''}</option>)}</select></label>
         <fieldset><legend>Zeitraum</legend><div className="periods">{periods.map(({ id, label }) => <button type="button" key={id} aria-pressed={period === id} className={`period-button ${period === id ? 'selected' : ''}`} onClick={() => setPeriod(id)}>{label}</button>)}</div></fieldset>
       </div>
       {period === 'custom' && <div className="custom-range"><label>Beginn ({timeZone})<input type="datetime-local" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label>Ende ({timeZone})<input type="datetime-local" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}
-      <div className="chart-card"><div className="chart-title"><h3>{signalInfo[selectedSignal].label}</h3><span>{signalInfo[selectedSignal].unit}</span></div>
-        {historyError ? <p className="alert" role="status">{historyError}</p> : <Chart points={history} unit={signalInfo[selectedSignal].unit} timeZone={timeZone} />}
+      <div className="chart-card"><div className="chart-title"><h3>{selectedDefinition?.label || 'Signal wird geladen'}</h3><span>{historyUnits.length > 1 ? 'Einheiten getrennt' : historyUnit}</span></div>
+        {selectedDefinition && <SignalMetadata definition={selectedDefinition} />}
+        {historyUnits.length > 1 && <p className="alert">Die gespeicherte Einheit hat sich geändert. Frühere Beobachtungen behalten ihre Originaleinheit; die Reihen werden ohne Umrechnung getrennt dargestellt.</p>}
+        {historyError ? <p className="alert" role="status">{historyError}</p> : selectedDefinition ? (historyUnits.length ? historyUnits : [historyUnit]).map((unit) => <div key={unit}>
+          {historyUnits.length > 1 && <h4>Gespeicherte Einheit: {unit || 'ohne Einheit'}</h4>}
+          <Chart points={historyUnits.length > 1 ? history.map((point) => (point.unit ?? historyUnit) === unit ? point : { ...point, value: null }) : history} unit={unit} timeZone={timeZone} gapThresholdMs={3 * (selectedDefinition.interval_seconds || 60) * 1000} />
+        </div>) : <p className="empty-chart">{definitions === null ? 'Signaldefinitionen werden geladen …' : 'Keine Werte zur Aufzeichnung ausgewählt.'}</p>}
         {historyTotal > history.length && <p className="muted">Darstellung auf 10.000 Messpunkte begrenzt; CSV enthält weiterhin alle Werte des Zeitraums.</p>}
-        {selected && !selected.fresh && <p className="alert stale-note">Der letzte bekannte Wert ist veraltet. Der Verlauf zeigt keine künstlichen Messwerte.</p>}
+        {selected && (selected.quality !== 'ok' || selected.value === null) ? <p className="alert stale-note">Die letzte Beobachtung enthält keinen gültigen Messwert. Frühere Werte sind keine aktuelle Messung; der Verlauf ergänzt keine künstlichen Werte.</p> : selected && !selected.fresh && <p className="alert stale-note">Der letzte bekannte Wert ist veraltet. Der Verlauf zeigt keine künstlichen Messwerte.</p>}
       </div>
+    </section>
+
+    <section className="control-candidates" aria-labelledby="control-candidates-title">
+      <div className="section-heading"><div><p className="eyebrow">GETRENNTE STATISCHE KANDIDATEN</p><h2 id="control-candidates-title">START / SOLL</h2></div></div>
+      <p>Nur quellenbelegte mögliche Zuordnungen, keine bestätigten Schreibadressen. Nicht Teil des Leseimports. Keine Schreibfunktion, Geräteaktion oder automatische Rückstellung.</p>
+      {controlCandidates.length ? <dl>{controlCandidates.map((candidate) => <div key={candidate.code}><dt>{candidate.name} <code>{candidate.code}</code></dt><dd>{candidate.description}<br /><span className="muted">Steuerungskandidat · live ungeprüft · nicht zur Ausführung freigegeben</span></dd></div>)}</dl> : <p className="muted">Steuerungskandidaten werden mit den Signaldefinitionen geladen.</p>}
     </section>
 
     <div className="lower-grid">
       <section className="events-panel" aria-labelledby="events-title"><div className="section-heading"><div><p className="eyebrow">APP- UND ERFASSUNGSEREIGNISSE</p><h2 id="events-title">Ereignisse</h2></div></div>
         {events.length ? <ol className="event-list">{events.map((item) => <li key={item.event_id}><span className={`severity ${item.severity}`} />
-          <div><p>{item.message}</p><small>{item.kind.replaceAll('_', ' ')} · {formatDate(item.occurred_at, timeZone)}</small></div></li>)}</ol> : <p className="muted">Noch keine Ereignisse gespeichert.</p>}
+          <div><p>{item.message}</p><EventDetails details={item.details} /><small>{item.kind.replaceAll('_', ' ')} · {formatDate(item.occurred_at, timeZone)}</small></div></li>)}</ol> : <p className="muted">Noch keine Ereignisse gespeichert.</p>}
       </section>
       <section className="settings-panel" aria-labelledby="settings-title"><div className="section-heading"><div><p className="eyebrow">NUR LOKALE ANZEIGE</p><h2 id="settings-title">Einstellungen</h2></div></div>
         <form onSubmit={(event) => void saveTimezone(event)}><label>Anzeigezeitzone<select value={timezoneDraft} onChange={(event) => setTimezoneDraft(event.target.value)}><option value="Europe/Vienna">Europe/Vienna</option><option value="Europe/Berlin">Europe/Berlin</option><option value="UTC">UTC</option></select></label><button className="button secondary" type="submit" disabled={busy || timezoneDraft === timeZone}>Zeitzone speichern</button></form>
@@ -381,4 +502,19 @@ function App() {
   </main>;
 }
 
-createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);
+function Navigation() {
+  const [route, setRoute] = useState(() => window.location.hash);
+  useEffect(() => {
+    const navigate = () => setRoute(window.location.hash);
+    window.addEventListener('hashchange', navigate);
+    return () => window.removeEventListener('hashchange', navigate);
+  }, []);
+  const modbus = route === '#/modbus';
+  return <>
+    <nav className="app-navigation" aria-label="Hauptnavigation"><a href="#/" aria-current={!modbus ? 'page' : undefined}>Dashboard</a><a href="#/modbus" aria-current={modbus ? 'page' : undefined}>Modbus-Aufzeichnung</a></nav>
+    <div hidden={modbus}><App /></div>
+    <div hidden={!modbus}><LoggingConfig /></div>
+  </>;
+}
+
+createRoot(document.getElementById('root')!).render(<StrictMode><Navigation /></StrictMode>);

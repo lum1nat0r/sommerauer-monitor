@@ -10,13 +10,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.logging_config import (
+    LoggingConfigError, default_entries, normalize_entries, prepare_save,
+)
 
-SCHEMA_VERSION = 1
-SUPPORTED_SCHEMA_VERSIONS = (SCHEMA_VERSION, 2)
+
+SCHEMA_VERSION = 4
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, SCHEMA_VERSION)
 
 
 class StorageError(RuntimeError):
     """A database operation failed or the database schema is unsupported."""
+
+
+class LoggingConfigConflict(StorageError):
+    """Der Entwurf basiert nicht mehr auf der gespeicherten Revision."""
 
 
 class SQLiteStore:
@@ -53,7 +61,7 @@ class SQLiteStore:
     @staticmethod
     def _migrate(connection: sqlite3.Connection) -> None:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        # Schema 2 ergänzt nur Tabellen; vorhandene Daten bleiben unverändert erhalten.
+        # Additive Migrationen erhalten auch zusätzliche Tabellen älterer Installationen.
         if version > max(SUPPORTED_SCHEMA_VERSIONS):
             raise StorageError(
                 f"Database schema {version} is newer than supported {max(SUPPORTED_SCHEMA_VERSIONS)}"
@@ -130,6 +138,82 @@ class SQLiteStore:
                 COMMIT;
                 """
             )
+        if version < 3:
+            connection.executescript(
+                """
+                BEGIN IMMEDIATE;
+                    CREATE TABLE IF NOT EXISTS logging_config (
+                        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                        revision INTEGER NOT NULL CHECK (revision > 0),
+                        entries_json TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+                    INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+                        VALUES (3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                    PRAGMA user_version = 3;
+                COMMIT;
+                """
+            )
+        if version < 4:
+            connection.executescript(
+                """
+                BEGIN IMMEDIATE;
+                    ALTER TABLE observations ADD COLUMN error_code TEXT;
+                    ALTER TABLE observations ADD COLUMN error_message TEXT;
+                    INSERT INTO schema_migrations(version, applied_at)
+                        VALUES (4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                    PRAGMA user_version = 4;
+                COMMIT;
+                """
+            )
+
+    @staticmethod
+    def _logging_snapshot(connection: sqlite3.Connection) -> dict[str, Any]:
+        row = connection.execute(
+            "SELECT revision, entries_json FROM logging_config WHERE singleton=1"
+        ).fetchone()
+        if row is None:
+            return {"revision": 0, "entries": default_entries()}
+        try:
+            entries = normalize_entries(json.loads(row["entries_json"]))
+        except (ValueError, TypeError) as exc:
+            raise StorageError("Die gespeicherte Aufzeichnungskonfiguration ist ungültig.") from exc
+        return {"revision": row["revision"], "entries": entries}
+
+    def get_logging_config(self) -> dict[str, Any]:
+        """Return an independent snapshot; the legacy default does not write a row."""
+        try:
+            with self._connection() as connection:
+                return self._logging_snapshot(connection)
+        except (sqlite3.Error, json.JSONDecodeError, LoggingConfigError) as exc:
+            raise StorageError(f"Aufzeichnungskonfiguration konnte nicht gelesen werden: {exc}") from exc
+
+    def save_logging_config(
+        self, expected_revision: int, entries: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Atomically validate and replace a complete selection using optimistic CAS."""
+        if type(expected_revision) is not int or expected_revision < 0:
+            raise LoggingConfigError("Die Revision muss eine nichtnegative ganze Zahl sein.")
+        try:
+            with self._connection() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                current = self._logging_snapshot(connection)
+                if current["revision"] != expected_revision:
+                    raise LoggingConfigConflict("Die Aufzeichnungskonfiguration wurde zwischenzeitlich geändert. Bitte neu laden und den Entwurf erneut prüfen.")
+                normalized = prepare_save(entries, current["entries"])
+                if normalized == current["entries"]:
+                    return current
+                revision = expected_revision + 1
+                connection.execute(
+                    """INSERT INTO logging_config(singleton, revision, entries_json, updated_at)
+                    VALUES (1, ?, ?, ?) ON CONFLICT(singleton) DO UPDATE SET
+                    revision=excluded.revision, entries_json=excluded.entries_json,
+                    updated_at=excluded.updated_at""",
+                    (revision, json.dumps(normalized, ensure_ascii=False, sort_keys=True), utc_now()),
+                )
+                return {"revision": revision, "entries": normalized}
+        except (sqlite3.Error, OSError) as exc:
+            raise StorageError(f"Aufzeichnungskonfiguration konnte nicht gespeichert werden: {exc}") from exc
 
     def record_cycle(
         self,
@@ -171,13 +255,15 @@ class SQLiteStore:
                     connection.execute(
                         """INSERT INTO observations
                         (observation_id, request_id, signal_id, observed_at, value, unit, quality,
-                         raw_words_json, source, profile_id, profile_version, decoder_version)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         raw_words_json, source, profile_id, profile_version, decoder_version,
+                         error_code, error_message)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             row["observation_id"], request["request_id"], signal_id,
                             row["observed_at"], row.get("value"), row["unit"], row["quality"],
                             json.dumps(row["raw_words"], separators=(",", ":")), row["source"],
                             row["profile_id"], row["profile_version"], row["decoder_version"],
+                            row.get("error_code"), row.get("error_message"),
                         ),
                     )
                 connection.commit()
@@ -262,12 +348,14 @@ class SQLiteStore:
         try:
             with self._connection() as connection:
                 rows = connection.execute(
-                    """SELECT o.* FROM observations o
-                    JOIN (
-                        SELECT signal_id, MAX(observed_at) AS latest
-                        FROM observations GROUP BY signal_id
-                    ) latest ON latest.signal_id=o.signal_id AND latest.latest=o.observed_at
-                    ORDER BY o.signal_id, o.observation_id"""
+                    """SELECT o.*, r.offset AS block_offset, r.register_count
+                    FROM signals s JOIN observations o ON o.rowid = (
+                        SELECT latest.rowid FROM observations latest
+                        WHERE latest.signal_id=s.signal_id
+                        ORDER BY latest.observed_at DESC, latest.rowid DESC LIMIT 1
+                    )
+                    JOIN requests r ON r.request_id=o.request_id
+                    ORDER BY o.signal_id"""
                 )
                 result = []
                 for row in rows:

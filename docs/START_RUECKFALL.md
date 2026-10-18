@@ -27,6 +27,14 @@ Wenn kein gültiger externer Verzögerungs-/Zielwert mehr kommt, gilt spätesten
 X Minuten wieder der aktuelle am Touch eingestellte Basiswert. X ist offen und
 getrennt von der maximal erlaubten gesamten Aufschubdauer.
 
+Aktuelle Betreiberentscheidung vom 18.10.2026: Eine spätere START-Ansteuerung
+soll mit externem Alerting und gegebenenfalls manueller Rückstellung am Touch
+weitergeplant werden. Das ist eine bewusste betriebliche Entscheidung, keine
+technische Garantie für autonomen Rückfall. Alerting, Schreibkodierung,
+konkrete Werte/Rückstellplan und Geräteprüfung bleiben spätere Arbeit.
+Die App zeigt START/SOLL jetzt nur als getrennte statische Kandidaten an;
+es gibt weiterhin keinen Schreibadapter oder Schreibendpunkt.
+
 Benötigte Semantik, noch kein vorhandenes Gerätefeature:
 
 - Empfänger hält Basiswert und vorübergehende Fernvorgabe getrennt.

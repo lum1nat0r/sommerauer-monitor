@@ -9,7 +9,7 @@ import threading
 import time
 
 from backend.modbus import FUNCTION_READ_HOLDING_REGISTERS, UNIT_ID
-from backend.registers import CORE_PROFILE
+from backend.registers import READ_PROFILE, REGISTER_DEFINITIONS
 
 FAULTS = (
     "valid",
@@ -26,6 +26,24 @@ FAULTS = (
     "close_no_data",
     "close_partial",
 )
+
+# Deliberately synthetic fixtures, not device readings or inferred installation values.
+_SYNTHETIC_WORDS = {
+    definition["offset"]: 20 for definition in REGISTER_DEFINITIONS.values()
+}
+_SYNTHETIC_WORDS.update({
+    0x1002: 0, 0x1003: 50, 0x1006: 42, 0x1008: 50, 0x100A: 240,
+    0x1021: 0, 0x1023: 0, 0x10D1: 1,
+    0x1100: 120, 0x1101: 120, 0x1102: 120, 0x1104: 500, 0x1105: 500,
+    0x12F0: 20, 0x1320: 500, 0x1321: 500, 0x1323: 500,
+    0x7002: 0, 0x7003: 15, 0x7004: 6, 0x7005: 2026, 0x7006: 720,
+    0x7010: 4, 0x7011: 319, 0x7012: 1, 0x7013: 120,
+    0x8000: 1, 0x8001: 1, 0x85E0: 20, 0x85E1: 20, 0x8BF0: 20, 0x8BF1: 20,
+    0x8E0F: 20, 0x8E1F: 20, 0x8E40: 50, 0x8E41: 50,
+    0x9000: 47, 0x9001: 38, 0x9140: 0, 0x9141: 0, 0x91E0: 50, 0x91E1: 50,
+    0x95E0: 20, 0x95E1: 20,
+})
+_ALLOWED_BLOCKS = {(block.offset, block.count) for block in READ_PROFILE}
 
 
 class _Handler(socketserver.BaseRequestHandler):
@@ -47,7 +65,7 @@ class _Handler(socketserver.BaseRequestHandler):
             or length != 6
             or unit != UNIT_ID
             or function != FUNCTION_READ_HOLDING_REGISTERS
-            or (offset, count) not in {(block.offset, block.count) for block in CORE_PROFILE}
+            or (offset, count) not in _ALLOWED_BLOCKS
         ):
             connection.sendall(_exception(transaction, unit, function, 2))
             return
@@ -60,7 +78,12 @@ class _Handler(socketserver.BaseRequestHandler):
             return
         if mode == "delayed":
             time.sleep(self.server.delay_seconds)  # type: ignore[attr-defined]
-        response = _response(transaction, unit, offset, count)
+        values = self.server.words  # type: ignore[attr-defined]
+        words = tuple(values[address] for address in range(offset, offset + count))
+        response = _response(transaction, unit, words)
+        for address in range(offset, offset + count):
+            if REGISTER_DEFINITIONS[f"{address:04X}"]["read_to_clear"]:
+                values[address] = 0
         if mode == "wrong_unit":
             response[6] = (UNIT_ID - 1) & 0xFF
         elif mode == "wrong_transaction":
@@ -98,6 +121,7 @@ class _Server(socketserver.TCPServer):
     ) -> None:
         self.fault = fault
         self.delay_seconds = delay_seconds
+        self.words = dict(_SYNTHETIC_WORDS)
         super().__init__(address, request_handler)
 
 
@@ -136,8 +160,8 @@ class ModbusSimulator:
         self._thread.join()
 
 
-def _response(transaction: bytes, unit: int, offset: int, count: int) -> bytearray:
-    words = {4102: (42,), 28688: (4, 319), 36864: (47, 38)}[offset][:count]
+def _response(transaction: bytes, unit: int, words: tuple[int, ...]) -> bytearray:
+    count = len(words)
     pdu = bytes((FUNCTION_READ_HOLDING_REGISTERS, count * 2)) + b"".join(
         word.to_bytes(2, "big") for word in words
     )

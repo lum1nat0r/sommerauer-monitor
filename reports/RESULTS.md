@@ -903,3 +903,431 @@ Tatsächlich ausgeführte Offline-Prüfungen:
 Keine Live-Heizungsabfrage, kein Container-/Unraid-Lauf, kein Deployment und
 kein neues Image/Release. Bereits veröffentlichte Images enthalten den Rückbau
 nicht automatisch; vor einem Deployment ist ein neuer Build erforderlich.
+
+## 18.10.2026 – Individuelle Modbus-Aufzeichnung (#55)
+
+Quelle für den Importvertrag: öffentliches Betreiberbeispiel im Kommentar zu
+Issue #55 (`Name;dezimaler Offset;interner Hexcode`, ohne Kopfzeile).
+Kein privater Originalexport und keine Anlage unabhängig geprüft. Alle neuen
+Prüfdaten, Namen und Betreibertexte waren synthetisch.
+
+Implementiert: separate navigierbare Konfigurationsseite mit CSV-Entwurf,
+farblich/textlich markiertem inkrementellem Abgleich, Aufzeichnungsauswahl und
+Betreiber-Metadaten. Codebasierte Identität, Erhalt fehlender Zeilen und Texte,
+Ablehnung mehrdeutiger Codes/Offsets, atomare revisionsgeschützte Speicherung,
+No-op bei identischem Inhalt. Schema 1/2 wird additiv auf 3 erweitert, ohne
+alte Tabellen oder Beobachtungen zu löschen. Nur vorhandene bestätigte Decoder
+sind aktivierbar; CSV-Zeilen erzeugen weder Decoder noch Gerätefreigaben.
+
+Der Sammler verwendet einen festen Snapshot pro Kerndurchlauf, überspringt
+abgewählte Blöcke und speichert bei gemeinsam gelesenen Wörtern nur ausgewählte
+Signale. 7010/7011 bleiben ein gemeinsam geschalteter Mehrwortzähler. Pause,
+harte Stopps, Anfrage-/Wiederaufnahmebudget und Mindestabstände bleiben wirksam.
+Mit Teilprofil kein automatischer Budgetreset ohne drei vollständige Kernzyklen.
+Betreiber-Einheiten ändern weder Rohwerte noch Decoder-Einheiten.
+
+Tatsächlich ausgeführte Offline-Prüfungen:
+
+- CPython **3.12.9**, `uv` **0.12.2**, Node **26.12.0**, npm **12.2.1**.
+  Abhängigkeiten mit `uv sync --locked --python 3.12.9` und `npm ci` installiert.
+  Das zunächst installierte `uv` 0.13.1 wurde vor der Abnahme auf 0.12.2 korrigiert.
+- `uv run pytest -q`: abschließend **148 bestanden**, eine bekannte
+  Starlette-/AnyIO-DeprecationWarning. Schutzfälle für echte pausierte/gestoppte/
+  wiederaufnehmende Collectorinstanzen ergänzt; einen bisherigen Test auf exakte
+  Tabellennamen statt Nutzerverhalten entfernt.
+  Abgedeckt: Import/Delta/Reihenfolge, Metadaten, Mehrwortfreigabe, Manipulation,
+  echte konkurrierende CAS-Saves, SQLite-Fehler/Rollback, Schema-1-/2-Erhalt,
+  Neustart, sichere Zyklusgrenze, leere Auswahl und unverändertes Retrybudget.
+- `uv run ruff check .`: **All checks passed!**
+- `npm run build`: TypeScript und Vite erfolgreich, **29 Module**.
+- `uv build --wheel --python 3.12.9`: Wheel erfolgreich erstellt.
+- Gitleaks über Backend, Frontendquellen, Tests und Dokumentation:
+  **keine gefundenen Geheimnisse**; Betreiber-/Netzwerkdaten manuell ausgeschlossen.
+- Gebaute Oberfläche durch echten Uvicorn-Loopbackserver ausgeliefert und im
+  Chromium-Browser bedient: Upload → Tabelle bearbeiten → Speichern → bewusstes
+  Fortsetzen → endlicher Simulatorlauf. Vor Upload bestand ein synthetischer
+  vollständiger Kernzyklus; danach nur Kessel und Puffer oben ausgewählt.
+  Insgesamt **fünf FC03-Anfragen** an den Loopback-Simulator, keine Wiederaufnahme,
+  Endzustand `completed`. SQLite-Integrität **ok**.
+
+| Signal | Beobachtungen vor Auswahländerung | Nach endlichem Folgezyklus |
+|---|---:|---:|
+| `boiler.temperature` | 1 | 2 |
+| `buffer.top_temperature` | 1 | 2 |
+| `buffer.bottom_temperature` | 1 | 1 |
+| `boiler.operating_minutes` | 1 | 1 |
+
+Die tatsächlichen Anfrageblöcke waren 4102/1, 28688/2, 36864/2, danach
+4102/1 und 36864/2. Historische Zähler-/Puffer-unten-Werte blieben erhalten.
+Trotz synthetischer Betreibereinheit „Testgrad“ blieben Kesselmessungen 42 °C.
+
+Weitere tatsächliche Browserprüfungen:
+
+- Upload ohne Speichern ließ Revision 0, Pausenzustand und Historie unverändert.
+  Unbestätigte Zeilen waren sichtbar gesperrt; beide Zählercheckboxen schalteten
+  gemeinsam. Neuladen erhielt Auswahl, Einheit und Beschreibung.
+- Folgeimport ergänzte genau einen Eintrag und änderte einen Namen; fehlende
+  Zeilen und Betreibertexte blieben erhalten. Neue/geänderte Zeilen standen mit
+  Markierung oben. Umsortierter identischer Import hatte keine Änderungsmarker
+  und erhöhte beim Speichern die Revision nicht.
+- Widersprüchliche doppelte CSV-Zeile und ungültige UTF-8-Datei verständlich
+  abgewiesen. Ein temporärer SQLite-Trigger erzwang einen realen Savefehler:
+  HTTP 503, alte gespeicherte/aktive Revision und Historie unverändert.
+  Trigger anschließend entfernt.
+- App-Prozess beendet und auf demselben synthetischen Datenverzeichnis neu
+  gestartet: gespeicherte Konfiguration geladen, `completed` erhalten, keine
+  weitere Anfrage. Parallele Speicherung während Browserentwurf führte zu
+  sichtbarem Versionskonflikt; lokaler Entwurf blieb bis zum Verwerfen erhalten.
+- Desktop und 390-px-Ansicht per Screenshot gesichtet. Ein anfangs beobachteter
+  mobiler Seitenüberlauf durch absolut positionierte Tabellenlabels wurde mit
+  relativ positioniertem Scrollcontainer korrigiert. Final Seitenbreite 390 px;
+  breite Tabelle nur innerhalb ihres eigenen Scrollcontainers. Keine JS-Fehler.
+
+Der erste Versuch über Vites Entwicklungsproxy wurde korrekt vom Origin-Schutz
+mit HTTP 403 abgewiesen; die Abnahme erfolgte danach mit der gebauten Oberfläche
+direkt aus derselben App-Origin. Keine pauschale Origin-/Proxyfreigabe ergänzt.
+Prüfprozesse, Browseransicht und Wegwerfskripte anschließend beendet/entfernt;
+synthetische SQLite-Belege bleiben lokal im ignorierten Datenverzeichnis.
+
+Grenzen: kein Heizungszugriff, keine Schreibbefehle, kein neuer Decoder,
+kein Container-/Unraid-Lauf und kein Deployment oder Image-Release.
+Vor Deployment konsistent sichern und einen neuen Build verwenden;
+alte App-Versionen können die auf Schema 3 migrierte Datenbank nicht öffnen.
+
+## 18.10.2026 – Plattformübergreifender VS-Code-Heizungsstart
+
+`.vscode/launch.json` ergänzt um **Heizung (API + Dashboard)** ohne Simulator-
+Startaufgabe. Die API übernimmt das private Ziel aus Umgebung/`.env`, aktiviert
+den Sammler mit höchstens drei Anfragen ohne Transport-Retry und separater
+persistenter Ablage `data/vscode-heizung/`. Keine automatische Quittierung
+gespeicherter Abschluss-/Fehlerzustände. Der Offline-Gesamttest bleibt erhalten.
+Python verwendet den in VS Code ausgewählten Interpreter; Dashboardstart mit
+`npm` unter Linux und `npm.cmd` unter Windows. Einrichtung in der README.
+
+Tatsächlich geprüft, ausschließlich offline unter Linux:
+
+- Launch-Datei als JSON geladen; API-Modul und Argumente daraus mit der
+  Projekt-Pythonumgebung gestartet. Nur für den Smoke-Test synthetisches
+  Loopback-Ziel und separates Wegwerf-Datenverzeichnis eingesetzt.
+- Echter Uvicorn-Prozess und `npm run dev`: `/api/health` meldete App/SQLite
+  `ok`; Dashboard über Vites `/api`-Proxy erreichbar.
+- Genau drei erfolgreiche Simulator-Anfragen: FC03/Unit 255, 4102/1,
+  28688/2 und 36864/2. Vier gespeicherte Kernsignal-Beobachtungen mit
+  Qualität `ok`; SQLite-Integrität `ok`, Endzustand `completed`.
+- Laufendes Vite-Dashboard in Chromium geöffnet und per Screenshot geprüft:
+  API erreichbar, vier synthetische Werte und „Erfassung abgeschlossen“;
+  keine Browserfehler. Kein Test zustandsändernder UI-Aktionen.
+- API auf derselben synthetischen Datenbank neu gestartet: weiterhin
+  `completed`, weiterhin genau drei Anfragen; kein neues Budget durch Neustart.
+- Prüfprozesse und Browsertab beendet. Synthetische SQLite-Belege verbleiben
+  ausschließlich im ignorierten lokalen Datenverzeichnis.
+
+Grenzen: Keine private `.env` mit tatsächlichem Heizungsziel vorhanden;
+keine Geräteverbindung, kein Dauerbetrieb und keine Heizungsänderung.
+Windows und der Start über die tatsächlichen VS-Code-Debugadapter wurden
+nicht ausgeführt; geprüft wurden die gestarteten Programme und deren Verhalten.
+
+## 18.10.2026 – Quellengeprüfte V2-Registerauswahl
+
+Nutzerauftrag nach Bereitstellung einer privaten 80er-CSV und der privaten
+Vorprojekt-Unterlagen: zusätzliche Register jetzt bewusst auswählbar/aktivierbar
+machen; START/SOLL getrennt vorbereiten, tatsächliche Ansteuerung und Alerting
+später klären. Der Betreiber wurde auf neun Read-to-clear-Register hingewiesen
+und verlangte ausdrücklich auch für die neuen Einträge auswählbare Checkboxen.
+Dies wurde umgesetzt, ohne neue Zeilen automatisch einzuschalten.
+
+Quellenarbeit: Lesezweige, tatsächlich verwendete Konversions-/Anzeigepfade
+und die bisherigen Nachweise aus dem privaten Softwareexport wurden statisch
+ausgewertet. Alle 80 bereitgestellten Code-/Offset-Zuordnungen sind damit
+abgedeckt. Originalexporte, rekonstruierter Herstellercode, private Pfade und
+Netzwerkdetails wurden nicht in das Repository übernommen. Nur fünf
+Registerwörter bleiben live/Display-bestätigt; neue Decoder sind statisch
+belegt und offline geprüft, nicht neu an der Anlage validiert.
+
+Implementierung:
+
+- Explizites Leseprofil mit unverändertem Kern und zusätzlich isolierten
+  Zusatzregistern; Betriebs- und Stokerzähler jeweils als vollständiges Paar.
+  Keine Suche, Adressbereiche mit Lücken oder beliebigen Registerzugriffe.
+- Kanalbezogene Temperaturgrenzen, interne Leistungsregelgröße in Prozent,
+  Versorgung in Zehntelvolt, Förder-/Pausentakte in Zehntelsekunden.
+  Physikalisch ungeklärte Lambda-/Gebläsegrößen ausdrücklich als Hersteller-
+  rohwerte. Raumwert 0 und Abgaswert 299 bleiben als mehrdeutige
+  Initial-/Istwerte dokumentiert, statt unbelegt verworfen zu werden.
+- Zusatzbeobachtungen mit Herkunft `extended/1/1`, bisherige Kerndaten weiterhin
+  `core/1/1`. Dezimalwerte bleiben in SQLite erhalten; keine Historienänderung.
+- Zentraler Zeitplan mit mindestens 60 s für Kern- und 300 s für Zusatzblöcke;
+  nicht fällige Zusätze verdrängen keine fälligen Kernwerte.
+  Frische-/Diagrammlückengrenzen berücksichtigen das jeweilige Intervall.
+- Zusatz-Verbindungsfehler und ungewisse Zusatzanfragen stoppen ohne
+  automatische Wiederholung, auch nach Neustart. Protokoll-/Teilantwortfehler
+  bleiben `stopped_protocol`; Core-Recovery unverändert.
+- Dynamischer Signalkatalog, Verlauf und Karten; Kategorien und Quellen-/
+  Livebelegstatus sichtbar. Neun Read-to-clear-Hinweise unmittelbar an den
+  aktivierbaren Checkboxen. Der Simulator bildet das Leeren der Akkumulatoren
+  tatsächlich ab, statt nur feste Protokollwerte zu wiederholen.
+- START/SOLL als getrennte, nicht ausführbare Kandidaten im Dashboard.
+  Kein Schreibadapter/-endpunkt, kein Alerting und keine Gerätekonfiguration.
+
+Tatsächlich ausgeführte Prüfungen:
+
+- `uv run pytest -q`: abschließend **228 bestanden**, eine bekannte
+  Starlette-/AnyIO-DeprecationWarning. Decodergrenzen, Rohwertsemantik,
+  Paarzuordnung, Auswahl/Persistenz, historische Herkunft, Frische,
+  60-/300-s-Zeitplan, Fehlerstopps und Neustartgrenzen abgedeckt.
+- `uv run ruff check .`: **All checks passed!**
+- `npm run build`: TypeScript und Vite erfolgreich.
+- `uv build --wheel --python 3.12.9`: erfolgreich.
+- Im ersten neuen Read-to-clear-Test war der synthetische Startakkumulator
+  bereits null; die Fixture wurde auf ausdrücklich synthetische gesetzte Bits
+  korrigiert. Danach tatsächliches Leeren, getrennte Kanäle und unabhängige
+  Simulatorinstanzen erfolgreich geprüft.
+- Gebaute App mit Uvicorn, Chromium und echtem Loopback-FC03-Simulator gestartet.
+  Virtuelle Zeit beschleunigte ausschließlich Wartezeiten im Wegwerf-Smoke.
+  Die tatsächlich bereitgestellte CSV wurde über die Browseroberfläche hochgeladen:
+  80 Zeilen, keine deaktivierte Checkbox, neun Risikohinweise; vor Bearbeitung
+  nur die bisherigen fünf Kernwörter ausgewählt, gespeicherte Revision unverändert.
+- Stokerpaar gemeinsam ein-/ausgeschaltet, dann bewusst alle 80 Testzeilen
+  ausgewählt und gespeichert. Sammler blieb bis zum bewussten Fortsetzen
+  pausiert; Seitenneuladen erhielt die Auswahl.
+
+| Nachweis im endlichen Loopback-Lauf | Ergebnis |
+|---|---:|
+| Registerwörter der geprüften Auswahl | 80 |
+| Unterstützte Signale | 78 |
+| Tatsächliche FC03-Anfragen einschließlich vorbereitendem Kernzyklus | 80 |
+| Gespeicherte synthetische Beobachtungen einschließlich bestehender Historie | 82 |
+| Beobachtungen mit bisheriger Herkunft `core/1/1` | 8 |
+| Beobachtungen mit neuer Herkunft `extended/1/1` | 74 |
+
+Endzustand `completed`, SQLite-Integrität `ok`. Beispielsweise wurde das
+synthetische Versorgungswort 240 als 24 V und das Stokerpaar als 1560 Minuten
+gespeichert; Kesselhistorie enthielt alten und neuen Punkt. Prozessneustart
+erhielt alle 80 Auswahlen, Revision, Abschluss und Anfragezahl ohne weitere Reads.
+Im Browser Zusatzsignal im Verlauf ausgewählt, physikalische Einheit und
+Quellenstatus geprüft; Signalwahl blieb nach Neuladen erhalten.
+START/SOLL waren sichtbar, ohne Eingaben oder Aktionsbuttons.
+Desktop und 390-px-Ansicht per Screenshot geprüft: kein Seitenüberlauf,
+keine JavaScript-Fehler.
+
+Zusätzliche tatsächliche Loopback-Fehler-Smokes: Zusatz-Versorgung ohne
+Antwortbytes, Read-to-clear ohne Antwortbytes und Read-to-clear mit falscher
+Unit. Jeweils genau eine Anfrage, null Wiederaufnahmen; Zustände
+`stopped_transport`, `stopped_transport`, `stopped_protocol`. Neuer Collector
+auf demselben synthetischen Zustand führte keine weitere Anfrage aus.
+Gitleaks über Quelltexte, Tests und Dokumentation ohne Fund.
+
+Eigene Prüfprozesse/Browsertab beendet und Wegwerfskript entfernt;
+synthetische SQLite-Belege bleiben lokal im ignorierten Datenverzeichnis.
+Vorhandene Nutzeränderungen am VS-Code-Start und an der Übergabe bleiben
+erhalten. Keine private `.env` oder echte Datenbank verändert.
+
+Grenzen: keine neue Heizungsabfrage, keine Tabellenimporte, keine
+Heizungsänderung, kein Container-/Unraid-Lauf und kein Image-Release.
+Für die Nutzung ist ein neuer Build/Neustart der App erforderlich.
+Eine spätere Geräteabnahme bleibt gezielt und endlich zu planen; die
+Auswählbarkeit ersetzt keine Hersteller-Verträglichkeitszusage.
+
+## 18.10.2026 – CSV-Vorauswahl interpretierbarer Einträge
+
+Neue Betreiberanforderung: Beim CSV-Upload sind alle Einträge mit vorhandenem
+Decoder und passender Lesezuordnung im Entwurf bereits für „Aufzeichnen“
+ausgewählt. Das gilt ausdrücklich auch für hochgeladene, zuvor abgewählte
+Bestandszeilen und die neun mit Warnung versehenen Read-to-clear-Werte.
+Nicht hochgeladene gespeicherte Zeilen behalten ihre Auswahl; Betreibertexte
+bleiben erhalten. Vollständige Zählerpaare werden gemeinsam vorgewählt,
+unbekannte/falsche/unvollständige Zuordnungen bleiben abgewählt und gesperrt.
+
+Backend-Vorschau und Browser verwenden dieselbe Vorauswahl; die bisherige
+Frontend-Überschreibung auf `record=false` ist entfernt. Vorschau bleibt
+ohne Speicherung oder Geräteabfrage. Erst „Entwurf speichern“ übernimmt die
+Auswahl. Reimport kann zuvor gespeicherte Abwahlen im Entwurf wieder aufheben;
+Bedienhinweise und Read-to-clear-Warnung erläutern dies ausdrücklich.
+
+Tatsächlich geprüft:
+
+- `uv run pytest -q`: **231 bestanden**, eine bekannte DeprecationWarning.
+  Geänderte Reimportregeln, Metadatenerhalt, falsche/unbekannte Zuordnung,
+  unvollständige und vollständige Zählerpaare sowie Draft/Persistenz geprüft.
+- `uv run ruff check .`: erfolgreich.
+- `npm run build`: TypeScript/Vite erfolgreich.
+- Gebaute Oberfläche mit echtem Uvicorn und Chromium, ohne konfigurierten Host
+  und ohne Sammler, gestartet. Tatsächliche private 80er-CSV hochgeladen:
+  **80 Checkboxen ausgewählt, keine gesperrt**; gespeichert blieben vorher
+  nur die fünf Kernwörter auf Revision 0. Upload allein änderte nichts.
+- Im Browser Leistung abgewählt und gespeichert, danach dieselbe Datei erneut
+  hochgeladen: im Entwurf wieder ausgewählt; gespeicherte Abwahl blieb bis
+  zu einem weiteren Speichern unverändert auf Revision 1.
+- Neue Bedien- und Read-to-clear-Hinweise per Screenshot geprüft;
+  keine JavaScript-Fehler. Prüfprozess/Browsertab beendet, Wegwerfskript entfernt.
+
+Keine Heizungsabfrage, keine Heizungsänderung, kein Deployment und kein Release.
+Vorhandene lokale Nutzeränderungen bleiben erhalten.
+
+## 18.10.2026 – Fehler einzelner Werte isolieren und an Kacheln anzeigen
+
+Nutzerauftrag nach einem real beobachteten `stopped_data` wegen fehlender
+gespeicherter Wetterdaten: übrige Werte weiter auslesen und die konkrete
+Fehlerursache an der jeweiligen Anlagenkachel darstellen. Die vorherige
+Untersuchung des laufenden Monitors war ausschließlich lesend. Für diese
+Umsetzung wurde die laufende Heizungs-App weder neu gestartet noch quittiert;
+es wurden keine neuen Heizungsanfragen ausgeführt.
+
+Implementiert:
+
+- Kanalweise Decoderergebnisse mit `quality`, `error_code`, `error_message`
+  und nullable `value`. Strukturell falsche Blockdaten bleiben globale Fehler.
+- Dokumentierte fehlende Wetterdaten ergeben `unavailable`/`missing_weather`,
+  statt den gesamten Sammler anzuhalten. Reguläre spätere Abfragen dürfen
+  wieder gültige Daten liefern; keine erfundenen Nullmessungen.
+- Echte ungültige Einzelwerte und registerbezogene Modbus-Ausnahmen 2/3
+  werden persistent in `blocked_signals` ausgesetzt; andere ausgewählte
+  Signale laufen weiter. Gesunde Nachbarn im selben Pufferblock bleiben
+  nutzbar. Nicht ausgewählte fehlerhafte Nachbarn werden nicht still ohne
+  zugehörige Fehlerbeobachtung gesperrt.
+- Wiederanlauf, normales Resume und CSV-Speichern löschen Sperren nicht.
+  Explizite Quittierung nach Ursachenprüfung darf sie aufheben, ohne das
+  Anfragebudget zurückzusetzen. Fehlende optionale Wetterdaten brauchen keine
+  Quittierung. Vollständig gesperrte Auswahl wartet ohne Read-/Busy-Loop.
+- Allgemeine Gerätefehler, Busy-/Gatewayfehler, ungültige/teilweise
+  Modbus-Antworten und Speicherprobleme behalten globale Schutzstopps.
+  Auch diese Fälle erhalten sichere Fehlerbeobachtungen soweit speicherbar.
+- Schema 4 ergänzt zwei nullable Fehlerfelder an Beobachtungen. Migration
+  1/2/3 additiv; bestehende Historie und Zusatz-Alttabellen bleiben erhalten.
+  Current liefert deterministisch genau die neueste Beobachtung je Signal,
+  auch bei identischen Zeitstempeln; Zugriff beginnt über die kleine
+  Signaltabelle statt über alle dauerhaft erhaltenen Minutenbeobachtungen.
+- Current-/History-API und CSV transportieren Fehlerfelder, Current auch
+  Blockoffset/Registerzahl. Kacheln zeigen konkrete Ursache, Code, Zeitpunkt
+  und Qualität; früher gute Werte werden bei aktuellem Fehler nicht als
+  frisch angezeigt. Fehlerpunkte unterbrechen Diagrammlinien. Ereignisse
+  zeigen nur kontrollierte Detailfelder, keine privaten Host-/Pfadfehler.
+
+Tatsächlich ausgeführte Prüfungen:
+
+- `uv run pytest -q`: abschließend **257 bestanden**, eine bekannte
+  Starlette-/AnyIO-DeprecationWarning. Bestehende Decoder-/Collectorverträge
+  migriert; Fehlerfortsetzung, Paarisolation, Quarantäne/Restore/Freigabe,
+  fehlend→wieder verfügbar, harte Stopps, Migration/Backup und Fehlerexport
+  geprüft. Im ersten Integrationslauf erwartete ein alter Recoverytest noch
+  ausschließlich einen Gutwert; er prüft nun die neue Fehlerbeobachtung und
+  den anschließenden Gutwert als zusammenhängenden Übergang.
+- `uv run ruff check .`: **All checks passed!**
+- `npm run build`: TypeScript und Vite erfolgreich.
+- `uv build --wheel --python 3.12.9`: erfolgreich.
+- Gebaute App mit Uvicorn und Chromium auf isoliertem Datenverzeichnis,
+  echter Loopback-Modbus-Transport und ausschließlich synthetische Werte.
+  Wartezeiten durch eine virtuelle Uhr beschleunigt, nicht durch Änderung
+  der Produktionsintervalle.
+- Im Browser kleine CSV importiert, Zähler abgewählt, Auswahl gespeichert
+  und bewusst fortgesetzt. Vorbereitender gültiger Kernzyklus blieb in der
+  Historie. Danach gleichzeitig: Wettertemperatur −50, Wetterstatus −1,
+  Puffer oben 110 und validierte Modbus-Ausnahme 2 für einen Protokollblock;
+  Kessel, Puffer unten und Versorgung lieferten weiter gültige Werte.
+
+| Endlicher gemischter Loopback-Lauf | Ergebnis |
+|---|---:|
+| Tatsächliche FC03-Anfragen einschließlich Vorbereitung | 20 |
+| Gespeicherte Beobachtungen | 22 |
+| Gültige Beobachtungen | 16 |
+| Nicht verfügbare Wetterbeobachtungen | 4 |
+| Isolierte ungültige Beobachtungen | 2 |
+| Ausgesetzte Signal-IDs | 2 |
+| Auslesungen des abgelehnten Protokollblocks | 1 |
+
+Endzustand `completed` durch das endliche Budget, SQLite-Integrität `ok`.
+Puffer oben behielt seinen früheren gültigen Punkt und erhielt danach eine
+ungültige Beobachtung mit `value=NULL`; Puffer unten wurde im gemeinsamen Block
+weiter erfasst. Prozessneustart erhielt Fehlerkacheln, zwei Signalsperren,
+Historie und Anfragezahl ohne neue Reads.
+
+Browsernachweis: Wetterkachel mit „Kein gespeicherter Wetterzustand“,
+`missing_weather` und Offset 4129; Pufferfehler mit konkretem Wertbereich;
+abgelehnter Protokollblock mit `modbus_exception_2`; gesunde Nachbarkachel
+weiter gültig. Fehler-/Warnfarben zusätzlich als Text, kein Fake-0 und kein
+alter Ersatzwert. Anlagenübersicht, Verlauf und 390-px-Ansicht per Screenshot
+gesichtet; kein horizontaler Seitenüberlauf, keine JavaScript-Fehler.
+
+Zusätzliche tatsächliche Loopback-Smokes:
+
+- Wetterstatusfolge gültig 2 → fehlend → gültig 3 über drei reguläre
+  300-s-Abfragen: gespeicherte Qualitäten `ok` → `unavailable` → `ok`,
+  kein gesperrtes Signal, keine künstliche Nullmessung.
+- Falsche Unit: nach einer Anfrage `stopped_protocol`, Fehlercode
+  `protocol_error` an der Beobachtung.
+- Verbindungsabbruch ohne Antwortbytes im endlichen Lauf: nach einer Anfrage
+  `stopped_transport`, Fehlercode `transport_error`.
+
+Gitleaks über Backend, Frontend, Tests und Dokumentation ohne Fund.
+Eigene Prüfprozesse und Browseransicht beendet, Wegwerfskript/-CSV entfernt;
+synthetische SQLite-Belege verbleiben lokal im ignorierten Datenverzeichnis.
+Vorhandene Nutzeränderungen bleiben erhalten. Keine echte Datenbank,
+private `.env`, Heizungsparameter oder Modbus-Tabelle verändert.
+
+Vor Einsatz konsistent sichern, App/Frontend mit neuem Stand starten und
+einen bereits gespeicherten globalen Fehlerstopp nach Prüfung ausdrücklich
+quittieren. Die Migration selbst quittiert nichts. Alte App-Versionen können
+Schema 4 nicht öffnen. Kein Container-/Unraid- oder Live-Nachweis aus diesen
+Prüfungen ableiten; keine Veröffentlichung, Commits oder Pushes ausgeführt.
+
+## 18.10.2026 – Feldabgleich der 80 unterstützten Register
+
+Die vorhandenen Betreiber-Notizen und die zuvor ausgewerteten Herstellerpfade
+wurden in verständliche Anzeigenamen und fachliche Beschreibungen übernommen.
+Die Ausgabe bleibt Teil von `/api/signals`, ohne neue Gruppenrouter oder
+automatische Änderungen an Auswahl und Kachelsichtbarkeit. CSV-Importnamen bleiben
+unabhängig von den Anzeigenamen, damit unveränderte Reimporte ihre Identität behalten.
+
+- `verification_status`: Touch-Abgleich / Lesbarkeit laut Betreiber für 79 Wörter;
+  für `10D1` fehlt die Bestätigung. Keine unabhängige physikalische Verifikation.
+- `module_status`: NM/SP und eigenständige Puffer-2-Parameter als inaktiv markiert,
+  getrennt vom Verifikationsstatus. Lesbare Zahlen sind dort keine aktiven
+  Anlagenmessungen. `9000` und `9001` bleiben ausdrücklich die aktiven Fühler
+  oben/unten desselben Puffers; IDs, Blockmapping und Beschreibungen unverändert.
+- Präzisiert: Fehlerlisten-Minimum / 0 leer, identische Abgasquellen,
+  Saugzug-Prozentanzeige ohne U/min-Normierung, einheitenlose Lambda-Ganzzahlen,
+  Materialförderungs-Stoppschwelle, Teillast-/Zündtaktalias, Heizkreis-Vorlauf /
+  Quellen-Ist / berechneter Vorlauf-Sollwert, Ausbaukonfiguration statt Pumpenstatus
+  und PT100-Betriebsart statt Rohmesswert.
+- `91E0/1` erhalten Prozentmetadaten für die belegten Anzeigestufen 10/50/90,
+  ohne Energieinterpretation. Alle neuen Prozentmetadaten behalten die
+  identische Rohwortdekodierung ohne zusätzliche Skalierung oder Statusgrenzen.
+- Historische Beobachtungen behalten ihre gespeicherten Einheiten in API und CSV;
+  unterschiedliche Einheiten im selben Zeitraum werden getrennt gezeichnet.
+  Der historische Kern-Livenachweis und die Intervalle 60/300 s bleiben unverändert.
+
+Verhaltenstests ergänzt für unverändertes aktives Puffer-Mapping,
+Prozentmetadaten ohne Rohwortskalierung oder neue Grenzen, getrennte
+Verifikations-/Modulzustände, historische Einheiten in API/Export und unveränderte
+CSV-Importidentität. Anschließend tatsächlich geprüft: `uv run pytest -q`
+mit 317 bestandenen Tests und einer bekannten DeprecationWarning;
+`uv run ruff check .` erfolgreich; `npm run build` erfolgreich.
+Gebaute App isoliert ohne Collector/Heizungsziel gestartet und in Chromium
+geprüft: unveränderte Pufferbezeichnungen, Saugzug-Prozentdarstellung,
+Touch-Betreiberbestätigung und weiterhin offener Status von 10D1.
+Screenshot der Verlaufsauswahl gesichtet; keine JavaScript-Fehler.
+
+Keine Heizungsabfrage, Neustart, Quittierung, Änderung einer echten Datenbank
+oder privaten `.env`. Private Originaldateien und Quellen wurden nicht kopiert.
+Keine Git-Aktionen, Commits oder Veröffentlichung.
+
+## 18.10.2026 – Dashboard auf Aufzeichnungsauswahl begrenzen
+
+Kacheln folgen ausschließlich der gespeicherten Aufzeichnungsauswahl.
+Kernsignale, historische Werte und eine noch ausstehende alte aktive Auswahl
+erzwingen keine zusätzlichen Kacheln mehr. Verlauf und Historie bleiben erhalten.
+`npm run build` erfolgreich. Tatsächliche lokale Browseroberfläche geprüft:
+40 ausgewählte Signale, 40 Kacheln, weiterhin 78 Verlaufseinträge.
+Keine Änderung der Auswahl, kein Sammlerneustart und keine zusätzliche
+Heizungsabfrage durch die Prüfung.
+
+## 18.10.2026 – Diagrammauswahl auf Aufzeichnungsauswahl begrenzen
+
+Verlaufsauswahl nutzt denselben Filter wie die Anlagenkacheln.
+Eine gespeicherte, inzwischen ausgeschlossene Signalwahl wird korrigiert;
+bei leerer Auswahl sind Auswahl und Export deaktiviert. Historie bleibt erhalten.
+TypeScript-/Vite-Build und Diffprüfung erfolgreich. Der lokale Vite-Port war
+bei der Abnahme nicht erreichbar; deshalb gebaute App isoliert ohne Collector
+gestartet und im Browser geprüft: vier ausgewählte Signale, vier Diagrammoptionen,
+unzulässige gemerkte Auswahl nach Neuladen auf verfügbares Signal korrigiert.
+Keine Heizungsabfrage oder Änderung der tatsächlichen Aufzeichnungsauswahl.

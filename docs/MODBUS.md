@@ -25,12 +25,14 @@ Bei den Kern-Temperaturkanälen ist 110 Ersatz-/Fehlerwert. Gültig ist strikt
 `-5 < signed < 110`; keine Soll-/Betriebstemperaturgrenzen. Diese Grenze nicht auf
 die unbestätigte Außentemperatur übertragen.
 
-Das ausführbare Erstprofil `core` ist ausschließlich in
-[`backend/registers.py`](../backend/registers.py) definiert: exakt die drei oben
-aufgeführten Blöcke. `docs/register_catalog.json` bleibt eine getrennte
-Faktenreferenz und keine Pollingliste; die 194 statischen Einträge sind nicht aktiv.
-Dekodierte Werte tragen Rohworte, Blockoffset, Quelle sowie Profil- und
-Decoderversion, damit eine Interpretation nachvollziehbar bleibt.
+Das bestätigte Kernprofil `core` bleibt in
+[`backend/registers.py`](../backend/registers.py) unverändert. Das explizite
+`READ_PROFILE` ergänzt ausschließlich die weiteren 75 Wörter der bereitgestellten
+V2-Auswahl: insgesamt 80 Registerwörter und 78 Signale. Die beiden Zählerpaare
+ergeben jeweils ein Signal. Keine beliebigen Adressen und kein Vollscan.
+Neue Signale tragen Herkunft `extended/1/1`; alte Kernmessungen behalten
+`core/1/1`. Der 199er-Katalog bleibt eine historische statische Referenz,
+nicht die ausführbare Pollingliste.
 
 `Gesamtminuten = Tage * 1440 + Restminuten`, Restminuten 0..1439.
 Das ist kein Float und kein üblicher 32-Bit-Zähler. Die Tagesgrenze wird durch
@@ -43,11 +45,147 @@ konservative Schranke setzt weder Heizungs-Tastgrad noch Zählerrücksetzung ode
 Es sind Anlagen-Betriebsminuten, nicht bewiesene Flammenlaufzeit oder Brennerstarts.
 BO01/BO02 bezeichnen an dieser Anlage oben/unten desselben Puffers.
 
+## Betreiberabgleich und Feldbedeutung
+
+Die ergänzten Betreiber-Notizen bestätigen für **79 von 80 Registerwörtern**
+den Touch-Abgleich / die Lesbarkeit; nur `10D1` ist nicht bestätigt.
+`verification_status` unterscheidet `operator_touch_confirmed` von `source_only`.
+Das bestätigt weder eine unabhängige Sensorprüfung noch jede physikalische
+Interpretation. Der bestehende `live_confirmed`-Wert bleibt als historischer
+Nachweis des fünf Wörter umfassenden Kernprofils erhalten, nicht als pauschale
+Sicherheitsfreigabe. Zeitplan und Frische verwenden weiterhin `interval_seconds`
+(Kern 60 s, Zusatz 300 s), nicht den Verifikationsstatus.
+
+`module_status` trennt die Anlagenbeobachtung davon: Netzmischer, SP-Speichermodule
+und die eigenständigen Puffer-2-Parameter `9061`, `9141`, `91E1`, `95E1` sind laut
+Betreiber `inactive`; die bestätigten Pufferfühler `9000` / `9001` bleiben `active`.
+Der aktive untere Fühler gehört zu demselben Puffer wie der obere. Inaktive
+Parameter am Folgeindex werden dadurch nicht zu Messungen dieses unteren Fühlers.
+`unknown` bedeutet keine bestätigte Modulaktivität, nicht automatisch inaktiv.
+Lesbare inaktive Werte sind kein Nachweis aktiver Anlagenmessungen.
+Keiner dieser Statuswerte verändert die gespeicherte Aufzeichnungsauswahl oder
+blendet vorhandene Kacheln aus. `/api/signals` liefert die bereinigten Anzeigenamen,
+Beschreibungen und Statusfelder; CSV-Importnamen bleiben davon unabhängig.
+
+| Codes (hex) | Quellen- und anlagengerechte Bedeutung |
+|---|---|
+| `1002` | Kleinste Nummer der aktuell geführten Fehlerliste; 0 = Liste leer, kein Fehlerzähler und kein Beweis physischer Fehlerfreiheit. |
+| `1100`, `1102` | Identische ausgewertete Abgastemperaturquelle; kein zweiter Sensor oder ADC-Rohwert. |
+| `1106`, `1107`, `1300`–`1302` | Saugzugansteuerung bzw. Betriebsparameter in Prozent, keine gemessene Drehzahl. |
+| `1108` | Modulgelieferte Drehzahlrückmeldung, am Touch mit % angezeigt; Bezugsdrehzahl / U/min-Umrechnung nicht belegt. |
+| `1104`, `1105`, `1320`, `1321`, `1323` | Ganzzahlige Lambda-Regelskala ohne belegte physikalische Einheit; keine Umrechnung in λ oder O₂-%. `1323` sperrt die normale Materialförderung, kein globaler Heizungsstopp; Gluterhaltung hat einen Sonderzweig. |
+| `110E`, `1110` | Berechnete Förder-/Pausentaktlängen, Rohwort ÷ 10 in Sekunden; keine gemessenen Laufzeiten oder Countdowns. |
+| `1331`, `1332` | Dieselbe Teillast-Lesequelle; zugleich gekoppelter Zündtaktwert, kein unabhängiger letzter Zündwert. |
+| `8000`, `8001` | Heizkreis-Ausbaukonfiguration, nicht Pumpenlauf: 0 aus, 1 aktiv, 2 mit Raumgerät; zusätzlich 3 Rücklaufanhebung nur bei HK1. |
+| `8020/21`, `8030/31`, `8040/41` | Heizkreis-Vorlauf-Isttemperatur, Temperatur der konfigurierten Wärmequelle und aktuell berechneter Vorlauf-Sollwert. |
+| `9060/61` | Temperatur der konfigurierten Wärmequelle; kein eigener Zulauffühler, Start- oder Pumpenfreigabewert. |
+| `9140/41` | Fühlerbetriebsart: 0 ein PT100, 1 zwei PT100, 2 Start/Stopp; kein PT100-Rohmesswert. |
+| `91E0/1` | Prozentanzeige mit berechneten Stufen 10/50/90; keine kontinuierliche oder kalorimetrische Energiemessung. Eigene Berechnung je Softwareindex, kein „Ladezustand unten“. |
+
+Die neuen %-Einheiten ändern nur die Bedeutung neu dekodierter Beobachtungen:
+die Rohwort-Decoder bleiben unverändert und skalieren oder begrenzen nichts
+zusätzlich auf 0–100 bzw. 10/50/90. Frühere Beobachtungen behalten ihre gespeicherte
+Einheit in Current-/History-API und CSV; es gibt keine Datenmigration oder
+Umdeutung alter `Rohwert`-Beobachtungen. Das Dashboard zeichnet unterschiedliche
+gespeicherte Einheiten getrennt und verbindet sie nicht zu einer gemeinsamen Linie.
+
+
+## Aufzeichnung konfigurieren
+
+Unter **Modbus-Aufzeichnung** (`#/modbus`) wird ausschließlich die lokale
+Monitor-Auswahl bearbeitet, niemals die Modbus-Tabelle der Heizung.
+Formatquelle war zunächst das Betreiberbeispiel in Issue #55. Für die
+V2-Erweiterung wurden die privat bereitgestellte 80er-CSV und rekonstruierte
+Herstellerquellen lokal geprüft; Originaldateien und Quellcode bleiben privat.
+
+1. CSV als UTF-8 (optionaler BOM), ohne Kopfzeile hochladen:
+   `Name;dezimaler Offset;interner Hexcode`, z. B. `Kessel_Ist;4102;1006`.
+   Der interne Code besteht aus vier Hexzeichen; Groß-/Kleinschreibung ist
+   unerheblich. Maximal 1 MiB und 5.000 Einträge. CSV-Anführungszeichen für
+   Namen mit Semikolon werden unterstützt.
+2. Die Vorschau ergänzt/aktualisiert nach **internem Code als stabiler Identität**,
+   nicht nach Reihenfolge oder Name. Neue Zeilen stehen grün als „Neu“, geänderte
+   gelb als „Geändert“ oben; betroffene Importfelder sind benannt.
+3. **Aufzeichnen**, **Einheit** und **Beschreibung** bearbeiten. Einheit/Beschreibung
+   sind Betreiber-Metadaten, keine Umrechnung oder fachliche Bestätigung.
+   Messungen, Diagramme und CSV-Messwertexport behalten ihre Decoder-Einheit.
+4. **Entwurf speichern** schreibt alle Einträge und Einstellungen atomar in
+   `monitor.sqlite3` im persistenten Datenverzeichnis. Ohne Speichern bleibt
+   die bisherige Konfiguration unverändert. „Entwurf verwerfen und neu laden“
+   verwirft lokale Änderungen ausdrücklich.
+
+Beim Upload werden alle interpretierbaren Einträge mit passender Lesezuordnung
+im Entwurf vorgewählt. Das gilt auch für zuvor abgewählte hochgeladene Einträge
+beim Reimport; fehlende CSV-Zeilen behalten ihre gespeicherte Auswahl.
+Unbekannte Codes, abweichende Offsets und unvollständige Zählerzuordnungen
+bleiben abgewählt und gesperrt. Bei wiederhergestellter gültiger Zuordnung
+ist der Eintrag wieder vorgewählt. Dies ist kein Live-/Displaynachweis oder
+Hersteller-Verträglichkeitsversprechen. Erst **Entwurf speichern** übernimmt
+die Auswahl; vorher kann jede geeignete Zeile wieder abgewählt werden.
+Die Zählerpaare **7010/7011** und **7012/7013** werden jeweils gemeinsam
+geschaltet und als Gesamtminuten dekodiert. Ein hochgeladenes Wort wählt auch
+seinen bereits vorhandenen, korrekt zugeordneten Partner vor. Stokerzeit bezeichnet die
+softwaregezählte Freigabezeit, nicht mechanisch nachgewiesene Bewegung.
+Puffer oben/unten bleiben separat abwählbar, aber im bestätigten Zweierblock.
+Alle anderen Zusatzregister werden einzeln gelesen, ohne ungeprüfte Lücken.
+
+**Neun Protokollregister sind Read-to-clear:** `12F0`, `85E0`, `85E1`, `8BF0`,
+`8BF1`, `8E0F`, `8E1F`, `95E0`, `95E1`. Ihre Auslesung leert aufgesammelte
+Modul-Ausgangsbits. Auch sie werden beim Upload im Entwurf vorgewählt;
+Warnungen stehen direkt an der Auswahl. Vor dem Speichern prüfen und bei
+Bedarf abwählen. Konkurrierende Leser können Informationen verlieren.
+Diese Werte sind kein Störungsjournal. Nach einem ungewissen
+Ausleseausgang erfolgt keine automatische Wiederholung, auch nicht nach Neustart.
+
+Einheiten/Skalen sind kanalbezogen: Temperaturen in ganzen °C mit jeweils
+eigenen Grenzen, Versorgung in 0,1 V, interne Leistungsregelgrößen in Prozent,
+Förder-/Pausentakte in 0,1 s und Stokerzähler als Tage/Restminuten.
+Lambda-Ganzzahlen bleiben ohne belegte physikalische Einheit als `Rohwert`
+gekennzeichnet; Saugzugwerte verwenden die belegte Prozentanzeige, ohne neue
+physikalische Normierung. Settings, Regelgrößen, Steuerungsdatum/-zeit und Messwerte
+sind im Dashboard unterschieden. Raumtemperatur 0 und Abgastemperatur 299 können
+Initialzustände oder echte Werte sein; diese Mehrdeutigkeit bleibt dokumentiert.
+
+Folgeimporte erhalten Betreibertexte und alle nicht mehr enthaltenen Einträge.
+Identische/umsortierte Importe erzeugen weder Duplikate noch falsche Importfeld-
+Änderungsmarker. Sie setzen jedoch die Vorbelegung hochgeladener geeigneter
+Zeilen erneut; zuvor gespeicherte Abwahlen dieser Zeilen werden im Entwurf
+aufgehoben. Nur inhaltlich unverändertes Speichern bleibt ein Revisions-No-op. Doppelte
+Codes oder Offsets, widersprüchliche Zuordnungen und ungültige Dateien werden
+vollständig abgelehnt. Ein neuer Import basiert auf der gespeicherten
+Konfiguration; vorangehende ungespeicherte Importfelder daher zuerst speichern,
+wenn sie Grundlage des nächsten Imports sein sollen.
+
+Gespeicherte und tatsächlich im Sammler geladene Revision/Auswahl sind getrennt
+sichtbar. Ein laufender Zyklus einschließlich Wiederaufnahme verwendet seinen
+festen Snapshot; Übernahme erst am Beginn des nächsten Kerndurchlaufs. Eine
+pausierte/gestoppte Erfassung bleibt pausiert/gestoppt; Änderungen können bis zum
+nächsten Start als „ausstehend“ erscheinen. Bei Prozessstart wird die gespeicherte
+Auswahl geladen, ohne einen gespeicherten Stopp zu quittieren. Fehlgeschlagenes
+Speichern oder ein Versionskonflikt verändert weder Speicherung noch aktive
+Auswahl; nach Konflikt ausdrücklich neu laden. Upload und Speichern führen selbst
+keinen Gerätezugriff aus. Bei leerer Auswahl wartet der normale Zeitplan ohne Reads.
+Wiederaufnahmebudget und harte Stopps bleiben erhalten, siehe
+[Fehlerverhalten](FEHLERVERHALTEN.md).
+
+Ohne gespeicherte Auswahl bleiben die fünf bestätigten Register wie bisher
+ausgewählt; weder CSV-Upload noch Installation aktiviert die Erfassung.
+Historische Beobachtungen werden nicht gelöscht oder anhand neuer Importfelder
+umgedeutet. Schema 1/2/3 wird additiv auf 4 migriert; vor Upgrade eine konsistente
+Sicherung erstellen. Alte App-Versionen unterstützen Schema 4 nicht.
+
+Fehlende Wetterwerte erscheinen jetzt als `unavailable` an der Kachel, ohne die
+übrigen Werte zu stoppen. Ungültige Einzelwerte und registerbezogene
+Modbus-Ausnahmen 2/3 werden persistent ausgesetzt; gesunde Nachbarn bleiben
+auslesbar. Globale Geräte-/Protokollfehler bleiben Stopps.
+Details und bewusste Freigabe: [Fehlerverhalten](FEHLERVERHALTEN.md).
+
 ## FC03-Transport und Offline-Simulator
 
-`backend/modbus.py` akzeptiert nur `RegisterBlock`-Einträge des ausführbaren
-`core`-Profils und sendet FC03/Unit 255 mit maximal zwei Registern. Eine synchrone
-Socket-Anfrage verwendet eine feste Gesamtdeadline von 3 Sekunden ab Aufruf
+`backend/modbus.py` akzeptiert nur vollständig übereinstimmende `RegisterBlock`-
+Einträge des expliziten `READ_PROFILE` und sendet FC03/Unit 255 mit maximal
+zwei Registern. START/SOLL sind nicht Teil dieses Leseprofils. Jede synchrone
+Socketanfrage verwendet eine feste 3-s-Gesamtdeadline
 (einschließlich Warten auf den Client-Lock, Verbindungsaufbau und Empfang).
 Es gibt keine Retry- oder parallele Request-Ebene.
 
@@ -58,38 +196,37 @@ Timeout/Abbruch ohne Antwortbytes ist `ConnectionError`; Deadline-/Verbindungsab
 nach Teilantwort ist `IncompleteResponseError`; fehlerhafte vollständige Protokolle
 sind `ProtocolError`. TCP-Fragmentierung wird bis zur Deadline zusammengesetzt.
 
-`backend/modbus_simulator.py` liefert feste synthetische Werte für die drei
-Kernblöcke und definierte Faults (Fragmentierung, Verzögerung, Teilantwort,
-verfälschte Header/PDU, Exception und Verbindungsabbruch). Bibliotheks-/API-Start
-aktiviert ihn nicht. Modulstart bindet auf `127.0.0.1:1502`; die Klasse verweigert
-nicht-loopback Ziele. Kein Scan, Modbus-Schreibbefehl oder Diagnosemodus.
+`backend/modbus_simulator.py` liefert ausdrücklich synthetische Werte für alle
+80 Register und bildet das Leeren der Protokollakkumulatoren nach. Bestehende
+Faults bleiben erhalten. Modulstart bindet ausschließlich auf Loopback;
+Bibliotheks-/API-Start aktiviert keinen Simulator. Kein Schreibbefehl/Diagnosemodus.
 
 ## Weitere Kandidaten
 
 | Offset / Anzahl | Tabellenbezeichnung | Stand |
 |---|---|---|
-| 4098 / 2 | Fehler_Min + Leistung_Ist | Zwei statische Einträge im Benutzerbericht-Import; beide ungefragt, Einheit/Decoder/Fehlerwerte/Bereich ungeklärt. |
-| 4104 / 1 | Leistung_Soll | Statischer Eintrag im Benutzerbericht-Import; ungefragt, Einheit/Decoder/Fehlerwerte/Bereich ungeklärt. Keine kW-/Prozentannahme. |
-| 33408 / 1 | Aussen_Ist | Statischer Eintrag im Benutzerbericht-Import; ungefragt, Einheit/Decoder/Fehlerwerte/Bereich ungeklärt. |
-| 4354 / 1 | Abgasfühler-Kandidat | Optionaler statischer Eintrag; ungefragt, Hardware/Einheit/Skalierung ungeklärt. |
+| 4098 / 2 | Fehler_Min + Leistung_Ist | Kleinste Fehlernummer der Liste (0 leer) und interne Leistungsregelgröße in Prozent; Betreiber-Touch-Abgleich notiert. Im erweiterten Profil getrennte Einzelreads. |
+| 4104 / 1 | Leistung_Soll | Interne Leistungssollgröße in Prozent; keine thermische kW-Messung, kein Schreibparameter dieses Codes. |
+| 33408 / 1 | Aussen_Ist | signed16, ganze °C, kanalspezifische Grenze −50 < T < 50; Betreiber-Touch-Abgleich notiert. |
+| 4354 / 1 | Abgas_Sensor | Dieselbe ausgewertete Quelle wie 1100, −5 < T < 330; 299 kann Initialwert sein. Betreiber-Touch-Abgleich notiert, keine zusätzliche unabhängige Sensorprüfung. |
 
-Diese Statusangaben stammen ausschließlich aus dem bereinigten statischen
-Katalog und der bisherigen Projektdokumentation; die privaten Primärbelege
-wurden für Issue #11 nicht eingesehen. Es gibt für diese Kandidaten weder
-einen neuen Geräteantwort- noch einen Benutzer-/Displayabgleich. Sie bleiben
-außerhalb des ausführbaren `core`-Profils und sind nicht als Messwerte/API-
-Signale verfügbar. Vor einem begründeten privaten FC03-Lauf müssen die
-Primärbelege Semantik und Decoder klären; der private Ziel-/Laufplan und der
-Ausschluss anderer Leser sind hier nicht verfügbar. Daher wurde kein
-Gerätezugriff unternommen und kein Zusatzintervall aktiviert. Der Kernplan
-bleibt unverändert: drei bestätigte Blöcke im 60-s-Raster; die Zusatzwerte
-haben kein eingeplantes Intervall.
+Die V2-Erweiterung hat die privaten Lese-, Konversions- und Anzeigepfade für
+den bereitgestellten Umfang statisch ausgewertet. Der ergänzte Betreiberabgleich
+ist oben separat erfasst; er ersetzt keine unabhängige Geräte-/Hardwareprüfung.
+Für diesen Feldabgleich wurde keine neue Live-Anfrage ausgeführt und kein privater
+Zielwert in Beispiele übernommen.
+Kernblöcke bleiben mindestens 60 s, Zusatzblöcke mindestens 300 s auseinander,
+jeweils ab Abschluss. Der zentrale Sammler überspringt noch nicht fällige
+Zusätze, statt die Kernwerte bis zu deren 300-s-Termin warten zu lassen.
+Die API markiert Zusatzwerte nach 600 s als veraltet; Diagramme berücksichtigen
+das längere Intervall. Kein automatisches Nachholen verpasster Messungen.
 
 Ein erfolgreicher einzelner zukünftiger Read wäre kein Beleg für dauerhaft
 gültige Skalierung oder Betriebsfreigabe.
 
-Die Zuordnungen oben sind Kandidaten, kein bestätigter Zusatzumfang. Nie alle
-199 Einträge ungeprüft pollen. Ein Fehler beendet jeden begrenzten Testdurchgang.
+Die Zuordnungen dieses Abschnitts sind explizit unterstützte Lesezuordnungen mit
+dem oben getrennt beschriebenen Belegstatus, keine generelle Betriebsfreigabe.
+Nie alle 199 Einträge ungeprüft pollen. Ein Fehler beendet jeden begrenzten Testdurchgang.
 
 ## Vollkatalog und Grenzen
 

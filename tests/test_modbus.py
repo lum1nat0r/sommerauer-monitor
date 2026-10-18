@@ -7,6 +7,7 @@ import pytest
 from backend.modbus import (
     ConnectionError,
     IncompleteResponseError,
+    ModbusExceptionError,
     ModbusTcpClient,
     ProtocolError,
 )
@@ -40,12 +41,19 @@ def test_reads_confirmed_block_through_fragmented_tcp_response() -> None:
         "wrong_length",
         "wrong_function",
         "wrong_byte_count",
-        "exception",
     ],
 )
 def test_rejects_invalid_responses(fault: str) -> None:
     with ModbusSimulator(fault) as simulator, pytest.raises(ProtocolError):
         _client(simulator).read(CORE_PROFILE[0])
+
+
+def test_valid_exception_exposes_typed_exception_code() -> None:
+    with ModbusSimulator("exception") as simulator, pytest.raises(ModbusExceptionError) as error:
+        _client(simulator).read(CORE_PROFILE[0])
+    assert isinstance(error.value, ProtocolError)
+    assert error.value.exception_code == 2
+    assert error.value.received_bytes == 9
 
 
 def test_no_response_bytes_and_partial_response_are_distinct() -> None:

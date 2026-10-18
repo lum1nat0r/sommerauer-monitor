@@ -6,6 +6,14 @@ Sammler, vollständiges Dashboard, Docker/Image und Geräteprüfung bleiben offe
 Konkrete Entwurfswerte unten sind Startwerte für die Implementierung, keine
 Herstellerfreigaben. Keine neue Gerätekommunikation bei dieser Übergabe.
 
+**Nachtrag 18.10.2026:** Der Betreiber hat die Fehlerstrategie für einzelne
+Werte geändert: übrige Signale weiter erfassen und konkrete Ursachen an den
+Kacheln zeigen. Fehlende optionale Wetterdaten sind „nicht verfügbar“;
+wirklich ungültige Signale werden ohne automatische Wiederholung isoliert.
+Übergreifende Geräte-/Protokoll-/Speicherfehler behalten den globalen Stopp.
+Dies präzisiert die ursprüngliche pauschale Datenfehler-Stoppregel unten.
+Aktueller Vertrag: [Fehlerverhalten](FEHLERVERHALTEN.md).
+
 ## 1. Festgehaltene Nutzerentscheidungen
 
 | Thema | Entscheidung / Herkunft |

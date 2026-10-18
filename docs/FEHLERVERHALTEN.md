@@ -19,8 +19,8 @@ fachlichen Prüfung und Kapazitätsplanung deaktiviert.
 | `completed` | Endliches Anfrage-/Zeitlimit erreicht; keine weiteren Reads bis zu bewusstem `acknowledge_and_start` |
 | `reconnect_wait` | Normale Folge pausiert; genau ein Versuch nach Ablauf der Wartezeit |
 | `stopped_transport` | Wiederaufnahmebudget ausgeschöpft oder endlicher Lauf nach Transportfehler; Ursache prüfen, bewusst quittieren |
-| `stopped_protocol` | Protokollfehler/Exception; keine automatischen Reads |
-| `stopped_data` | Ungültige/widersprüchliche Daten; keine automatischen Reads |
+| `stopped_protocol` | Ungültige/teilweise Antwort oder übergreifender Modbus-Gerätefehler; keine automatischen Reads |
+| `stopped_data` | Strukturell ungültige Registerblockdaten; keine automatischen Reads |
 | `stopped_storage` | Speicherung/Zustand nicht sicher möglich; keine neuen Reads |
 
 Nutzer-Stopp oder Anlagenauffälligkeit überstimmt alles. Fehlerstopp kann nur nach
@@ -45,6 +45,88 @@ rohen Transport-/Speicherfehler oder Konfigurations-Fingerprints zurück. Ein ex
 `acknowledge_and_start` setzt harte Stopps erst nach Ursachenklärung zurück;
 Prozessstart quittiert sie nicht.
 
+## Fehler einzelner Werte: übrige Erfassung läuft weiter
+
+Die neue Vorgehensweise trennt fehlende optionale Daten und isolierbare
+Wertfehler von übergreifenden Fehlern. Die Anlagenkachel zeigt Qualität,
+konkreten Fehlertext/-code, Beobachtungszeit, Blockoffset und Registerzahl.
+Ein Fehler ersetzt einen früheren guten Wert nicht durch 0 oder eine frische
+Kopie des alten Werts. Historie und CSV behalten Fehlerbeobachtungen mit
+`value=null`, Rohwörtern soweit vorhanden und Herkunft.
+
+- **Fehlende Wetterdaten:** Die dokumentierten Fehlwerte −50 bei Wettertemperatur
+  und −1 beim Wetterstatus ergeben `unavailable`/`missing_weather`. Die übrigen
+  Werte werden weiter erfasst; Wetterwerte werden im normalen 300-s-Intervall
+  erneut gelesen. Wenn wieder Daten vorliegen, wird die Kachel wieder aktuell.
+- **Ungültiger Einzelwert/Zähler:** `invalid` mit konkreter Ursache. Nur das
+  betroffene Signal wird ausgesetzt und in `blocked_signals` persistent gesperrt.
+  Ein gesunder Nachbar im selben Pufferblock wird weiter gelesen und gespeichert;
+  für das gesperrte Signal entstehen keine automatischen Wiederholungsmessungen.
+- **Gültige Modbus-Ablehnung 2 oder 3:** Der betroffene Registerblock wird mit
+  `modbus_exception_2` beziehungsweise `_3` ausgesetzt; andere Blöcke laufen weiter.
+  Das umfasst nicht allgemeine Geräte-, Busy- oder Gatewayfehler.
+
+Neustart, normale Pause/Fortsetzung und CSV-Speichern heben Signalsperren nicht
+auf. Zur bewussten Freigabe zuerst die Ursache prüfen und die Erfassung pausieren;
+`POST /api/collector/acknowledge-and-start` hebt die Sperren ausdrücklich auf
+und startet die Erfassung. Das ist eine erneute Freigabe aller gesperrten Werte,
+keine Hintergrundwiederholung. Anfragebudget und Historie bleiben erhalten.
+Die Oberfläche besitzt bisher keinen separaten Einzelwert-Freigabeknopf.
+Sind alle ausgewählten Signale gesperrt, wartet der Sammler ohne Busy-Loop.
+Fehlerhafte Kernsignale zählen nicht als erfolgreiche Erholungszyklen.
+
+Globale Transport-/Protokollfehler erhalten ebenfalls eine sichere Fehleranzeige
+am betroffenen Wert, soweit Speicherung möglich ist. Hostnamen, private Pfade
+und rohe Betriebssystemfehler werden nicht als Kacheltexte veröffentlicht.
+
+### Änderungen der Aufzeichnungsauswahl
+
+CSV-Vorschau und Speichern erzeugen selbst keine Modbus-Anfrage und verändern
+weder Pause/Fehlerstopp noch das Wiederaufnahmebudget. Der Sammler übernimmt die
+gespeicherte Auswahl vor dem nächsten Kerndurchlauf als festen Zyklus-Snapshot;
+ein laufender Zyklus einschließlich Retry wird nicht dazwischen umkonfiguriert.
+Gespeicherte und aktive Revision/Auswahl sind über `/api/logging-config` sichtbar.
+Bei Pause oder hartem Stopp kann eine neue Revision bis zum nächsten bewussten
+Start ausstehen. Bei Prozessstart wird die gespeicherte Auswahl geladen; der
+gespeicherte Fehlerzustand und die konservative Retry-Wartezeit bleiben wirksam.
+
+Abgewählte Blöcke entfallen aus dem normalen Plan. Bei einem teilweise
+ausgewählten Zweierblock werden beide Wörter unverändert validiert, aber nur
+ausgewählte Signale gespeichert. Bereits geplante begrenzte Wiederaufnahmen
+bleiben am selben bestätigten Block, auch wenn dessen Signale inzwischen
+abgewählt wurden; unter der neuen Auswahl entstehen dafür keine Beobachtungen.
+Eine vollständig leere Auswahl wartet ohne normale Reads; kein Busy-Loop.
+
+Eine Auswahländerung setzt keinen Versuchszähler zurück. Drei vollständige
+erfolgreiche **Kernzyklen aller drei Blöcke** bleiben Voraussetzung für den
+automatischen Budgetreset. Mit einem Teilprofil bleibt das verbrauchte Budget
+daher konservativ bestehen. Bestehende Minutenhistorie bleibt bei jeder
+Konfigurationsänderung unverändert.
+
+### V2-Zusatzregister
+
+Kernblöcke behalten mindestens 60 s Abstand; die Zusatzblöcke mindestens 300 s,
+jeweils ab Abschluss der vorherigen Verarbeitung. Noch nicht fällige Zusätze
+werden übersprungen, damit kein 300-s-Warten die Kernwerte verdrängt. Bei
+Prozessneustart werden gespeicherte Abschlusszeiten berücksichtigt; die
+Wiederaufnahmegrenzen und Anfragezähler bleiben erhalten.
+
+Nur die fünf Kernregister sind live bestätigt. Auf Betreiberwunsch wählt ein
+CSV-Upload interpretierbare Einträge mit passender Lesezuordnung im Entwurf
+vor, einschließlich der Protokollregister. Das ist noch keine aktive
+Übernahme: Erst Speichern ändert die gespeicherte Auswahl. Die Oberfläche
+unterscheidet Livebestätigung, statische Semantik und Herstellerrohwerte.
+Neun Protokollregister leeren bereits beim Lesen aufgesammelte Ausgangsbits
+(Read-to-clear). Sie sind deshalb zusätzlich unmittelbar an der Auswahl
+gekennzeichnet; Wiederholungen oder andere Leser können Informationen verlieren.
+
+Für Zusatzblöcke gibt es nach einem Transportfehler oder ungewissem Ausgang
+keinen automatischen Folgeversuch. Reine Verbindungsfehler führen zu
+`stopped_transport`, ungültige/teilweise Protokollantworten weiterhin zu
+`stopped_protocol`. Auch ein Neustart darf eine ungewisse Zusatzanfrage nicht
+erneut ausführen. Die begrenzte automatische Wiederaufnahme bleibt den
+bestätigten Kernblöcken vorbehalten.
+
 ## Reine Verbindungsfehler
 
 TCP-Verbindungsfehler oder Timeout ohne empfangene Antwortbytes dürfen in
@@ -67,18 +149,22 @@ Wenn der Zustand nicht verlässlich lesbar ist: gestoppt, nicht automatisch neu 
 
 ## Harte Fehler
 
-Modbus-Exception, falsche Unit/Funktion/Transaktion, ungültige MBAP-Länge oder
-Protokoll-ID, falsche Byteanzahl, vollständige ungültige Antwort oder nach Deadline
-unvollständige Antwort -> Protokollstopp. Der Transport liefert dazu die empfangene
+Falsche Unit/Funktion/Transaktion, ungültige MBAP-Länge oder Protokoll-ID,
+falsche Byteanzahl und unvollständige Antworten führen weiterhin zum
+Protokollstopp. Ebenso globale Modbus-Fehler, etwa Gerätefehler 4, Busy 6 oder
+Gatewayfehler; nur registerbezogene Ausnahmen 2/3 werden isoliert.
+Der Transport liefert dazu die empfangene
 Byteanzahl: Verbindungsfehler/Timeout ohne Antwortbytes ist von Teilantwort/Abbruch
 unterschieden. Normale TCP-Fragmentierung innerhalb der Deadline ist kein Fehler.
 Eine abgebrochene Verbindung nach Teilantwort zählt ebenfalls als Protokollfehler,
 nicht als reine Nichterreichbarkeit.
 
-110 bei Kern-Temperaturkanälen, ungültiger Wertebereich, Restminuten >=1440 oder
-widersprüchlicher Zähler -> Datenstopp. Keine Null einsetzen, nicht korrigieren,
-kein automatischer Folgeversuch. Rohworte und Fehler speichern, soweit Speicher
-funktioniert. DB voll/nicht beschreibbar/Migrationsfehler -> Speicherstopp.
+Ungültige Wertebereiche, Ersatzwerte wie 110 bei Kern-Temperaturkanälen,
+Restminuten >=1440 und widersprüchliche Zähler ergeben isolierte ungültige
+Signale statt eines Stopps aller Werte. Strukturell falsche Wortanzahl oder
+ungültige Registerworttypen bleiben globale Datenfehler. Rohworte und sichere
+Fehlerdetails werden gespeichert, soweit die Datenbank funktioniert.
+DB voll/nicht beschreibbar/Migrationsfehler -> Speicherstopp, keine weiteren Reads.
 
 ## Offline-Prüfungen
 

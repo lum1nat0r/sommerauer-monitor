@@ -24,7 +24,8 @@ Vorhandene Datenbanken und Minutenhistorien nicht löschen.
 
 Erste Version: Kesseltemperatur, Puffer oben/unten und Anlagen-Betriebszähler;
 weitere Register nach Prüfung. Alle Minutenmessungen bleiben dauerhaft erhalten.
-Bei reinen Verbindungsfehlern begrenzte Wiederverbindung, bei Protokoll-/Datenfehlern Stopp.
+Fehler einzelner Werte werden isoliert; übergreifende Protokoll-/Speicherfehler stoppen.
+Reine Kern-Verbindungsfehler erlauben weiterhin begrenzte Wiederaufnahme.
 Messlücken und Datenalter bleiben sichtbar.
 
 Vorgesehener Aufbau: Python/FastAPI, SQLite, React/TypeScript, ein Docker-Container.
@@ -64,12 +65,95 @@ Task-Terminal mit Ctrl+C beenden.
 Lokale Einstellungen stehen in `.env`, niemals echte Hostnamen oder Zugangsdaten in
 Beispiele, Logs oder CI übernehmen.
 
+### API und Dashboard mit der Heizung in VS Code
+
+Unter Windows und Linux dieselbe `.vscode/launch.json` verwenden:
+
+1. Abhängigkeiten wie oben mit `uv sync --locked` und `npm ci` installieren.
+   VS-Code-Erweiterungen **Python** und **Python Debugger** installieren.
+2. Über **Python: Select Interpreter** die Projektumgebung auswählen:
+   Linux `.venv/bin/python`, Windows `.venv/Scripts/python.exe`. Die Launch-Datei
+   übernimmt diesen Interpreter ohne fest eingebauten Betriebssystempfad.
+   `npm` muss im PATH des VS-Code-Prozesses liegen; unter Windows wird
+   ausdrücklich `npm.cmd` verwendet.
+3. Eine private `.env` im Projektstamm anhand von `.env.example` anlegen.
+   `MODBUS_HOST` ausschließlich auf die tatsächlich freigegebene Hausanlage
+   setzen; Port 502, Unit 255 und Profil `core` gemäß bestätigter Konfiguration.
+   Die Datei ist ignoriert und wird nicht über Git übertragen; auf jedem Rechner
+   privat bereitstellen.
+4. Andere Modbus-Leser beenden und den begrenzten Lauf gemäß
+   [Inbetriebnahme](docs/INBETRIEBNAHME.md) dokumentieren.
+   In **Run and Debug** **Sommerauer Monitor: Heizung (API + Dashboard)**
+   auswählen und mit **F5** starten.
+
+Dieser Start aktiviert den in der API integrierten Sammler, aber **keinen
+Simulator**. Er überschreibt aus Sicherheitsgründen drei `.env`-Werte:
+`COLLECTOR_ENABLED=true`, `COLLECTOR_MAX_REQUESTS=3` und
+`DATA_DIR=${workspaceFolder}/data/vscode-heizung`. Zieladresse und übrige
+Gerätekonfiguration kommen aus der privaten Umgebung/`.env`; keine eingebaute
+Heizungsadresse. API auf `127.0.0.1:8000`, Dashboard über Vites gemeldete URL
+(normalerweise `http://127.0.0.1:5173`). Port 8000 muss frei sein.
+
+Ohne gespeicherte abweichende Aufzeichnungsauswahl werden die drei bestätigten
+FC03-Blöcke einmal gelesen; danach zeigt die UI **Erfassung abgeschlossen**.
+Bei endlichen Läufen gibt es keine Wiederholung nach Verbindungsfehlern.
+API und Dashboard bleiben verfügbar; Debug-Stopp beendet beide Starts.
+Heizungsdaten bleiben dauerhaft im separaten Verzeichnis erhalten, ohne sie
+mit `data/vscode-simulator/` zu vermischen. Neustart quittiert weder Abschluss
+noch Fehler und gibt kein neues Anfragebudget; zum Weiterarbeiten keine DB
+löschen. Dies ist kein automatisch aktivierter Dauerbetrieb.
+
+Die bestehende Auswahl **Offline-Gesamttest** bleibt unverändert verfügbar.
+
 `/api/config` enthält weder Hostwert noch lokalen Datenpfad. Der Host wird nur als
 gesetzt/nicht gesetzt ausgewiesen. Der enge FC03-Client und Offline-Simulator sind
 unter `backend/modbus.py` und `backend/modbus_simulator.py` verfügbar; der
 Anwendungsstart startet weder Sammler noch Simulator und führt keine Gerätezugriffe aus.
 Den Simulator lokal mit `uv run python -m backend.modbus_simulator` starten
 (Standardbindung `127.0.0.1:1502`); Faults sind per `--fault` wählbar.
+
+### Modbus-Werte auswählen
+
+Die Navigation **Modbus-Aufzeichnung** öffnet eine separate Konfigurationsseite.
+CSV hochladen, **Aufzeichnen**, Einheit und Beschreibung bearbeiten, dann
+**Entwurf speichern**. Vorschau und Änderungen bleiben bis dahin unverbindlich.
+Die Auswahl steuert die tatsächliche Erfassung, nicht nur die Anzeige.
+Die 80 explizit unterstützten Register der V2-Auswahl sind bewusst aktivierbar.
+Die Betreiber-Notizen bestätigen für 79 Register den Touch-Abgleich / die Lesbarkeit;
+für `10D1` fehlt diese Bestätigung. Das ist kein unabhängiger Sensor-, Skalierungs-
+oder Aktornachweis. Der historische Live-Kernnachweis umfasst weiterhin fünf Register.
+Verständliche Anzeigenamen und Beschreibungen werden über `/api/signals` geliefert,
+getrennt von unveränderten CSV-Importnamen. Inaktive Netzmischer-/Speichermodule und
+eigenständige Puffer-2-Parameter sind gekennzeichnet; `9000` / `9001` bleiben aktive
+Fühler oben / unten desselben Puffers, mit unveränderten IDs und Decodergrenzen.
+Neue Prozentmetadaten skalieren keine Rohworte; frühere Beobachtungen behalten ihre
+Einheiten, gemischte Historien werden im Diagramm nach gespeicherter Einheit getrennt.
+Die Metadaten ändern weder Aufzeichnungsauswahl noch Sichtbarkeit der Kacheln.
+Die Anlagenübersicht zeigt ausschließlich die gespeicherte Aufzeichnungsauswahl,
+auch wenn die Übernahme durch den Sammler noch aussteht. Abgewählte Signale
+bleiben gespeichert. Auch die Diagrammauswahl folgt ausschließlich der
+gespeicherten Aufzeichnungsauswahl. Eine zuvor gemerkte, inzwischen abgewählte
+Signalwahl wechselt automatisch zum ersten verfügbaren Signal.
+Beim CSV-Upload werden alle interpretierbaren
+Einträge mit passender Lesezuordnung im Entwurf vorgewählt, auch bei Reimport.
+Vor Speichern prüfen und unerwünschte Werte abwählen; erst Speichern übernimmt sie.
+Neun Protokollregister leeren beim Lesen ihre Ausgangsbits und tragen eine
+Warnung. Betreibertexte ändern weder Decoder noch Messwerteinheiten;
+bestehende Historie bleibt erhalten. START/SOLL erscheinen getrennt als
+Steuerungskandidaten, ohne Schreibfunktion.
+Format, inkrementelle Importregeln und sichere Übernahme:
+[Modbus-Konfiguration](docs/MODBUS.md#aufzeichnung-konfigurieren).
+Die Funktion benötigt einen neuen App-/Image-Build; bestehende veröffentlichte
+Images werden nicht verändert.
+
+Fehler einzelner Werte sind jetzt direkt an deren Kachel sichtbar. Fehlende
+Wetterdaten werden als „Nicht verfügbar“ weiter im normalen Intervall geprüft;
+ungültige Werte und registerbezogene Ablehnungen werden einzeln ausgesetzt,
+während die übrige Erfassung weiterläuft. Verbindungs-, Protokoll- und
+Speicherprobleme behalten ihre globalen Schutzgrenzen.
+[Fehlerbehandlung und bewusste Freigabe](docs/FEHLERVERHALTEN.md).
+Vor dem Upgrade konsistent sichern: Schema 1/2/3 wird auf 4 erweitert;
+eine alte App-Version kann die migrierte Datenbank nicht öffnen.
 
 ## Docker und Unraid
 
