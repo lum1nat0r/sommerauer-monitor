@@ -1,5 +1,27 @@
 # Ergebnisse
 
+## 18.10.2026 – Releasevorbereitung v0.3.0
+
+Basis: `c8dba9c` auf `main`, einschließlich PR #59. Paket-/Lockversionen,
+FastAPI-Metadaten, Docker-/Compose-Vorgaben, Unraid-Template und
+Deploymentdokumentation sind auf 0.3.0 angehoben. Historische Belege bleiben
+unverändert. Der Betreiber erlaubt für dieses Release ausdrücklich den Merge
+des Versions-PRs nach erfolgreichen Prüfungen und die Veröffentlichung.
+
+Tatsächlich ausgeführte Offline-Prüfungen:
+
+- `uv sync --locked`, `uv run ruff check .`: erfolgreich.
+- `uv run pytest`: 416 bestanden; eine bestehende
+  Starlette/AnyIO-DeprecationWarning.
+- `npm run build`: TypeScript-Prüfung und Produktionsbuild erfolgreich.
+- Separater In-process-Laufzeit-Smoke mit temporärem Datenverzeichnis,
+  ohne Gerätehost und mit deaktiviertem Sammler: `/api/health`,
+  `/api/version` und `/api/collector/status` HTTP 200; Paketversion,
+  OpenAPI und Versionsendpunkt 0.3.0, Zustand `unconfigured`, kein Sammler.
+
+Veröffentlichungsnachweis folgt im GitHub-Release und dessen Container-Workflow.
+Keine Gerätezugriffe, keine Unraid-Abnahme und keine Aktivierung der Erfassung.
+
 ## 14.10.2026 – Öffentliche Planungsübergabe
 
 Plan, Architektur, Modbus-Faktenkatalog, Fehler-/Datenverträge, Inbetriebnahme,

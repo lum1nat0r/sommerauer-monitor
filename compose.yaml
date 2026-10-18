@@ -3,12 +3,12 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: ${APP_VERSION:-0.2.1}
+        APP_VERSION: ${APP_VERSION:-0.3.0}
         BUILD_REVISION: ${BUILD_REVISION:-unknown}
         APP_UID: ${PUID:-99}
         APP_GID: ${PGID:-100}
     platform: linux/amd64
-    image: sommerauer-monitor:${APP_VERSION:-0.2.1}
+    image: sommerauer-monitor:${APP_VERSION:-0.3.0}
     user: "${PUID:-99}:${PGID:-100}"
     init: true
     ports:
