@@ -14,6 +14,35 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
+## Fortlaufendes Polling bei Verbindungsfehlern
+
+Betreiberauftrag vom 19.10.2026 umgesetzt: kein Fünf-Versuche-Limit, keine
+steigenden Retry-Pausen und kein Drei-Kernzyklen-Budgetreset mehr.
+Ausgewählte Kernblöcke bleiben bei mindestens 60 s, normale Zusatzblöcke bei
+mindestens 300 s; Verbindungsfehler verdrängen andere fällige Werte nicht.
+Historie und sichtbare Fehlerbeobachtungen bleiben erhalten.
+
+Beim Start eines aktivierten Sammlers mit dem neuen Build werden alte reine
+Transportstopps automatisch fortgesetzt, wenn alter und neuer Lauf unbeschränkt
+sind und kein Read-to-clear-Block betroffen ist. Nutzerpause, `completed`,
+endliche Budgets, Signalsperren und harte Fehlerstopps bleiben erhalten.
+Eine deaktivierte Instanz wird nicht automatisch aktiviert. Vor Upgrade
+konsistent sichern; keine Datenbank löschen. Für Dauerbetrieb muss
+`COLLECTOR_MAX_REQUESTS` leer bleiben; endliche Prüfläufe bleiben absichtlich begrenzt.
+
+Prüfungen ausschließlich synthetisch/Loopback: 419 Python-Tests, 25 Node-Tests,
+Build und Ruff erfolgreich. Echter FC03-Transport mit 21 aufeinanderfolgenden
+Verbindungsfehlern und anschließender Erholung; virtuelle Schedulerzeit,
+reguläre Blockintervalle und unveränderte Fehlerhistorie nachgewiesen.
+Gebautes Dashboard mit isolierter API im Chromium-Browser geprüft:
+kein Budgetbruch, Hinweis „ohne Versuchslimit“, nächster Abfragetermin sichtbar.
+Details: [Ergebnisbericht](reports/RESULTS.md#19102026--fortlaufendes-polling-statt-fehlversuchslimit).
+
+Noch nicht deployt oder an der Anlage geprüft. Private Konfiguration, laufende
+Heizungs-App und Gerät blieben unverändert. Nach Bereitstellung des neuen Builds
+die tatsächliche Instanz regulär neu starten; keine zusätzliche Live-Abfrage
+aus dieser Offline-Verifikation ableiten.
+
 ## Dashboard und neuer Steuerungszustand: Anlagengrenze
 
 Dashboardumbau und Leserweiterung `1001` sind lokal mit synthetischer App,
@@ -270,17 +299,17 @@ Solarprognose/START-SOLL sind spätere Arbeitspakete. Keine Aktivierung von
 Heizungsänderungen aus dieser Übergabe ableiten.
 
 Image-Workflow: Pull Requests bauen `linux/amd64` ohne Push; Release-Tags
-`vX.Y.Z` veröffentlichen erst nach Offline-Prüfungen. Der Tag `v0.1.0`
-existiert bereits; eine Veröffentlichung von 0.3.0 wird gesondert geprüft.
+`vX.Y.Z` veröffentlichen erst nach Offline-Prüfungen. Version 0.3.0 ist veröffentlicht;
+die Veröffentlichung von 0.3.1 mit fortlaufendem Polling ist ausdrücklich beauftragt.
 MIT ist für eigenen App-Code festgelegt. Branch-/Tag-Schutz und
 GHCR-Sichtbarkeit bleiben bei der Veröffentlichung zu beachten.
 Details: [Unraid-/Release-Strategie](docs/UNRAID.md#github-image-build-und-veröffentlichungsgrenze).
 
-Für Version 0.3.0 ist `compose.unraid.yaml` auf
-`ghcr.io/lum1nat0r/sommerauer-monitor:0.3.0` festgelegt, ohne lokalen Build.
-Git-Tag dafür: `v0.3.0`, nicht `0.3.0`. Nach erfolgreichem Release-Workflow
-GHCR-Paket öffentlich schalten und anonymen Pull prüfen; erst danach auf Unraid
+Für Version 0.3.1 ist `compose.unraid.yaml` auf
+`ghcr.io/lum1nat0r/sommerauer-monitor:0.3.1` festgelegt, ohne lokalen Build.
+Git-Tag dafür: `v0.3.1`, nicht `0.3.1`. Nach erfolgreichem Release-Workflow
+die öffentliche GHCR-Verfügbarkeit anonym prüfen; erst danach auf Unraid
 mit privater `.env` und vorbereitetem Datenpfad starten
 ([Anleitung](docs/UNRAID.md#unraid-veröffentlichtes-image-verwenden)).
-Die lokale Build-Datei `compose.yaml` bleibt getrennt. Dieser Arbeitsstand
-erstellt keinen Tag und aktiviert weder Deployment noch Erfassung.
+Die lokale Build-Datei `compose.yaml` bleibt getrennt. Release- und Image-Nachweis
+werden im GitHub-Release verlinkt; das Betreiber-Deployment bleibt davon getrennt.

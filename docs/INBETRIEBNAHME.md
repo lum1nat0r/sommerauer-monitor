@@ -63,7 +63,7 @@ Die Laufpläne und tatsächlichen Ergebnisse bleiben in `NEXT_STEPS.md` und
   lassen; tatsächliches Image/Revision, lokalen `/data`-Mount, Rechte und
   Sicherung auf Unraid prüfen. Danach eigener endlicher Deployment-Lauf mit
   dokumentiertem Budget; die Windows-Abnahme ersetzt diesen Plattformcheck nicht.
-  Bestehende `completed`-/Fehlerzustände nicht durch Löschen der DB oder
+  Bestehende `completed`-/harte Fehlerzustände nicht durch Löschen der DB oder
   Neustarts umgehen; nur nach Prüfung bewusst quittieren.
 - **Zeitplan:** ein synchroner Client, eine Anfrage gleichzeitig, höchstens
   zwei Register, 3 s Transport-Gesamtdeadline. Derselbe Block frühestens
@@ -76,13 +76,13 @@ Die Laufpläne und tatsächlichen Ergebnisse bleiben in `NEXT_STEPS.md` und
   Plattformprüfung bewusst konfigurieren (`COLLECTOR_MAX_REQUESTS` dann leer).
   Dieser Plan aktiviert sie nicht. Endliche Prüfungen behalten immer ein
   eigenes Gesamtbudget und stoppen auch bei Verbindungsfehlern ohne Retry.
-  Für regulären Dauerbetrieb gelten ausschließlich die persistenten
-  Wiederaufnahmegrenzen aus [FEHLERVERHALTEN.md](FEHLERVERHALTEN.md):
-  höchstens fünf Versuche nach 1/2/5/10/15 min; Reset erst nach drei
-  vollständigen guten Kernzyklen. Kein Budgetgewinn durch Neustart.
-- **Harte Stopps:** Protokoll-/Teilantwort-/Daten-/Speicherfehler, erschöpftes
-  Wiederaufnahmebudget, Betreiber-Stopp oder Anlagenauffälligkeit beenden
-  weitere Reads. Keine automatische Quittierung oder künstliche Live-Störung.
+  Für regulären Dauerbetrieb gilt [FEHLERVERHALTEN.md](FEHLERVERHALTEN.md):
+  Reine Verbindungsfehler lassen die normalen Blockintervalle ohne Versuchslimit
+  oder Backoff weiterlaufen. Alte reine Transport-Budgetsperren werden beim
+  aktivierten, weiterhin unbeschränkten Dienststart automatisch aufgehoben.
+- **Harte Stopps:** Protokoll-/Teilantwort-/strukturelle Daten-/Speicherfehler,
+  ungewisse Read-to-clear-Auslesungen, Betreiber-Stopp oder Anlagenauffälligkeit
+  beenden weitere Reads. Keine automatische Quittierung oder künstliche Live-Störung.
   Bei Auffälligkeit Zeitpunkt und Ursache prüfen, nicht blind erneut starten.
 - **Persistenz/Beobachtung:** Alle Minutenbeobachtungen dauerhaft erhalten,
   Lücken/Alter/Qualität sichtbar lassen; Transportlogs getrennt behandeln.

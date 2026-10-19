@@ -2,7 +2,6 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import json
 import sqlite3
-from datetime import timedelta
 from threading import Barrier
 
 from fastapi.testclient import TestClient
@@ -336,9 +335,6 @@ def test_saved_selection_is_pending_and_failed_save_keeps_active_snapshot(offlin
         )
         collector.state = state
         collector._reconnect_attempts = 2
-        collector._retry_delay_seconds = 120
-        collector._retry_at = collector.now() + timedelta(seconds=120)
-        collector._retry_monotonic_deadline = collector.monotonic() + 120
         collector._persist_state()
         offline_app.state.collector = collector
         saved_state = offline_app.state.storage.get_collector_state()

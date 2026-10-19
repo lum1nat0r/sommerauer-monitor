@@ -100,7 +100,7 @@ Alle Leseendpunkte arbeiten ausschließlich mit SQLite; kein Refresh löst Modbu
 | `GET /api/history/{signal_id}` | ISO-8601-Zeitbereich, UTC-normalisiert, seitenweise bis 10.000 Rohpunkte |
 | `GET /api/events` | Neueste Ereignisse mit `limit`/`offset` |
 | `GET /api/export.csv` | Streamt alle passenden Originalmessungen ohne Downsampling |
-| `GET /api/collector/status` | Zustand und begrenzte Wiederaufnahme |
+| `GET /api/collector/status` | Zustand, Wiederaufnahme ohne Versuchslimit und nächster regulärer Abfragetermin |
 | `POST /api/collector/pause`, `/resume`, `/acknowledge-and-start` | Geschützte Sammleraktionen, keine Heizungsbefehle |
 
 `fresh_until_age_seconds` beträgt viermal das Backend-`interval_seconds` des

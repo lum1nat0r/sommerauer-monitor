@@ -46,7 +46,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             collector.stop()
 
 
-app = FastAPI(title="Sommerauer Monitor", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Sommerauer Monitor", version="0.3.1", lifespan=lifespan)
 
 
 class AppConfigUpdate(BaseModel):
@@ -380,15 +380,15 @@ def collector_status(request: Request) -> dict[str, object]:
     if saved is None:
         return {
             "state": "unconfigured", "reason": None, "reconnect_attempts": 0,
-            "reconnect_attempt_limit": 5, "next_action_at": None,
+            "next_action_at": None,
             "next_action": "Configure and start collection", "profile_id": "core",
         }
     if not isinstance(saved, dict):
         saved = {}
     reasons = {
-        "running": "Wiederaufnahme erfolgreich; Budget-Reset nach drei Kernzyklen",
-        "reconnect_wait": "Verbindungsfehler; begrenzte Wiederaufnahme geplant",
-        "stopped_transport": "Wiederaufnahmebudget ausgeschöpft",
+        "running": "Erfassung läuft",
+        "reconnect_wait": "Verbindungsfehler; Abfragen laufen im regulären Intervall weiter",
+        "stopped_transport": "Transportfehler; Erfassung angehalten",
         "stopped_protocol": "Protokollfehler; Erfassung angehalten",
         "stopped_data": "Datenfehler; Erfassung angehalten",
         "stopped_storage": "Speicher- oder Zustandsfehler; Erfassung angehalten",
@@ -397,11 +397,11 @@ def collector_status(request: Request) -> dict[str, object]:
     }
     state = saved.get("state")
     attempts = saved.get("reconnect_attempts", 0)
-    if not isinstance(state, str) or state not in reasons or isinstance(attempts, bool) or not isinstance(attempts, int) or not 0 <= attempts <= 5:
+    if not isinstance(state, str) or state not in reasons or isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 0:
         state, attempts = "stopped_storage", 0
     return {
         "state": state, "reason": reasons.get(state) if saved.get("error") or state == "stopped_storage" else None,
-        "reconnect_attempts": attempts, "reconnect_attempt_limit": 5,
+        "reconnect_attempts": attempts,
         "next_action_at": saved.get("retry_at") if isinstance(saved.get("retry_at"), str) else None,
         "next_action": saved.get("next_action") if isinstance(saved.get("next_action"), str) else "Inspect persisted state; no automatic reads",
         "profile_id": "core",

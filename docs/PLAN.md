@@ -14,6 +14,10 @@ wirklich ungültige Signale werden ohne automatische Wiederholung isoliert.
 Dies präzisiert die ursprüngliche pauschale Datenfehler-Stoppregel unten.
 Aktueller Vertrag: [Fehlerverhalten](FEHLERVERHALTEN.md).
 
+**Nachtrag 19.10.2026:** Der Betreiber ersetzt das Fehlversuchslimit durch
+fortlaufendes Polling bei reinen Verbindungsfehlern im bestehenden Intervall.
+Keine steigenden Retry-Pausen; endliche Prüfläufe und harte Stopps bleiben getrennt.
+
 ## 1. Festgehaltene Nutzerentscheidungen
 
 | Thema | Entscheidung / Herkunft |
@@ -25,7 +29,7 @@ Aktueller Vertrag: [Fehlerverhalten](FEHLERVERHALTEN.md).
 | Erste Version | Modbus-Datenlogging und eigenes Web-Dashboard |
 | Registerumfang | Bestätigte Kanäle plus schrittweise Prüfung weiterer Werte, etwa Außentemperatur, Leistung, Fehlercode |
 | Historie | **Alle Minutenwerte dauerhaft behalten**, keine automatische Löschung/Verdichtung der Originalmessungen |
-| Verbindungsfehler | Begrenzt automatisch wiederverbinden; Protokoll-/Datenfehler stoppen die Erfassung |
+| Verbindungsfehler | Seit 19.10.2026 ohne Versuchslimit im regulären Intervall weiterlesen; harte Fehler und Read-to-clear-Schutz bleiben |
 | Home Assistant | Läuft bereits; MQTT-Broker ebenfalls vorhanden. Integration später, jetzt vorbereiten |
 | Spätere Übersteuerung | **START-/SOLL-Schwellen**, echte Sensorwerte bleiben unverändert |
 | Prognose | Spätere bzw. externe Solarthermie-Prognose; jetzt Schnittstellen berücksichtigen |
@@ -95,34 +99,31 @@ durchgehendem 60-s-Raster. Diese Rechengröße beschreibt den Vorschlag,
 keine Hersteller-Verträglichkeitszusage. Ein Telegrammblock ist nicht
 automatisch eine atomare Momentaufnahme aller darin enthaltenen Werte.
 
-### Fehlerverhalten für den späteren Dauerbetrieb
+### Fehlerverhalten für den Dauerbetrieb
 
-Neue Nutzerentscheidung: begrenzte automatische Wiederverbindung bei
-reinen Verbindungsfehlern. **Vorgeschlagene konkrete Ausgestaltung:**
+Betreiberentscheidung vom 19.10.2026, umgesetzt und offline geprüft:
 
-- Bei TCP-Verbindungsfehler oder Timeout ohne empfangene Antwortbytes die
-  normale Anfragefolge pausieren und den Transportfehler speichern.
-- Höchstens fünf Wiederaufnahmeversuche nach Wartezeiten von 1, 2, 5, 10
-  und 15 Minuten. Jeweils mit einem zuvor bestätigten Leseblock beginnen;
-  keine Suche, kein anderes Ziel und keine Adressvariation.
-- Bei Erfolg wieder im normalen Zeitraster lesen. Versuchszähler erst nach
-  drei vollständigen erfolgreichen Zyklen zurücksetzen, damit kurze Erfolge
-  eine wiederkehrende Störung nicht in endlose Wiederholungen verwandeln.
-- Nach ausgeschöpftem Budget: Erfassung anhalten, sichtbar melden, manuell
-  nach Klärung fortsetzen. Fehlerstatus und Wiederaufnahmebudget über
-  Container-Neustarts erhalten; Neustart darf die Grenze nicht umgehen.
-- Modbus-Exception, falsche Unit, fehlerhafte/teilweise Antwort, falsche
-  Transaktion, ungültige Temperatur, widersprüchlicher Zähler oder
-  Speicherfehler: sofort anhalten, kein automatischer Folgeversuch.
-- Ein Timeout nach Teilantwort wird als unvollständige Protokollantwort
-  behandelt, nicht als reine Nichterreichbarkeit.
-- Dashboard und vorhandene Historie bleiben bei pausierter Erfassung
-  verfügbar. Keine neuen Gerätedaten vortäuschen.
+- Reine TCP-Verbindungsfehler und Timeouts ohne Antwortbytes als Fehlerbeobachtung
+  speichern; den betroffenen Block frühestens nach seinem normalen Intervall
+  erneut lesen. Kernblöcke mindestens 60 s, Zusatzblöcke mindestens 300 s.
+- Kein Fünf-Versuche-Limit, keine Backoff-Stufen und keine Erholungszyklen für
+  einen Budgetreset. Andere fällige Blöcke laufen weiter, erfolgreiche Antworten
+  werden unmittelbar wieder als Messungen gespeichert.
+- Genau ein Client/eine Anfrage, unverändertes Ziel, Unit und explizite Auswahl;
+  keine sofortigen Zusatzversuche oder nachgeholten Bursts.
+- Alte reine Transportstopps eines unbeschränkten Laufs werden beim aktivierten,
+  ebenfalls unbeschränkten Sammlerstart automatisch fortgesetzt. Keine
+  Datenlöschung oder manuelle Budgetquittierung erforderlich.
+- Nutzerpause, abgeschlossene/endliche Prüfläufe, Signalsperren und harte
+  Protokoll-/strukturelle Daten-/Speicherstopps bleiben erhalten. Ungewisse
+  Read-to-clear-Auslesungen werden nicht automatisch wiederholt.
+- Fehlerhafte Einzelwerte und registerbezogene Modbus-Ausnahmen bleiben wie
+  im Nachtrag vom 18.10.2026 isoliert. Teilantworten sind Protokollfehler,
+  keine reine Nichterreichbarkeit. Fehlende Messungen bleiben Lücken.
 
-Diese Zeiten sind noch Planvorschläge. Die grundsätzliche automatische
-Wiederverbindung ist vom Nutzer gewünscht; sie wird erst mit der neuen
-App implementiert und geprüft. Bestehende Einzeltestwerkzeuge behalten
-ihren sofortigen Fehlerstopp ohne automatische Wiederholung.
+Bestehende Einzeltestwerkzeuge und explizit endliche App-Läufe behalten ihren
+sofortigen Fehlerstopp ohne automatische Wiederholung.
+Vollständiger Vertrag: [Fehlerverhalten](FEHLERVERHALTEN.md).
 
 ## 3. Technischer Aufbau
 
@@ -280,7 +281,7 @@ ersten Dashboard. Details: [START-Rückfall](START_RUECKFALL.md).
 5. **Unraid-Paket und Inbetriebnahme:** begrenzter Erstlauf, dann gestufter
    dokumentierter längerer Lauf mit Anfragebudget; erst nach Auswertung
    den ausdrücklich vorgesehenen Dauerbetrieb aktivieren. Docker-Neustart,
-   Fehlerbudget, Datenpersistenz, Backup/Restore und Zeitzonen prüfen.
+   Fehlerfortsetzung, Datenpersistenz, Backup/Restore und Zeitzonen prüfen.
 6. **Öffentliche Ausgabe:** sauberes App-Repository, CI-Tests, dokumentiertes
    Release/Docker-Image, Deployment-Anleitung. Nutzer übernimmt Deployment.
 7. **Ausbau:** MQTT/Home Assistant zuerst als lesende Ausgabe; danach
@@ -288,14 +289,13 @@ ersten Dashboard. Details: [START-Rückfall](START_RUECKFALL.md).
 
 Version 1 ist fertig, wenn Minutenwerte nachvollziehbar gespeichert und
 dauerhaft erhalten bleiben, das Dashboard echte Datenlücken zeigt,
-Wiederverbindungen begrenzt sind, harte Fehler stoppen, Container-Neustarts
+Verbindungsfehler das reguläre Polling nicht abbrechen, harte Fehler stoppen, Container-Neustarts
 die Historie erhalten und ausschließlich dokumentierte Reads ausgeführt
 werden. Eine schöne Demo ohne diese Betriebseigenschaften genügt nicht.
 
 ## 7. Noch nicht festgelegt
 
 - Repositoryname `sommerauer-monitor` ist bestätigt. Lizenz noch offen; Vorschlag MIT.
-- Konkrete Parameter des Wiederverbindungsbudgets; oben steht ein Vorschlag.
 - Priorität/Reihenfolge der Zusatzregister nach fachlicher Vorprüfung.
 - App-Zugriffsschutz und lokale Unraid-Datenablage bei der Implementierung.
 - X Minuten, zulässige Temperatur-/Zeitgrenzen und realer Rückfallmechanismus

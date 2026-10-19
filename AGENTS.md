@@ -50,9 +50,11 @@ Echte Sensormesswerte bleiben unverändert. Später allenfalls START/SOLL änder
   Diagnosen oder parallelen Clients. Ein Agent und eine App dürfen nicht parallel lesen.
 - Wiederkehrende Tests zuerst offline, danach mit endlichem Anfragebudget.
   Dauerbetrieb erst nach gestufter, dokumentierter Inbetriebnahme.
-- Nur der neue Monitoring-Dienst darf reine Verbindungsfehler begrenzt automatisch
-  wiederaufnehmen: siehe docs/FEHLERVERHALTEN.md. Keine Wiederholung nach
-  Protokoll-/Datenfehlern; Budgets und harte Stopps über Neustarts erhalten.
+- Der Monitoring-Dienst setzt nach Betreiberentscheidung vom 19.10.2026 reine
+  Verbindungsfehler im Dauerbetrieb ohne Versuchslimit und ohne Backoff im normalen
+  Blockintervall fort: siehe docs/FEHLERVERHALTEN.md. Endliche Tests, ungewisse
+  Read-to-clear-Auslesungen und Protokoll-/Daten-/Speicherfehler behalten ihre
+  Schutzgrenzen; Nutzerpausen und harte Stopps über Neustarts erhalten.
 - Technisch erforderlichen Displayabgleich gezielt erfragen. Kein allgemeiner
   Beobachtungs-/Zustimmungsdialog vor jeder erlaubten Lesesitzung.
 - Netzwerk-/Sandboxbeschränkungen sind keine Gerätefehler. Erforderliche gezielte

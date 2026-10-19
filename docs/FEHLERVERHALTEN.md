@@ -9,6 +9,11 @@ Maximal zwei Register, 3 s Transport-Gesamtdeadline einschließlich Verbindungsa
 Antwort. Kein Nachholen in Bursts. Zusatzgruppen bleiben bis zur gesonderten
 fachlichen Prüfung und Kapazitätsplanung deaktiviert.
 
+**Betreiberentscheidung 19.10.2026:** Im Dauerbetrieb kein Fehlversuchslimit und
+keine steigenden Wartezeiten bei reinen Verbindungsfehlern. Ausgewählte Kern-
+und Zusatzblöcke bleiben in ihrem normalen 60-/300-s-Zeitplan. Endliche
+Prüfläufe, harte Fehler und ungewisse Read-to-clear-Auslesungen behalten ihre Stopps.
+
 ## Zustände und Übergänge
 
 | Zustand | Verhalten / erlaubter Übergang |
@@ -17,33 +22,41 @@ fachlichen Prüfung und Kapazitätsplanung deaktiviert.
 | `paused` | Nutzerpause oder Erstinstallation; expliziter App-Start -> `running` |
 | `running` | Geplante Reads; erfolgreicher Zyklus bleibt running |
 | `completed` | Endliches Anfrage-/Zeitlimit erreicht; keine weiteren Reads bis zu bewusstem `acknowledge_and_start` |
-| `reconnect_wait` | Normale Folge pausiert; genau ein Versuch nach Ablauf der Wartezeit |
-| `stopped_transport` | Wiederaufnahmebudget ausgeschöpft oder endlicher Lauf nach Transportfehler; Ursache prüfen, bewusst quittieren |
+| `reconnect_wait` | Verbindungsfehler sichtbar; normale Abfragefolge und Blockintervalle laufen ohne Versuchslimit weiter |
+| `stopped_transport` | Endlicher Lauf nach Transportfehler oder ungewisse Read-to-clear-Auslesung; Ursache prüfen, bewusst quittieren |
 | `stopped_protocol` | Ungültige/teilweise Antwort oder übergreifender Modbus-Gerätefehler; keine automatischen Reads |
 | `stopped_data` | Strukturell ungültige Registerblockdaten; keine automatischen Reads |
 | `stopped_storage` | Speicherung/Zustand nicht sicher möglich; keine neuen Reads |
 
-Nutzer-Stopp oder Anlagenauffälligkeit überstimmt alles. Fehlerstopp kann nur nach
-Klärung der Ursache bewusst quittiert werden; ein Neustart ist keine Quittierung.
+Nutzer-Stopp oder Anlagenauffälligkeit überstimmt alles. Harte Fehlerstopps können
+nur nach Klärung bewusst quittiert werden; ein Neustart ist keine Quittierung.
 Web-API/Diagramme bleiben unabhängig vom Messzustand erreichbar.
 Ein gespeicherter Zustand `completed` bleibt auch bei deaktiviertem Sammler
 über die lesende API „Erfassung abgeschlossen“, nicht `stopped_storage`.
 
-Die SQLite-Zustandszeile speichert Fehlerstatus, Ursache, Wiederaufnahmezähler,
-Zyklusfortschritt, nächsten Block und Retry-Deadline. Jede Wiederaufnahme wird vor
-dem Socketzugriff reserviert. Die Konfiguration wird nur als SHA-256-Fingerprint
-aus Ziel, Port, Unit und Profil gespeichert; eine abweichende Konfiguration liest
-nicht automatisch weiter. Laufzeitfristen verwenden eine monotone Uhr. Nach Prozessneustart
-wird die volle aktuelle Wartezeit erneut angesetzt, damit Vorwärts-/Rückwärtssprünge
-der Systemuhr den Schutz nicht verkürzen. Ein unterbrochener, vorab reservierter
-Socketversuch zählt gegen das Wiederaufnahmebudget. Ein alter Zustand `running` wird
-konservativ zu `reconnect_wait`; ein gespeicherter Nutzerstopp bleibt pausiert.
+Die SQLite-Zustandszeile speichert Fehlerstatus, Ursache, Anfragezähler, nächsten
+Block, letzten Anfrageblock und Abschlusszeiten. Jeder Socketzugriff wird vorher
+persistent reserviert. Die Konfiguration wird nur als SHA-256-Fingerprint aus
+Ziel, Port, Unit und Profil gespeichert; eine abweichende Konfiguration liest
+nicht automatisch weiter. Laufzeitfristen verwenden eine monotone Uhr.
+Nach Neustart wartet ein unterbrochener oder zur Wiederaufnahme vorgesehener
+Block wieder sein volles reguläres Intervall; andere fällige Blöcke laufen weiter.
+Gespeicherte Abschlusszeiten bestimmen deren Fälligkeit. Eine Nutzerpause bleibt pausiert.
 
-`GET /api/collector/status` und das Dashboard zeigen Zustand, Fehlerkategorie,
-verbrauchte Versuche, nächste Aktion und geplanten Retry. Der Endpunkt gibt keine
-rohen Transport-/Speicherfehler oder Konfigurations-Fingerprints zurück. Ein explizites
-`acknowledge_and_start` setzt harte Stopps erst nach Ursachenklärung zurück;
-Prozessstart quittiert sie nicht.
+Alte `stopped_transport`-Zustände werden beim Start des aktivierten Sammlers
+automatisch in reguläres Polling überführt, sofern weder der gespeicherte noch
+der neue Lauf endlich ist und kein Read-to-clear-Block betroffen ist.
+Das entfernt die alte Budgetsperre ohne Löschen von Historie oder Anfragezählern.
+`completed`, Nutzerpause, Zielwechsel, Signalsperren und harte Stopps bleiben erhalten.
+Eine deaktivierte App führt durch das Upgrade weiterhin keine Reads aus.
+
+`GET /api/collector/status` liefert Zustand, sichere Ursache, nächste Aktion und
+den nächsten regulären Abfragetermin bei Verbindungsfehlern. `reconnect_attempts`
+ist nur ein Diagnosezähler der Folgeversuche seit dem letzten beantworteten Read;
+keine Obergrenze und kein `reconnect_attempt_limit` mehr. Eine erfolgreiche Antwort
+setzt den Zähler zurück, ohne drei Kernzyklen abzuwarten. Das Dashboard zeigt
+„ohne Versuchslimit“ statt eines verbrauchten Budgets.
+Rohe Transport-/Speicherfehler und Konfigurations-Fingerprints bleiben privat.
 
 ## Fehler einzelner Werte: übrige Erfassung läuft weiter
 
@@ -73,7 +86,6 @@ und startet die Erfassung. Das ist eine erneute Freigabe aller gesperrten Werte,
 keine Hintergrundwiederholung. Anfragebudget und Historie bleiben erhalten.
 Die Oberfläche besitzt bisher keinen separaten Einzelwert-Freigabeknopf.
 Sind alle ausgewählten Signale gesperrt, wartet der Sammler ohne Busy-Loop.
-Fehlerhafte Kernsignale zählen nicht als erfolgreiche Erholungszyklen.
 
 Globale Transport-/Protokollfehler erhalten ebenfalls eine sichere Fehleranzeige
 am betroffenen Wert, soweit Speicherung möglich ist. Hostnamen, private Pfade
@@ -82,26 +94,20 @@ und rohe Betriebssystemfehler werden nicht als Kacheltexte veröffentlicht.
 ### Änderungen der Aufzeichnungsauswahl
 
 CSV-Vorschau und Speichern erzeugen selbst keine Modbus-Anfrage und verändern
-weder Pause/Fehlerstopp noch das Wiederaufnahmebudget. Der Sammler übernimmt die
-gespeicherte Auswahl vor dem nächsten Kerndurchlauf als festen Zyklus-Snapshot;
-ein laufender Zyklus einschließlich Retry wird nicht dazwischen umkonfiguriert.
+weder Pause/Fehlerstopp noch ein endliches Anfragebudget. Der Sammler übernimmt
+die gespeicherte Auswahl an der nächsten Zyklusgrenze als festen Snapshot;
+auch Verbindungsfehler halten diese Übernahme nicht mehr auf.
 Gespeicherte und aktive Revision/Auswahl sind über `/api/logging-config` sichtbar.
 Bei Pause oder hartem Stopp kann eine neue Revision bis zum nächsten bewussten
-Start ausstehen. Bei Prozessstart wird die gespeicherte Auswahl geladen; der
-gespeicherte Fehlerzustand und die konservative Retry-Wartezeit bleiben wirksam.
+Start ausstehen. Bei Prozessstart wird die gespeicherte Auswahl geladen;
+Nutzerpause, Signalsperren und harte Fehlerstopps bleiben wirksam.
 
 Abgewählte Blöcke entfallen aus dem normalen Plan. Bei einem teilweise
 ausgewählten Zweierblock werden beide Wörter unverändert validiert, aber nur
-ausgewählte Signale gespeichert. Bereits geplante begrenzte Wiederaufnahmen
-bleiben am selben bestätigten Block, auch wenn dessen Signale inzwischen
-abgewählt wurden; unter der neuen Auswahl entstehen dafür keine Beobachtungen.
-Eine vollständig leere Auswahl wartet ohne normale Reads; kein Busy-Loop.
-
-Eine Auswahländerung setzt keinen Versuchszähler zurück. Drei vollständige
-erfolgreiche **Kernzyklen aller drei Blöcke** bleiben Voraussetzung für den
-automatischen Budgetreset. Mit einem Teilprofil bleibt das verbrauchte Budget
-daher konservativ bestehen. Bestehende Minutenhistorie bleibt bei jeder
-Konfigurationsänderung unverändert.
+ausgewählte Signale gespeichert. Auch fehlgeschlagene Blöcke werden nach
+Übernahme einer Abwahl nicht mehr gelesen. Eine vollständig leere Auswahl
+wartet ohne Reads; kein Busy-Loop.
+Bestehende Minutenhistorie bleibt bei jeder Konfigurationsänderung unverändert.
 
 ### V2-Zusatzregister
 
@@ -109,7 +115,7 @@ Kernblöcke behalten mindestens 60 s Abstand; die Zusatzblöcke mindestens 300 s
 jeweils ab Abschluss der vorherigen Verarbeitung. Noch nicht fällige Zusätze
 werden übersprungen, damit kein 300-s-Warten die Kernwerte verdrängt. Bei
 Prozessneustart werden gespeicherte Abschlusszeiten berücksichtigt; die
-Wiederaufnahmegrenzen und Anfragezähler bleiben erhalten.
+Anfragezähler und endlichen Laufgrenzen bleiben erhalten.
 
 Nur die fünf Kernregister sind live bestätigt. Auf Betreiberwunsch wählt ein
 CSV-Upload interpretierbare Einträge mit passender Lesezuordnung im Entwurf
@@ -120,32 +126,29 @@ Neun Protokollregister leeren bereits beim Lesen aufgesammelte Ausgangsbits
 (Read-to-clear). Sie sind deshalb zusätzlich unmittelbar an der Auswahl
 gekennzeichnet; Wiederholungen oder andere Leser können Informationen verlieren.
 
-Für Zusatzblöcke gibt es nach einem Transportfehler oder ungewissem Ausgang
-keinen automatischen Folgeversuch. Reine Verbindungsfehler führen zu
-`stopped_transport`, ungültige/teilweise Protokollantworten weiterhin zu
-`stopped_protocol`. Auch ein Neustart darf eine ungewisse Zusatzanfrage nicht
-erneut ausführen. Die begrenzte automatische Wiederaufnahme bleibt den
-bestätigten Kernblöcken vorbehalten.
+Reine Verbindungsfehler bei normalen Zusatzblöcken werden wie bei Kernblöcken
+behandelt: nächster regulärer Termin, mindestens 300 s ab Abschluss, ohne
+zusätzliche Backoff-Stufe. Fällige Kernwerte werden dadurch nicht verdrängt.
+Für Read-to-clear-Blöcke bleibt ein ungewisser Ausgang gesperrt:
+Transportfehler führen zu `stopped_transport`, ungültige/teilweise Antworten
+zu `stopped_protocol`. Ein Neustart darf solche Auslesungen nicht wiederholen.
 
 ## Reine Verbindungsfehler
 
-TCP-Verbindungsfehler oder Timeout ohne empfangene Antwortbytes dürfen in
-`reconnect_wait` wechseln. Nach initialem Fehler höchstens fünf Wiederaufnahmeversuche,
-mit Wartezeiten **1, 2, 5, 10, 15 Minuten nach dem jeweiligen Fehler**.
-Keine Hintergrundbibliotheks-Retries und keine zusätzliche versteckte Retry-Ebene.
-Jeder Versuch zählt bereits vor dem Netzwerkzugriff persistent gegen das Budget.
-Nach einem Crash darf er nicht nochmals kostenlos erfolgen.
+TCP-Verbindungsfehler oder Timeout ohne empfangene Antwortbytes ergeben im
+Dauerbetrieb `reconnect_wait`, aber keinen Abbruch nach einer Zahl von Fehlern.
+Der fehlgeschlagene Block wird mit `unavailable`/`transport_error` und `value=null`
+gespeichert und frühestens nach seinem normalen Intervall erneut abgefragt.
+Andere fällige Blöcke bleiben im Plan. Ziel, Unit, Funktion und Registerauswahl
+werden nicht verändert; keine Suche und keine unmittelbaren Zusatzversuche.
 
-Versuch mit einem bereits bestätigten Kernblock am selben Ziel/Unit. Erfolg setzt
-den normalen Zeitplan fort, setzt aber nicht sofort das Budget zurück. Erst drei
-vollständige aufeinanderfolgende erfolgreiche Kernzyklen ohne neuen Fehler erlauben
-Reset. Ein neuer Fehler davor nutzt das verbleibende Budget. Zusatzwerte dürfen
-diese Kernprüfung nicht verdrängen. Nach Budgetende -> `stopped_transport`.
+Eine wieder erfolgreiche Antwort wird direkt gespeichert; die Verbindung gilt
+wieder als erreichbar. Wertfehler behalten unabhängig davon ihre eigene Qualität
+und gegebenenfalls Signalsperre. Es gibt keine Erholungszyklen oder Budgetresets mehr.
 
-Budget, Zustand, Fehlergrund, nächster Versuch und erfolgreiche Erholungszyklen
-über Neustarts sichern. Wartezeiten bei Neustart nicht verkürzen; monotone Zeit
-im Prozess, konservativ definierte Wiederherstellung nach Uhrsprung/Neustart.
-Wenn der Zustand nicht verlässlich lesbar ist: gestoppt, nicht automatisch neu anfangen.
+Explizit endliche App-Läufe (`COLLECTOR_MAX_REQUESTS`) und Einzeltestwerkzeuge
+behalten ihren Fehlerstopp ohne automatische Wiederholung. Wenn der gespeicherte
+Zustand nicht verlässlich lesbar ist: Speicherstopp statt automatischem Neubeginn.
 
 ## Harte Fehler
 
@@ -168,8 +171,11 @@ DB voll/nicht beschreibbar/Migrationsfehler -> Speicherstopp, keine weiteren Rea
 
 ## Offline-Prüfungen
 
-Die synthetischen Tests prüfen Retry-Abstand und denselben Block, Systemuhrsprung
-ohne verkürzte monotone Wartezeit, genau fünf Wiederaufnahmeversuche, Protokoll-/
-Teilantwortstopp ohne Folge-Read, Crash-Recovery, drei vollständige gute Zyklen,
-Zielwechsel und pausierten Neustart. Weitere Störungsprüfungen bleiben für den Ausbau:
-Flattern, DB-Ausfall, konkurrierender Sammler und Stop während wartender Anfrage.
+Synthetische Tests prüfen Ausfälle über die frühere Fünf-Versuche-Grenze hinaus,
+unveränderte 60-/300-s-Abstände, Wiederkehr gültiger Werte, fehlende Verdrängung
+der Kernwerte durch Zusatzfehler, Systemuhrsprung, Neustart mit alten
+Budgetsperren und unterbrochenen Anfragen, Nutzerpause/Fortsetzung, Zielwechsel,
+endliche Grenzen sowie unveränderte Protokoll-/Speicher-/Read-to-clear-Stopps.
+Ein Loopback-Smoke mit echtem FC03-Transport und virtueller Schedulerzeit belegt
+21 Verbindungsfehler und anschließend drei erfolgreiche Reads.
+Dies ist kein Geräte- oder Langzeitnachweis.

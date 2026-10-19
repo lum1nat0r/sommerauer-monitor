@@ -4,7 +4,7 @@ Geplante lokale Monitoring-App für eine Sommerauer-Pelletsheizung: Modbus-Daten
 dauerhafte Minutenhistorie und Web-Dashboard auf Unraid.
 
 **Stand 15.10.2026: Projektgrundlage, bestätigtes Kernprofil/Decoder, strikter FC03-Lesetransport,
-Loopback-Simulator, SQLite-Speicherung, zentraler Sammler, begrenzte Wiederaufnahme,
+Loopback-Simulator, SQLite-Speicherung, zentraler Sammler, automatische Wiederaufnahme,
 lesende API, Dashboard und Offline-Ende-zu-Ende-Abnahme (#12) umgesetzt.**
 Die gestufte lokale Kernregister-Abnahme (#13) ist mit endlichen FC03-Läufen
 und vom Betreiber bestätigtem Displayabgleich belegt
@@ -25,7 +25,9 @@ Vorhandene Datenbanken und Minutenhistorien nicht löschen.
 Erste Version: Kesseltemperatur, Puffer oben/unten und Anlagen-Betriebszähler;
 weitere Register nach Prüfung. Alle Minutenmessungen bleiben dauerhaft erhalten.
 Fehler einzelner Werte werden isoliert; übergreifende Protokoll-/Speicherfehler stoppen.
-Reine Kern-Verbindungsfehler erlauben weiterhin begrenzte Wiederaufnahme.
+Reine Verbindungsfehler beenden den Dauerbetrieb nicht mehr: weiter im normalen
+60-/300-s-Intervall, ohne Fehlversuchslimit oder steigende Wartezeiten.
+Endliche Prüfläufe und ungewisse Read-to-clear-Auslesungen behalten ihre Stopps.
 Messlücken und Datenalter bleiben sichtbar.
 
 Vorgesehener Aufbau: Python/FastAPI, SQLite, React/TypeScript, ein Docker-Container.
@@ -259,8 +261,11 @@ veröffentlichen. [Dateivertrag und Grenzen](docs/MODBUS.md#aufzeichnung-zwische
 Fehler einzelner Werte sind jetzt direkt an deren Kachel sichtbar. Fehlende
 Wetterdaten werden als „Nicht verfügbar“ weiter im normalen Intervall geprüft;
 ungültige Werte und registerbezogene Ablehnungen werden einzeln ausgesetzt,
-während die übrige Erfassung weiterläuft. Verbindungs-, Protokoll- und
-Speicherprobleme behalten ihre globalen Schutzgrenzen.
+während die übrige Erfassung weiterläuft. Verbindungsfehler führen im Dauerbetrieb
+nicht zum Abschalten; Protokoll- und Speicherprobleme behalten ihre Schutzstopps.
+Ein neuer Build übernimmt alte reine Transportstopps automatisch, sofern beide
+Laufkonfigurationen unbeschränkt sind und kein Read-to-clear-Register betroffen ist.
+Nutzerpause, abgeschlossene Prüfläufe und harte Stopps werden nicht aufgehoben.
 [Fehlerbehandlung und bewusste Freigabe](docs/FEHLERVERHALTEN.md).
 Vor dem Upgrade konsistent sichern: Schema 1/2/3 wird auf 4 erweitert;
 eine alte App-Version kann die migrierte Datenbank nicht öffnen.
@@ -268,7 +273,7 @@ eine alte App-Version kann die migrierte Datenbank nicht öffnen.
 ## Docker und Unraid
 
 Für Unraid steht [compose.unraid.yaml](compose.unraid.yaml) als eigenständiger
-Stack mit **`ghcr.io/lum1nat0r/sommerauer-monitor:0.3.0`** bereit, ohne lokalen
+Stack mit **`ghcr.io/lum1nat0r/sommerauer-monitor:0.3.1`** bereit, ohne lokalen
 Build. Einrichtung von `.env`, persistentem Datenpfad und Start:
 [Unraid-Anleitung](docs/UNRAID.md#unraid-veröffentlichtes-image-verwenden).
 Der Container läuft standardmäßig als UID 99/GID 100, bindet Port 8000,
@@ -282,8 +287,8 @@ Die bisherige `compose.yaml` bleibt für lokale Builds:
 `cp .env.example .env`, beschreibbaren `DATA_PATH` setzen und
 `docker compose up --build -d` ausführen. `/api/version` meldet Buildversion
 und Revision. Pull Requests prüfen einen `linux/amd64`-Image-Build ohne Push.
-Der Release-Git-Tag für Version 0.3.0 heißt **`v0.3.0`**; der Workflow veröffentlicht
-nach seinen Offline-Prüfungen das Image mit Tag **`0.3.0`**
+Der Release-Git-Tag für Version 0.3.1 heißt **`v0.3.1`**; der Workflow veröffentlicht
+nach seinen Offline-Prüfungen das Image mit Tag **`0.3.1`**
 ([Strategie und Sperren](docs/UNRAID.md#github-image-build-und-veröffentlichungsgrenze)).
 Bis zur erfolgreichen Veröffentlichung, öffentlicher GHCR-Freigabe und anonymem
 Pull ist dessen Verfügbarkeit nicht belegt. Lokale Docker-Prüfungen belegen
@@ -299,7 +304,7 @@ Lizenz: eigener App-Code unter [MIT](LICENSE), vom Betreiber am 15.10.2026 best�
 | [Modbus](docs/MODBUS.md) | Offsets, Decoder, Prüfstatus und bekannte Grenzen |
 | [Registerkatalog](docs/register_catalog.json) | Statische Referenz aller 199 dokumentierten Projektzuordnungen; kein aktives Pollingprofil |
 | [Datenmodell](docs/DATENMODELL.md) | Signalnamen, Historie, Qualität, Zeitstempel, API-Vertrag |
-| [Fehlerverhalten](docs/FEHLERVERHALTEN.md) | Zustände, Wiederverbindungsbudget und harter Stopp |
+| [Fehlerverhalten](docs/FEHLERVERHALTEN.md) | Zustände, fortlaufendes Polling und Schutzstopps |
 | [Inbetriebnahme](docs/INBETRIEBNAHME.md) | Begrenzte Lesetests und Übergang zum Dauerbetrieb |
 | [Unraid](docs/UNRAID.md) | Anforderungen an Container, Sicherung und Releases |
 | [Ausbau](docs/AUSBAU.md) | MQTT, Solarthermie und externe Prognose |

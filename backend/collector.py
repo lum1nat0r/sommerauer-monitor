@@ -34,8 +34,6 @@ from backend.storage import SQLiteStore, StorageError
 
 MIN_BLOCK_INTERVAL_SECONDS = 60.0
 EXTENDED_BLOCK_INTERVAL_SECONDS = 300.0
-RECONNECT_DELAYS_SECONDS = (60.0, 120.0, 300.0, 600.0, 900.0)
-MAX_RECONNECT_ATTEMPTS = len(RECONNECT_DELAYS_SECONDS)
 
 
 
@@ -142,12 +140,8 @@ class Collector:
         self._next_offset = READ_PROFILE[0].offset
         self._retry_block_offset = READ_PROFILE[0].offset
         self._reconnect_attempts = 0
-        self._successful_core_cycles = 0
-        self._successful_blocks_in_cycle = 0
         self._retry_at: datetime | None = None
-        self._retry_delay_seconds: float | None = None
         self._last_action: str | None = None
-        self._retry_monotonic_deadline: float | None = None
         self._request_in_flight = False
         self.state = "paused"
         self.error: str | None = None
@@ -172,9 +166,8 @@ class Collector:
 
     def status(self) -> dict[str, Any]:
         reasons = {
-            "running": "Wiederaufnahme erfolgreich; Budget-Reset nach drei Kernzyklen",
-            "reconnect_wait": "Verbindungsfehler; begrenzte Wiederaufnahme geplant",
-            "stopped_transport": "Wiederaufnahmebudget ausgeschöpft",
+            "reconnect_wait": "Verbindungsfehler; Abfragen laufen im regulären Intervall weiter",
+            "stopped_transport": "Transportfehler; Erfassung angehalten",
             "stopped_protocol": "Protokollfehler; Erfassung angehalten",
             "stopped_data": "Datenfehler; Erfassung angehalten",
             "stopped_storage": "Speicher- oder Zustandsfehler; Erfassung angehalten",
@@ -182,19 +175,22 @@ class Collector:
         }
         if self.state == "stopped_transport" and not self.retry_on_transport_error:
             reasons["stopped_transport"] = "Endlicher Lauf wegen Transportfehler beendet"
-        if (
-            self.state == "stopped_transport"
-            and self._block_by_offset(self._retry_block_offset) not in CORE_PROFILE
-        ):
-            reasons["stopped_transport"] = "Zusatzregister nicht livebestätigt; automatische Wiederaufnahme gesperrt"
         if self.state == "stopped_transport" and self._read_to_clear(
             self._block_by_offset(self._retry_block_offset)
         ):
             reasons["stopped_transport"] = "Read-to-clear-Auslesung ungewiss; automatische Wiederholung gesperrt"
         next_action_at = self._retry_at
-        if self.state == "reconnect_wait" and self._retry_monotonic_deadline is not None:
-            remaining = max(0.0, self._retry_monotonic_deadline - self.monotonic())
-            next_action_at = self.now() + timedelta(seconds=remaining)
+        if self.state == "reconnect_wait":
+            selected = self._selected_signals()
+            due = min(
+                (self._due_at(block) for block in READ_PROFILE
+                 if selected.intersection(block.signal_ids)),
+                default=None,
+            )
+            next_action_at = (
+                self.now() + timedelta(seconds=max(0.0, due - self.monotonic()))
+                if due is not None else None
+            )
         reason = reasons.get(self.state) if self.error else None
         if self.state == "running" and self.blocked_signals:
             reason = f"{len(self.blocked_signals)} Werte ausgesetzt; Details an den Kacheln"
@@ -202,7 +198,6 @@ class Collector:
             "state": self.state,
             "reason": reason,
             "reconnect_attempts": self._reconnect_attempts,
-            "reconnect_attempt_limit": MAX_RECONNECT_ATTEMPTS,
             "next_action_at": next_action_at.isoformat() if next_action_at else None,
             "next_action": self._last_action,
             "profile_id": PROFILE_ID,
@@ -270,15 +265,11 @@ class Collector:
             self.error = saved.get("error")
             self._request_count = int(saved.get("request_count", 0))
             self._reconnect_attempts = int(saved.get("reconnect_attempts", 0))
-            self._successful_core_cycles = int(saved.get("successful_core_cycles", 0))
-            self._successful_blocks_in_cycle = int(saved.get("successful_blocks_in_cycle", 0))
             self._next_offset = int(saved.get("next_offset", READ_PROFILE[0].offset))
             self._retry_block_offset = int(saved.get("retry_block_offset", READ_PROFILE[0].offset))
             valid_offsets = {block.offset for block in READ_PROFILE}
             if (
-                not 0 <= self._reconnect_attempts <= MAX_RECONNECT_ATTEMPTS
-                or not 0 <= self._successful_core_cycles < 3
-                or not 0 <= self._successful_blocks_in_cycle < len(CORE_PROFILE)
+                self._reconnect_attempts < 0
                 or self._next_offset not in valid_offsets
                 or self._retry_block_offset not in valid_offsets
             ):
@@ -301,66 +292,43 @@ class Collector:
                     if not set(candidate.signal_ids).issubset(self.blocked_signals):
                         break
                     self._advance_block(candidate)
-            if self.state == "running" and not saved.get("request_in_flight", False):
-                self._retry_block_offset = self._next_offset
-            if (
-                saved.get("request_in_flight", False)
-                or self.state in {"running", "reconnect_wait"}
-                or saved.get("retry_delay_seconds") is not None
-            ) and self._block_by_offset(self._retry_block_offset) not in CORE_PROFILE:
-                self.state = "stopped_transport"
-                if self._read_to_clear(self._block_by_offset(self._retry_block_offset)):
-                    self.error = "Ungewisser Ausgang einer Read-to-clear-Auslesung; keine automatische Wiederholung"
-                    self._last_action = "Protokollauslesung prüfen und ausdrücklich bestätigen"
-                else:
-                    self.error = "Zusatzregister nicht livebestätigt; keine automatische Wiederaufnahme nach Neustart"
-                    self._last_action = "Zusatzregister prüfen und ausdrücklich bestätigen"
-                self._retry_at = None
-                self._retry_delay_seconds = None
-                self._retry_monotonic_deadline = None
-                self._paused.set()
-                return
             self._last_action = saved.get("next_action")
-            self._retry_delay_seconds = (
-                float(saved["retry_delay_seconds"])
-                if saved.get("retry_delay_seconds") is not None else None
+            block = self._block_by_offset(self._retry_block_offset)
+            in_flight = saved.get("request_in_flight", False)
+            pending_retry = (
+                self.state == "reconnect_wait" or saved.get("retry_at") is not None
+                or saved.get("retry_delay_seconds") is not None
             )
-            if self.state == "paused" and self._retry_delay_seconds is not None:
-                self._retry_at = self.now() + timedelta(seconds=self._retry_delay_seconds)
-                self._retry_monotonic_deadline = self.monotonic() + self._retry_delay_seconds
-            if self.state in {"reconnect_wait", "running"}:
-                in_flight = self.state == "running" and saved.get("request_in_flight", False)
-                if self.state == "running" and not in_flight:
-                    self._retry_block_offset = self._next_offset
-                if in_flight:
-                    self._successful_core_cycles = 0
-                    self._successful_blocks_in_cycle = 0
-                    self.error = "Request outcome was uncertain at process restart"
-                    self._reconnect_attempts += 1
-                    if self._reconnect_attempts >= MAX_RECONNECT_ATTEMPTS:
-                        self.state = "stopped_transport"
-                        self.error = "Interrupted request exhausted the recovery budget"
-                        self._last_action = "Acknowledge after resolving interrupted requests"
-                        self._retry_at = None
-                        self._retry_delay_seconds = None
-                        self._successful_blocks_in_cycle = 0
-                        self._paused.set()
-                        return
-                    delay = RECONNECT_DELAYS_SECONDS[self._reconnect_attempts - 1]
-                elif self.state == "running":
-                    delay = RECONNECT_DELAYS_SECONDS[
-                        min(self._reconnect_attempts, MAX_RECONNECT_ATTEMPTS - 1)
-                    ]
-                else:
-                    delay = self._retry_delay_seconds or RECONNECT_DELAYS_SECONDS[0]
-                self._retry_delay_seconds = delay
-                self._retry_at = self.now() + timedelta(seconds=delay)
-                self._retry_monotonic_deadline = self.monotonic() + delay
+            if (
+                self.state in {"running", "reconnect_wait", "paused", "stopped_transport"}
+                and self._read_to_clear(block) and (in_flight or pending_retry)
+            ):
+                self.state = "stopped_transport"
+                self.error = "Ungewisser Ausgang einer Read-to-clear-Auslesung; keine automatische Wiederholung"
+                self._last_action = "Protokollauslesung prüfen und ausdrücklich bestätigen"
+            elif (
+                self.state == "stopped_transport"
+                and self.retry_on_transport_error
+                and self.max_requests is None and self.max_duration_seconds is None
+                and saved.get("max_requests") is None and saved.get("max_duration_seconds") is None
+                and not self._read_to_clear(block)
+            ):
+                # Alte Transportstopps ohne endlichen Lauf dürfen den Dauerbetrieb nicht sperren.
                 self.state = "reconnect_wait"
-                self._last_action = "Retry same register block after a conservative restart delay"
-            elif self.state not in {
-                "paused", "stopped_transport", "stopped_protocol", "stopped_data",
-                "stopped_storage", "completed",
+                pending_retry = True
+            if in_flight or pending_retry:
+                self._last_completed[block.offset] = self.monotonic()
+                self._last_completed_at[block.offset] = self.now()
+                if self.state in {"running", "reconnect_wait", "paused"}:
+                    self._retry_at = self.now() + timedelta(seconds=self._block_interval(block))
+                    if in_flight:
+                        self.error = "Ausgang der letzten Anfrage nach Neustart ungewiss."
+                    if self.state != "paused":
+                        self.state = "reconnect_wait"
+                    self._last_action = "Nächste Abfrage im regulären Intervall"
+            if self.state not in {
+                "running", "reconnect_wait", "paused", "stopped_transport", "stopped_protocol",
+                "stopped_data", "stopped_storage", "completed",
             }:
                 raise ValueError("unknown persisted collector state")
         except (KeyError, TypeError, ValueError, OverflowError):
@@ -368,7 +336,7 @@ class Collector:
             self.error = "Persisted collector state is invalid"
             self._retry_at = None
             self._last_action = "Inspect persisted state; no automatic reads"
-        if self.state != "reconnect_wait":
+        if self.state not in {"running", "reconnect_wait"}:
             self._paused.set()
 
     def acknowledge_and_start(self) -> None:
@@ -382,11 +350,7 @@ class Collector:
         self._signal_errors.clear()
         self._last_counter = None
         self._reconnect_attempts = 0
-        self._successful_core_cycles = 0
-        self._successful_blocks_in_cycle = 0
         self._retry_at = None
-        self._retry_delay_seconds = None
-        self._retry_monotonic_deadline = None
         self.state = "paused"
         self._last_action = "Start collection"
         self._has_saved_state = False
@@ -434,59 +398,40 @@ class Collector:
                     self._last_action = "Finite collection limit reached"
                     self._persist_state()
                     break
-                recovering = self.state == "reconnect_wait"
-                if recovering:
-                    if self._retry_at is None or self._retry_monotonic_deadline is None:
-                        raise StorageError("Reconnect state has no retry deadline")
-                    block = self._block_by_offset(self._retry_block_offset)
-                    due = max(self._retry_monotonic_deadline, self._due_at(block))
-                    if not self._wait_until(due):
+                block = None
+                # Langsame oder fehlgeschlagene Blöcke verdrängen keine anderen fälligen Werte.
+                for _ in range(len(READ_PROFILE)):
+                    if self._next_offset == READ_PROFILE[0].offset or not self._selected_signals():
+                        saved_config = self.store.get_logging_config()
+                        if saved_config["revision"] != self._logging_config["revision"]:
+                            self._logging_config = saved_config
+                            self._next_offset = READ_PROFILE[0].offset
+                    selected = self._selected_signals()
+                    if not selected:
                         break
-                    if self._stop.is_set() or self._paused.is_set():
-                        continue
-                    self._reconnect_attempts += 1
-                    self.state = "running"
-                    self._last_action = "Attempting bounded recovery read"
-                    self._retry_at = None
-                    self._retry_monotonic_deadline = None
-                    self._persist_state()
-                else:
-                    block = None
-                    # Skip non-due blocks rather than letting a slow extension delay the core.
-                    for _ in range(len(READ_PROFILE)):
-                        if self._next_offset == READ_PROFILE[0].offset or not self._selected_signals():
-                            saved_config = self.store.get_logging_config()
-                            if saved_config["revision"] != self._logging_config["revision"]:
-                                self._logging_config = saved_config
-                                self._successful_core_cycles = 0
-                                self._successful_blocks_in_cycle = 0
-                                self._next_offset = READ_PROFILE[0].offset
-                        selected = self._selected_signals()
-                        if not selected:
+                    candidate = self._block_by_offset(self._next_offset)
+                    if selected.intersection(candidate.signal_ids) and self._due_at(candidate) <= self.monotonic():
+                        block = candidate
+                        break
+                    self._advance_block(candidate)
+                if block is None:
+                    if not selected:
+                        self._last_action = (
+                            "Werte ausgesetzt; Details an den Kacheln"
+                            if self.blocked_signals else "Keine freigegebenen Signale ausgewählt"
+                        )
+                        self.wait(self._stop, 0.25)
+                    else:
+                        due = min(
+                            self._due_at(candidate) for candidate in READ_PROFILE
+                            if selected.intersection(candidate.signal_ids)
+                        )
+                        if not self._wait_until(due):
                             break
-                        candidate = self._block_by_offset(self._next_offset)
-                        if selected.intersection(candidate.signal_ids) and self._due_at(candidate) <= self.monotonic():
-                            block = candidate
-                            break
-                        self._advance_block(candidate)
-                    if block is None:
-                        if not selected:
-                            self._last_action = (
-                                "Werte ausgesetzt; Details an den Kacheln"
-                                if self.blocked_signals else "Keine freigegebenen Signale ausgewählt"
-                            )
-                            self.wait(self._stop, 0.25)
-                        else:
-                            due = min(
-                                self._due_at(candidate) for candidate in READ_PROFILE
-                                if selected.intersection(candidate.signal_ids)
-                            )
-                            if not self._wait_until(due):
-                                break
-                        continue
+                    continue
                 if self._stop.is_set() or self._paused.is_set() or self._limit_reached():
                     continue
-                self._read_one(block, recovery=recovering)
+                self._read_one(block)
             if self.state == "running":
                 self.state = "paused"
                 self._last_action = "Collection paused"
@@ -518,7 +463,7 @@ class Collector:
         self._wake.clear()
         self.state = "reconnect_wait" if self._retry_at is not None else "running"
         self._last_action = (
-            "Resume after saved retry delay"
+            "Nächste Abfrage im regulären Intervall"
             if self.state == "reconnect_wait" else "Resume collection"
         )
         self._has_saved_state = False
@@ -584,14 +529,10 @@ class Collector:
                 break
         return not self._stop.is_set()
 
-    def _read_one(self, block, *, recovery: bool = False) -> None:
-        if not self._selected_signals().intersection(block.signal_ids):
-            self._advance_block(block)
-            self.state = "running"
-            self._retry_at = None
-            self._retry_delay_seconds = None
-            self._retry_monotonic_deadline = None
-            return
+    def _read_one(self, block) -> None:
+        if self.state == "reconnect_wait":
+            self._reconnect_attempts += 1
+        self._retry_at = None
         started = self.now()
         self._request_count += 1
         self._retry_block_offset = block.offset
@@ -647,33 +588,9 @@ class Collector:
             if counter is not None:
                 self._last_counter = (counter.value, observed)
             self._advance_block(block)
-            if block in CORE_PROFILE and (
-                has_error or any(
-                    signal_id in self.blocked_signals
-                    for core in CORE_PROFILE for signal_id in core.signal_ids
-                )
-            ):
-                self._successful_core_cycles = 0
-                self._successful_blocks_in_cycle = 0
-            elif block in CORE_PROFILE:
-                expected = CORE_PROFILE[self._successful_blocks_in_cycle].offset
-                if block.offset == expected:
-                    self._successful_blocks_in_cycle += 1
-                elif block.offset == CORE_PROFILE[0].offset:
-                    self._successful_blocks_in_cycle = 1
-                else:
-                    self._successful_blocks_in_cycle = 0
-                if self._successful_blocks_in_cycle == len(CORE_PROFILE):
-                    self._successful_core_cycles += 1
-                    self._successful_blocks_in_cycle = 0
-                    if self._successful_core_cycles >= 3:
-                        self._reconnect_attempts = 0
-                        self._successful_core_cycles = 0
-                        self.error = None
-            if recovery:
-                self._retry_at = None
-                self._retry_delay_seconds = None
-                self._retry_monotonic_deadline = None
+            self._reconnect_attempts = 0
+            self.error = None
+            self._retry_at = None
             self.state = "running"
             self._last_action = f"Next register block at offset {self._next_offset}"
         except ModbusExceptionError as exc:
@@ -701,16 +618,14 @@ class Collector:
                 request, self._block_errors(block, (), code, message, "invalid"), completed,
                 quarantine=register_error,
             )
-            self._successful_core_cycles = 0
-            self._successful_blocks_in_cycle = 0
+            self._reconnect_attempts = 0
+            self.error = None
             if register_error:
                 self._advance_block(block)
             else:
                 self.error = message
                 self._stop.set()
             self._retry_at = None
-            self._retry_delay_seconds = None
-            self._retry_monotonic_deadline = None
             self.state = "running" if register_error else "stopped_protocol"
             self._last_action = (
                 "Registerblock ausgesetzt; übrige Signale werden weiter erfasst"
@@ -733,18 +648,10 @@ class Collector:
                 completed, quarantine=False,
             )
             self.error = message
-            self._successful_core_cycles = 0
-            self._successful_blocks_in_cycle = 0
-            if block not in CORE_PROFILE and isinstance(exc, ModbusConnectionError):
+            if self._read_to_clear(block) and isinstance(exc, ModbusConnectionError):
                 self.state = "stopped_transport"
                 self._retry_at = None
-                self._retry_delay_seconds = None
-                self._retry_monotonic_deadline = None
-                self._last_action = (
-                    "Read-to-clear-Auslesung fehlgeschlagen; keine automatische Wiederholung"
-                    if self._read_to_clear(block)
-                    else "Zusatzregister nicht livebestätigt; keine automatische Wiederholung"
-                )
+                self._last_action = "Read-to-clear-Auslesung fehlgeschlagen; keine automatische Wiederholung"
             elif isinstance(exc, (ProtocolError, IncompleteResponseError)):
                 self.state = "stopped_protocol"
                 self._last_action = "Acknowledge after protocol cause is resolved"
@@ -752,24 +659,12 @@ class Collector:
                 if not self.retry_on_transport_error:
                     self.state = "stopped_transport"
                     self._retry_at = None
-                    self._retry_delay_seconds = None
-                    self._retry_monotonic_deadline = None
                     self._last_action = "Finite collection stopped after transport error"
                 else:
-                    self._retry_block_offset = block.offset
-                    if self._reconnect_attempts >= MAX_RECONNECT_ATTEMPTS:
-                        self.state = "stopped_transport"
-                        self._retry_at = None
-                        self._last_action = "Reconnect budget exhausted; acknowledge after cause is resolved"
-                    else:
-                        self.state = "reconnect_wait"
-                        delay = max(
-                            RECONNECT_DELAYS_SECONDS[self._reconnect_attempts],
-                            self._block_interval(block),
-                        )
-                        self._retry_delay_seconds = delay
-                        self._retry_at = completed + timedelta(seconds=delay)
-                        self._retry_monotonic_deadline = self.monotonic() + delay
+                    self.state = "reconnect_wait"
+                    self._retry_at = completed + timedelta(seconds=self._block_interval(block))
+                    self._last_action = "Nächste Abfrage im regulären Intervall; kein Versuchslimit"
+                    self._advance_block(block)
             else:
                 self.state = "stopped_data"
                 self._last_action = "Acknowledge after data cause is resolved"
@@ -845,10 +740,7 @@ class Collector:
                 "profile_id": PROFILE_ID,
                 "configuration_id": self._endpoint_id,
                 "reconnect_attempts": self._reconnect_attempts,
-                "successful_core_cycles": self._successful_core_cycles,
-                "successful_blocks_in_cycle": self._successful_blocks_in_cycle,
-                "retry_at": self._retry_at.isoformat() if self._retry_at else None,
-                "retry_delay_seconds": self._retry_delay_seconds,
+                "retry_at": self.status()["next_action_at"],
                 "retry_block_offset": self._retry_block_offset,
                 "next_offset": self._next_offset,
                 "next_action": self._last_action,

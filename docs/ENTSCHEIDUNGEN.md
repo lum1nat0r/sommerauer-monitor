@@ -1,12 +1,12 @@
 # Entscheidungen und offene Punkte
 
-Stand 14.10.2026; Herkunft jeweils angegeben.
+Stand 19.10.2026; Herkunft jeweils angegeben.
 
 | Entscheidung | Stand/Herkunft |
 |---|---|
 | Version 1 = Modbus-Logging + eigenes Dashboard | Nutzerauftrag |
 | Alle Minutenwerte dauerhaft | Explizite Nutzerantwort |
-| Begrenzte Wiederverbindung bei Verbindungsausfall, Stopp bei Protokoll/Datenfehler | Explizite Nutzerantwort |
+| Unbegrenztes Polling bei reinen Verbindungsfehlern im bestehenden Intervall; harte Fehlerstopps bleiben | Expliziter Betreiberauftrag vom 19.10.2026; ersetzt die frühere begrenzte Wiederverbindung |
 | Weitere Werte nach schrittweiser Prüfung | Nutzerantwort; kein automatischer Vollscan |
 | Unraid 7.3.2; Home Assistant und MQTT vorhanden | Nutzerangabe |
 | Zugriff Heimnetz/Tailscale; kein Tailscale-Aufbau im Auftrag | Nutzerantwort |
@@ -15,7 +15,7 @@ Stand 14.10.2026; Herkunft jeweils angegeben.
 | Öffentliches Repo `sommerauer-monitor` und umsetzbare Issues | Expliziter Folgeauftrag |
 | Python/FastAPI + SQLite + React/TypeScript in einem Container | Architekturvorschlag im positiv aufgenommenen Plan; bei Umsetzung konkretisieren |
 | 60 s für Kernblöcke; Zusatzwerte langsamer | Technischer Entwurf, Lastvorgaben einhalten |
-| 5 Wiederaufnahmen mit 1/2/5/10/15 min Pause; Reset nach 3 guten Vollzyklen | Konkreter Entwurfswert für Implementierung und Offline-Tests |
+| Kein Retry-Backoff oder Fünf-Versuche-Limit; 60 s Kern/300 s Zusatz, endliche Prüfläufe und Read-to-clear-Schutz unverändert | Betreiberauftrag vom 19.10.2026; [Fehlervertrag](FEHLERVERHALTEN.md) |
 
 | Projektgrundlage | Entscheidung / Herkunft |
 |---|---|

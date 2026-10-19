@@ -1,5 +1,32 @@
 # Ergebnisse
 
+## 19.10.2026 – Releasevorbereitung v0.3.1
+
+Betreiberauftrag: die abgenommene Polling-Änderung als v0.3.1 committen, pushen
+und veröffentlichen. Ausgangspunkt `494f837` auf `main`, eigener Arbeitsbranch
+`release/0.3.1`. Paket-/Lockversionen, FastAPI-Metadaten, Docker-/Compose-Vorgaben,
+Unraid-Template und Deploymentdokumentation einheitlich auf 0.3.1 angehoben.
+Funktionsnachweis: [fortlaufendes Polling](#19102026--fortlaufendes-polling-statt-fehlversuchslimit).
+
+Ausgeführte Releaseprüfungen:
+
+- `uv sync --locked`: erfolgreich, Paketversion 0.3.1 installiert.
+- `uv run --locked pytest -q` mit deaktivierter Erfassung und leerem Ziel:
+  419 bestanden; bekannte Starlette/AnyIO-DeprecationWarning.
+- `uv run --locked ruff check .`: erfolgreich.
+- `npm ci`, `npm run build`: erfolgreich.
+- `node --test tests/dashboard.test.mjs`: 25 bestanden.
+- Separater Laufzeit-Smoke mit temporärer SQLite-Datenbank, leerem Gerätehost
+  und deaktiviertem Sammler: Health, Version, Collectorstatus und OpenAPI HTTP 200.
+  Installiertes Paket, API und OpenAPI melden 0.3.1; Datenbank gesund,
+  Collector `unconfigured`, keine Sammlerinstanz.
+
+Veröffentlichungsnachweise einschließlich Container-Build/-Smoke und
+öffentlichem Registry-Abruf werden im GitHub-Release festgehalten.
+Keine lokale Containerlaufzeit vorhanden; der Image-Smoke läuft im bestehenden
+Release-Workflow. Keine Gerätezugriffe, keine Änderung privater Konfiguration,
+keine Aktivierung oder Aktualisierung der Betreiberinstanz.
+
 ## 18.10.2026 – Releasevorbereitung v0.3.0
 
 Basis: `c8dba9c` auf `main`, einschließlich PR #59. Paket-/Lockversionen,
@@ -1749,3 +1776,54 @@ Tatsächlich ausgeführt:
 
 Keine Geräte-, Display-, Unraid- oder Dauerbetriebsabnahme. Der Browsernachweis
 verwendet synthetische Quellen, keine privaten Messwerte.
+
+## 19.10.2026 – Fortlaufendes Polling statt Fehlversuchslimit
+
+**Betreiberauftrag:** Der Sammler soll bei Nichterreichbarkeit nicht nach einer
+festen Zahl von Fehlversuchen dauerhaft stoppen, sondern im festgelegten
+Intervall weiter auslesen.
+
+**Umsetzung:** Gemeinsamer normaler Zeitplan auch nach Verbindungsfehlern;
+kein Fünf-Versuche-Limit, keine 1/2/5/10/15-Minuten-Backoff-Stufen und keine
+Drei-Kernzyklen-Resetlogik mehr. Kernblöcke mindestens 60 s, normale Zusatzblöcke
+mindestens 300 s ab Abschluss. Fehlerhafte Zusatzabfragen verdrängen keine
+fälligen Kernwerte. Erfolgreiche Antworten werden direkt wieder gespeichert;
+Fehlerbeobachtungen bleiben mit `value=null` in der Historie.
+
+Alte Transportstopps werden beim aktivierten Dienststart automatisch
+fortgesetzt, sofern alter und neuer Lauf unbeschränkt sind und kein
+Read-to-clear-Block betroffen ist. Nutzerpause, Zielwechsel, endliche
+Laufgrenzen, `completed`, Signalsperren und harte Protokoll-/Daten-/Speicherstopps
+bleiben wirksam. Ungewisse Read-to-clear-Auslesungen behalten ihren Schutzstopp.
+Die API akzeptiert Diagnosezähler über fünf und liefert kein
+`reconnect_attempt_limit` mehr. Das Dashboard zeigt Fortsetzung ohne Versuchslimit.
+
+**Ausgeführte Offline-Prüfungen:**
+
+- `uv run --locked pytest -q` mit deaktivierter Erfassung und leerem Ziel:
+  419 bestanden; eine DeprecationWarning aus Starlette/AnyIO.
+- `npm run build`: TypeScript und Vite erfolgreich.
+- `node --test tests/dashboard.test.mjs`: 25 bestanden.
+- `uv run --locked ruff check .`: erfolgreich.
+- Regressionen: länger anhaltender Ausfall und Erholung, reguläre Kern-/Zusatz-
+  intervalle, nicht verdrängte Kernwerte, Auswahlwechsel nach Fehler, Neustart
+  aus alten Budgetsperren und unterbrochenen Anfragen, Pause/Fortsetzung sowie
+  unveränderte endliche und harte Schutzgrenzen.
+- Throwaway-Smoke mit echtem `ModbusTcpClient`, Loopback-Simulator
+  `close_no_data`, SQLite und virtueller Schedulerzeit: erster Lauf genau
+  21 fehlgeschlagene FC03-Anfragen, weiterhin `reconnect_wait`, Diagnosezähler 20.
+  Zweiter Lauf 21 Fehler, anschließend drei erfolgreiche Anfragen nach Wechsel
+  zu gültigen Simulatorantworten; danach ausdrücklich durch den Prüflauf gestoppt.
+  Pro Kernblock exakt 60 s virtuelle Abstände, sieben Fehlerbeobachtungen und
+  anschließend gültige Kesseltemperatur 42 °C als synthetischer Wert.
+  SQLite-Integrität in beiden Läufen `ok`.
+- Tatsächlich gebautes Dashboard mit isolierter laufender FastAPI auf Loopback
+  in Chromium geöffnet. API-Zustand `reconnect_wait` mit 20 Folgeversuchen,
+  nächster Termin und Hinweis „ohne Versuchslimit“ sichtbar; Screenshot geprüft.
+  Keine fingierten Browserantworten; Daten stammen aus dem Loopback-Ausfalllauf.
+  Prüftab und Prüfserver anschließend beendet.
+
+**Grenzen:** Keine Anlagenanfrage, kein Unraid-Deployment, keine Langzeit- oder
+Displayabnahme. `.env`, reale Daten und laufende Heizungs-App blieben unverändert.
+Die neue Wiederaufnahme benötigt einen neuen App-/Image-Build und dessen Neustart;
+bestehende veröffentlichte Images wurden nicht verändert.

@@ -148,7 +148,7 @@ def test_collector_status_reports_saved_runtime_state_without_configuration_fing
             {
                 "state": "reconnect_wait",
                 "error": "synthetic connection error",
-                "reconnect_attempts": 2,
+                "reconnect_attempts": 12,
                 "retry_at": "2026-10-14T00:02:00+00:00",
                 "next_action": "Retry same core block",
                 "profile_id": "core",
@@ -159,15 +159,12 @@ def test_collector_status_reports_saved_runtime_state_without_configuration_fing
         response = client.get("/api/collector/status")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "state": "reconnect_wait",
-        "reason": "Verbindungsfehler; begrenzte Wiederaufnahme geplant",
-        "reconnect_attempts": 2,
-        "reconnect_attempt_limit": 5,
-        "next_action_at": "2026-10-14T00:02:00+00:00",
-        "next_action": "Retry same core block",
-        "profile_id": "core",
-    }
+    status = response.json()
+    assert status["state"] == "reconnect_wait"
+    assert status["reconnect_attempts"] == 12
+    assert status["next_action_at"] == "2026-10-14T00:02:00+00:00"
+    assert "reconnect_attempt_limit" not in status
+    assert "synthetic connection error" not in response.text
     assert "private fingerprint" not in response.text
 
 

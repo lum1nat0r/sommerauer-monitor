@@ -478,7 +478,7 @@ export default function Dashboard({ view }: { view: DashboardView }) {
       <section className="collector-panel" aria-labelledby="collector-title"><div className="collector-copy"><p className="eyebrow">ERFASSUNG · KEINE HEIZUNGSBEDIENUNG</p><h2 id="collector-title">{collector ? stateLabels[collector.state] || 'Unbekannter Zustand' : 'Status wird geladen'}</h2>
         <p>{collector?.reason || (collector?.state === 'unconfigured' ? 'Die Installation ist noch nicht für die Erfassung eingerichtet.' : collector?.state === 'completed' ? 'Der endliche Erfassungslauf ist beendet. Dies ist keine Aussage zum Heizungszustand.' : 'Keine aktive Fehlermeldung.')}</p>
         <p className="status-meta">Letzte erfolgreiche Messung: <strong>{lastSuccessfulAt ? formatDate(lastSuccessfulAt, timeZone) : 'Noch keine erfolgreiche Messung'}</strong>{collector?.state === 'reconnect_wait' && collector.next_action_at && <> · Nächster Versuch: <strong>{formatDate(collector.next_action_at, timeZone)}</strong></>}</p>
-        {collector?.state === 'reconnect_wait' && <p>Wiederaufnahmeversuche: {collector.reconnect_attempts} / {collector.reconnect_attempt_limit}. {collector.next_action}</p>}
+        {collector?.state === 'reconnect_wait' && <p>Die Abfragen werden ohne Versuchslimit im regulären Intervall fortgesetzt.</p>}
       </div><div className="collector-actions">
         {canPause && <button className="button secondary" disabled={busy} onClick={() => void runCollectorAction('pause')}>Erfassung pausieren</button>}
         {canResume && <button className="button primary" disabled={busy} onClick={() => void runCollectorAction('resume')}>Erfassung fortsetzen</button>}

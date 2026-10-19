@@ -1,6 +1,6 @@
 export type CollectorStatus = {
   state: string; reason: string | null; reconnect_attempts: number;
-  reconnect_attempt_limit: number; next_action_at: string | null; next_action: string | null;
+  next_action_at: string | null; next_action: string | null;
 };
 export type Config = { collector_enabled: boolean; host_configured: boolean; display_timezone: string };
 export type Signal = {

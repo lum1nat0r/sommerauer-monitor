@@ -137,7 +137,6 @@ def test_finite_request_budget_stops_on_first_transport_error_without_retry(tmp_
 
     assert calls == [4102]
     assert collector.state == "stopped_transport"
-    assert collector.status()["reason"] == "Endlicher Lauf wegen Transportfehler beendet"
     assert collector.store.get_collector_state()["request_count"] == 1
 
 def test_completed_finite_run_does_not_resume_after_restart(tmp_path):
@@ -279,7 +278,6 @@ def test_counter_regression_records_invalid_and_continues_other_signals(tmp_path
     assert rows[-1]["error_code"] == "invalid_counter_regression"
     assert collector.blocked_signals == {"boiler.operating_minutes"}
     assert client.counter_reads == 2
-    assert collector._successful_core_cycles == 0
 
 
 def test_storage_failure_stops_without_another_read(tmp_path):
@@ -297,7 +295,7 @@ def test_storage_failure_stops_without_another_read(tmp_path):
     assert collector.error == "Speicherzugriff fehlgeschlagen; Erfassung angehalten."
 
 
-def test_connection_failure_retries_the_same_block_after_delay(tmp_path):
+def test_connection_failure_keeps_other_reads_and_retries_at_normal_interval(tmp_path):
     clock = FakeClock()
 
     class RecoversOnRetry(FakeClient):
@@ -318,47 +316,40 @@ def test_connection_failure_retries_the_same_block_after_delay(tmp_path):
         monotonic=clock.monotonic,
         wait=clock.wait,
         now=clock.now,
-        max_requests=2,
+        max_requests=4,
     )
     collector.run()
 
-    assert [offset for offset, _ in client.starts] == [4102, 4102]
-    assert client.starts[1][1] - client.starts[0][1] >= 60
+    assert [offset for offset, _ in client.starts] == [4102, 28688, 36864, 4102]
+    assert client.starts[3][1] - client.starts[0][1] == 60
     assert collector.state == "completed"
-    assert collector.status()["reconnect_attempts"] == 1
+    assert collector.error is None
+    assert [(row["quality"], row["value"]) for row in collector.store.history("boiler.temperature")] == [
+        ("unavailable", None), ("ok", 42),
+    ]
 
 
-def test_reconnect_budget_stops_after_exactly_five_attempts(tmp_path):
-    clock = FakeClock()
+@pytest.mark.parametrize("recover", [False, True])
+def test_long_outage_has_no_attempt_limit_or_backoff(tmp_path, recover):
+    collector, client, clock = make_collector(tmp_path, limit=24)
+    read = client.read
 
-    class AlwaysOffline(FakeClient):
-        def read(self, block):
-            self.starts.append((block.offset, clock.monotonic()))
-            raise ModbusConnectionError("synthetic offline")
+    def offline_then_available(block):
+        if not recover or len(client.starts) < 21:
+            client.starts.append((block.offset, clock.monotonic()))
+            raise ModbusConnectionError("synthetischer Ausfall")
+        return read(block)
 
-    client = AlwaysOffline(clock)
-    store = SQLiteStore(tmp_path / "budget.sqlite3")
-    collector = Collector(
-        host="unused.invalid",
-        port=502,
-        store=store,
-        data_dir=tmp_path,
-        client=client,
-        monotonic=clock.monotonic,
-        wait=clock.wait,
-        now=clock.now,
-    )
+    client.read = offline_then_available
     collector.run()
 
-    assert len(client.starts) == 6  # Initial failure plus the five reserved retries.
-    assert collector.state == "stopped_transport"
-    assert collector.status()["reconnect_attempts"] == 5
-    restored, restored_client, _ = make_collector(
-        tmp_path, store=store, limit=2
-    )
-    restored.start()
-    assert restored.state == "stopped_transport"
-    assert restored_client.starts == []
+    assert collector.state == "completed"
+    for offset in (4102, 28688, 36864):
+        assert [started for actual, started in client.starts if actual == offset] == list(range(0, 480, 60))
+    rows = collector.store.history("boiler.temperature")
+    assert [row["value"] for row in rows] == [None] * 7 + ([42] if recover else [None])
+    assert collector.status()["reconnect_attempts"] == (0 if recover else 23)
+    assert (collector.error is None) == recover
 
 
 @pytest.mark.parametrize(
@@ -444,40 +435,12 @@ def test_restart_from_running_reserves_request_and_waits_conservatively(tmp_path
     )
 
     assert restarted.state == "reconnect_wait"
-    assert restarted._retry_at == clock.now() + timedelta(seconds=60)
-    assert restarted.status()["reconnect_attempts"] == 1
+    assert restarted._due_at(restarted._block_by_offset(4102)) == 60
+    restarted.max_requests = 3
+    restarted.run()
+    assert restarted.client.starts == [(28688, 0), (36864, 0), (4102, 60)]
 
 
-def test_midcycle_failure_requires_three_complete_cycles_to_clear_budget(tmp_path):
-    clock = FakeClock()
-
-    class DisconnectsAtOperatingCounter(FakeClient):
-        def read(self, block):
-            self.starts.append((block.offset, clock.monotonic()))
-            if block.offset == 28688 and len(self.starts) == 2:
-                raise ModbusConnectionError("synthetic offline")
-            clock.elapsed += self.delay
-            self.ends.append(clock.monotonic())
-            return RegisterRead(block.offset, self.VALUES[block.offset])
-
-    client = DisconnectsAtOperatingCounter(clock)
-    collector = Collector(
-        host="unused.invalid",
-        port=502,
-        store=SQLiteStore(tmp_path / "three-cycles.sqlite3"),
-        data_dir=tmp_path,
-        client=client,
-        monotonic=clock.monotonic,
-        wait=clock.wait,
-        now=clock.now,
-        max_requests=13,
-    )
-    collector.run()
-
-    assert len(client.starts) == 13
-    assert collector.state == "completed"
-    assert collector.status()["reconnect_attempts"] == 0
-    assert collector._successful_core_cycles == 0
 
 
 def test_user_pause_is_persisted_and_does_not_autostart_after_restart(tmp_path):
@@ -518,9 +481,6 @@ def test_changed_target_cannot_resume_saved_retry_state(tmp_path):
     )
     original.state = "reconnect_wait"
     original.error = "synthetic connection failure"
-    original._retry_at = clock.now() + timedelta(seconds=60)
-    original._retry_delay_seconds = 60
-    original._retry_monotonic_deadline = clock.monotonic() + 60
     original._persist_state()
 
     client = FakeClient(clock)
@@ -595,7 +555,7 @@ def test_empty_logging_selection_waits_without_reads_and_can_be_replaced(tmp_pat
     assert collector.state == "completed"
 
 
-def test_save_during_recovery_keeps_retry_block_delay_and_budget(tmp_path):
+def test_save_during_connection_failure_applies_at_next_cycle_boundary(tmp_path):
     collector, client, clock = make_collector(tmp_path, limit=5)
     read = client.read
     attempts = []
@@ -613,15 +573,15 @@ def test_save_during_recovery_keeps_retry_block_delay_and_budget(tmp_path):
     client.read = fail_and_change_selection
     collector.run()
 
-    assert [offset for offset, _ in attempts] == [4102, 4102, 28688, 36864, 36864]
-    assert attempts[1][1] - attempts[0][1] >= 60
-    assert collector.status()["reconnect_attempts"] == 1
+    assert [offset for offset, _ in attempts] == [4102, 28688, 36864, 36864, 36864]
+    assert [at for offset, at in attempts if offset == 36864] == [0, 60, 120]
+    assert collector.status()["reconnect_attempts"] == 0
     assert collector.logging_status()["active_revision"] == 1
     assert [(row["quality"], row["value"]) for row in collector.store.history("boiler.temperature")] == [
-        ("unavailable", None), ("ok", 42),
+        ("unavailable", None),
     ]
     assert collector.store.count_observations(signal_id="buffer.bottom_temperature") == 1
-    assert collector.store.count_observations(signal_id="buffer.top_temperature") == 2
+    assert collector.store.count_observations(signal_id="buffer.top_temperature") == 3
 
 
 def extended_collector(tmp_path, *, limit=None, duration=None):
@@ -711,21 +671,11 @@ def test_save_during_extended_read_waits_for_full_profile_boundary(tmp_path):
     assert collector.logging_status()["active_revision"] == 2
 
 
-def test_extension_successes_do_not_reset_core_recovery_progress(tmp_path):
-    collector, _, _ = extended_collector(tmp_path, limit=10)
-    select_extended(collector, ("100A",))
-    collector._reconnect_attempts = 2
-
-    collector.run()
-
-    assert collector.state == "completed"
-    assert collector.status()["reconnect_attempts"] == 0
-    assert collector._successful_core_cycles == 0
 
 
 @pytest.mark.parametrize("codes", [("100A",), ("1100",), ("7012", "7013")])
-def test_extension_connection_failure_stops_without_retry_or_restart_read(tmp_path, codes):
-    collector, client, _ = extended_collector(tmp_path, limit=2)
+def test_extension_connection_failure_continues_at_normal_interval(tmp_path, codes):
+    collector, client, _ = extended_collector(tmp_path, limit=8)
     select_extended(collector, codes, keep_core=False)
 
     def fail(block):
@@ -735,22 +685,33 @@ def test_extension_connection_failure_stops_without_retry_or_restart_read(tmp_pa
     client.read = fail
     collector.run()
 
-    assert client.starts == [(int(codes[0], 16), 0)]
-    assert collector.state == "stopped_transport"
-    assert collector.status()["reconnect_attempts"] == 0
-    assert collector.status()["next_action_at"] is None
-    assert "Zusatzregister" in collector.status()["reason"]
-    assert "Budget" not in collector.status()["reason"]
+    assert client.starts == [(int(codes[0], 16), at) for at in range(0, 2400, 300)]
+    assert collector.state == "completed"
+    assert collector.status()["reconnect_attempts"] == 7
     observation, = collector.store.current_signals()
     assert observation["quality"] == "unavailable"
     assert observation["value"] is None
     assert observation["error_code"] == "transport_error"
     assert observation["raw_words"] == []
-    restarted, restarted_client, _ = make_collector(tmp_path, store=collector.store, limit=None)
-    restarted.start()
-    assert restarted.state == "stopped_transport"
-    assert restarted._request_count == 1
-    assert restarted_client.starts == []
+
+
+def test_extension_outage_does_not_delay_core_reads(tmp_path):
+    collector, client, clock = extended_collector(tmp_path, duration=660)
+    select_extended(collector, ("100A",))
+    read = client.read
+
+    def fail_extension(block):
+        if block.offset == 0x100A:
+            client.starts.append((block.offset, clock.monotonic()))
+            raise ModbusConnectionError("synthetischer Zusatzregister-Ausfall")
+        return read(block)
+
+    client.read = fail_extension
+    collector.run()
+
+    assert [at for offset, at in client.starts if offset == 0x100A] == [0, 300, 600]
+    for offset in (4102, 28688, 36864):
+        assert [at for actual, at in client.starts if actual == offset] == list(range(0, 660, 60))
 
 
 @pytest.mark.parametrize("failure_type", [ModbusConnectionError, ProtocolError, IncompleteResponseError])
@@ -781,18 +742,17 @@ def test_read_to_clear_failure_stops_without_retry(tmp_path, failure_type):
     assert restarted_client.starts == []
 
 
-@pytest.mark.parametrize("offset", [0x100A, 0x85E0])
+@pytest.mark.parametrize("offset", [0x85E0])
 @pytest.mark.parametrize(
     ("state", "in_flight", "retry_delay"),
     [
         ("running", True, None),
-        ("running", False, None),
         ("reconnect_wait", False, 60),
         ("paused", True, None),
         ("paused", False, 60),
     ],
 )
-def test_uncertain_extension_request_cannot_resume_after_restart(
+def test_uncertain_read_to_clear_request_cannot_resume_after_restart(
     tmp_path, offset, state, in_flight, retry_delay
 ):
     collector, _, _ = extended_collector(tmp_path)
@@ -800,10 +760,12 @@ def test_uncertain_extension_request_cannot_resume_after_restart(
     collector._request_in_flight = in_flight
     collector._retry_block_offset = offset if in_flight or retry_delay else 4102
     collector._next_offset = offset
-    collector._retry_delay_seconds = retry_delay
     collector._request_count = 7
     collector._reconnect_attempts = 2
     collector._persist_state()
+    saved = collector.store.get_collector_state()
+    saved["retry_delay_seconds"] = retry_delay
+    collector.store.save_collector_state(saved, collector.now().isoformat())
 
     restarted, client, _ = make_collector(tmp_path, store=collector.store, limit=None)
     restarted.start()
@@ -812,11 +774,6 @@ def test_uncertain_extension_request_cannot_resume_after_restart(
     assert restarted.status()["reconnect_attempts"] == 2
     assert restarted.status()["next_action_at"] is None
     assert restarted._request_count == 7
-    assert "Budget" not in restarted.status()["reason"]
-    if offset == 0x85E0:
-        assert "Read-to-clear" in restarted.status()["reason"]
-    else:
-        assert "Zusatzregister" in restarted.status()["reason"]
     assert client.starts == []
 
 
@@ -948,7 +905,6 @@ def test_weather_error_replaces_good_value_without_blocking_other_signals(tmp_pa
 def test_invalid_buffer_channel_is_not_resaved_while_healthy_neighbor_continues(tmp_path):
     collector, client, _ = make_collector(tmp_path, limit=8)
     client.VALUES = {**FakeClient.VALUES, 36864: (110, 20)}
-    collector._reconnect_attempts = 2
     collector.run()
 
     assert collector.state == "completed"
@@ -958,8 +914,6 @@ def test_invalid_buffer_channel_is_not_resaved_while_healthy_neighbor_continues(
     assert invalid["error_code"] == "invalid_temperature"
     assert invalid["raw_words"] == [110, 20]
     assert len(collector.store.history("buffer.bottom_temperature")) == 2
-    assert collector._successful_core_cycles == 0
-    assert collector._reconnect_attempts == 2
     assert collector.store.get_collector_state()["blocked_signals"] == ["buffer.top_temperature"]
     collector.state = "running"
     collector.error = None
@@ -993,7 +947,6 @@ def test_valid_exception_blocks_only_its_signals_and_survives_restart(tmp_path, 
         assert row["value"] is None
         assert row["raw_words"] == []
     assert collector._retry_at is None
-    assert collector._retry_delay_seconds is None
     collector.state = "paused"
     collector._persist_state()
     restored, restored_client, _ = make_collector(
@@ -1018,6 +971,10 @@ def test_valid_exception_blocks_only_its_signals_and_survives_restart(tmp_path, 
 ])
 def test_signal_failure_during_recovery_clears_retry_deadlines(tmp_path, failure):
     collector, client, clock = make_collector(tmp_path, limit=2)
+    snapshot = collector.store.get_logging_config()
+    for entry in snapshot["entries"]:
+        entry["record"] = entry["code"] == "1006"
+    collector.store.save_logging_config(snapshot["revision"], snapshot["entries"])
     calls = 0
 
     def recovering_failure(block):
@@ -1035,8 +992,6 @@ def test_signal_failure_during_recovery_clears_retry_deadlines(tmp_path, failure
     assert collector.state == "completed"
     assert collector.blocked_signals == {"boiler.temperature"}
     assert collector._retry_at is None
-    assert collector._retry_delay_seconds is None
-    assert collector._retry_monotonic_deadline is None
     rows = collector.store.history("boiler.temperature")
     assert rows[0]["error_code"] == "transport_error"
     assert "private" not in rows[0]["error_message"]
@@ -1121,3 +1076,73 @@ def test_modbus_device_failure_is_not_treated_as_an_isolated_bad_register(tmp_pa
     failure, = collector.store.history("boiler.temperature")
     assert failure["value"] is None
     assert failure["error_code"] == "modbus_exception_4"
+
+
+@pytest.mark.parametrize("code", ["1006", "100A"])
+@pytest.mark.parametrize("state", ["stopped_transport", "reconnect_wait", "running"])
+def test_restart_continues_after_old_budget_or_interrupted_request(tmp_path, code, state):
+    original, _, clock = extended_collector(tmp_path)
+    select_extended(original, (code,), keep_core=False)
+    original.state = state
+    original.error = "synthetischer alter Transportfehler"
+    original._reconnect_attempts = 12
+    original._request_count = 13
+    original._request_in_flight = state == "running"
+    original._retry_block_offset = original._next_offset = int(code, 16)
+    original._persist_state()
+    saved = original.store.get_collector_state()
+    saved["retry_delay_seconds"] = 900
+    saved["successful_core_cycles"] = 0
+    saved["successful_blocks_in_cycle"] = 0
+    original.store.save_collector_state(saved, clock.now().isoformat())
+
+    restored, client, _ = extended_collector(tmp_path)
+    read = client.read
+
+    def stop_after_read(block):
+        result = read(block)
+        restored._stop.set()
+        return result
+
+    client.read = stop_after_read
+    assert restored.state == "reconnect_wait"
+    assert restored.status()["reconnect_attempts"] == 12
+    restored.run()
+
+    interval = 60 if code == "1006" else 300
+    assert client.starts == [(int(code, 16), interval)]
+    assert restored._request_count == 14
+    assert restored.status()["reconnect_attempts"] == 0
+    assert restored.error is None
+    assert restored.store.current_signals()[0]["quality"] == "ok"
+
+
+@pytest.mark.parametrize(("limit", "duration"), [(3, None), (None, 10)])
+def test_old_finite_transport_stop_is_not_automatically_released(tmp_path, limit, duration):
+    original, _, _ = make_collector(tmp_path, limit=limit, duration=duration)
+    original.state = "stopped_transport"
+    original._persist_state()
+    restored, client, _ = make_collector(tmp_path, limit=None, store=original.store)
+    restored.start()
+    assert restored.state == "stopped_transport"
+    assert client.starts == []
+
+
+def test_pause_during_outage_survives_restart_and_resume_keeps_interval(tmp_path, monkeypatch):
+    original, _, clock = make_collector(tmp_path, limit=None)
+    select_extended(original, ("1006",), keep_core=False)
+    original.state = "reconnect_wait"
+    original.error = "synthetischer Ausfall"
+    original._retry_at = clock.now() + timedelta(seconds=60)
+    original._reconnect_attempts = 12
+    original.pause()
+
+    restored, client, _ = make_collector(tmp_path, limit=1, store=original.store)
+    restored.start()
+    assert restored.state == "paused"
+    assert client.starts == []
+    monkeypatch.setattr(restored, "start", lambda: None)
+    restored.resume()
+    restored.run()
+    assert client.starts == [(4102, 60)]
+    assert restored.state == "completed"
