@@ -22,6 +22,13 @@ Die Hashes sind Referenzanker, keine mitgelieferten Dateien und kein aktueller
 Konfigurationsnachweis. Die öffentliche Registerreferenz lässt Originalmessungen,
 Quellcodeausdrücke, Quellzeilen und private Dateipfade bewusst weg.
 
+Am 20.10.2026 stellte der Betreiber den privaten Übergabeordner für die Entwicklung
+des separaten START-/SOLL-Testwerkzeugs bereit. Der rekonstruierte Export mit
+obigem SHA256 wurde gezielt erneut gelesen: FC06-Eingang, Zahlenkonversion,
+START-/SOLL-Parameter und Speicherung. Das ist eine erneute statische Prüfung
+des bereitgestellten Texts, keine neue Dekompilierung oder Live-Abnahme.
+Bereinigte Ableitungen und Nachweisgrenzen: [Schreibtest](SCHREIBTEST.md).
+
 Historisch sechs Exception-Antworten und ein Trockenlauf zusätzlich dokumentiert;
 nicht mit erfolgreichen Reads vermischen. Der kurze Loggerlauf belegt keinen
 Dauerbetrieb. Alte Netzadresse nicht mehr verwenden; neue privat konfigurieren.

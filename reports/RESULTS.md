@@ -1,5 +1,68 @@
 # Ergebnisse
 
+## 20.10.2026 – Separates START/SOLL-Testwerkzeug
+
+Betreiberauftrag: deploybares Werkzeug für START `9040` und SOLL `9020`,
+Entwicklung auf neuem Branch `feature/start-soll-schreibtest`. Beide Kandidaten und
+gewünschte spätere Gerätetests hat der Betreiber ausdrücklich bestätigt.
+Separates Python-CLI `write_test`, eigenes Dockerfile/Compose, privater Plan,
+persistentes SQLite-Journal und Anleitung in `docs/SCHREIBTEST.md`.
+Monitoring-App und deren Container bleiben lesend.
+
+**Erneute statische Quellenprüfung:** Der Betreiber stellte den privaten
+Übergabeordner bereit. Den rekonstruierten Export mit SHA256
+`9965d1d31300a0e96e60a75730d23628632b161679d5c5356462edeca3496323`
+gezielt neu gelesen; Hash entspricht dem vorhandenen Quellenanker. Keine neue
+Dekompilierung/IL-Prüfung oder Geräteabfrage behauptet. Nachvollzogen wurden
+FC06-Eingang, Dezimaltext-/Hex-Konversion, START-/SOLL-Zweige,
+Parametergrenzen und Änderung/Speicherung des gemeinsamen Touch-Basisparameters.
+
+Ableitung: Nur 16–25, 32–41, 48–57, 64–73 und 80–89 °C innerhalb 10–90 sind
+über diesen FC06-Pfad darstellbar. Beispiel zur Kodierung, keine Messung:
+40 °C benötigt Schreibwort 28; normales Wort 40 würde 64 ergeben.
+60 °C ist nicht darstellbar. Der Encoder prüft vor jeder Verbindung sämtliche
+Test- und Rückstellwerte und lehnt einen nicht rückstellbaren Versuch komplett ab.
+Die tatsächlich installierte Software ist damit noch nicht unabhängig bestätigt.
+
+Ablauf je Kandidat: Vorwert prüfen, Rückstellwert journalisieren, Test schreiben,
+rücklesen, begrenzt warten, zwischenzeitliche Abweichung prüfen, aktiv zurückstellen
+und Rückstellung prüfen. Maximal zwölf Anfragen für beide Kandidaten, Unit 255,
+FC03/FC06, je ein Wort und 3-s-Gesamtdeadline. Keine Retries oder Wiederaufnahme
+nach Neustart. Bei Fehler, Abbruch oder ungewissem Schreibausgang bleiben
+Rückstellwerte zur manuellen Prüfung sichtbar. Kein garantierter Rückfall bei
+Host-/Netzausfall; keine autonome TTL-Funktion im untersuchten Pfad nachgewiesen.
+
+**Tatsächlich ausgeführte Prüfungen:**
+
+- CPython 3.12.9 und Abhängigkeiten mit projektfestem uv 0.12.2 bereitgestellt.
+- Vollständiger synthetischer/Loopback-Lauf: `MODBUS_HOST= COLLECTOR_ENABLED=false
+  .venv/bin/python -m pytest -q -o faulthandler_timeout=30`: **434 bestanden**,
+  bekannte Starlette-/AnyIO-DeprecationWarning. Sandboxlauf hing im vorhandenen
+  In-process-App-Test; kontrolliert beendet und außerhalb der Sandbox erfolgreich.
+- 15 neue Tests: vollständige Darstellbarkeitsmenge, ungeeigneter Rückstellwert
+  am zweiten Kandidaten verhindert auch den ersten Zugriff, Unterbrechung an
+  jeder der zwölf Operationen, verlorenes Echo nach tatsächlicher Modelländerung,
+  zwischenzeitliche Bedienänderung, Journalfehler, Neustartsperre, exklusiver
+  Verzeichnislock, Planhash und Protokollfehler.
+- CLI mit echtem TCP-Transport gegen ausschließlich lokalen synthetischen
+  Server: zwölf Anfragen, vier FC06-Telegramme, beide synthetischen Ausgangswerte
+  nach Rücklesen wiederhergestellt. Keine Hersteller-Firmware ausgeführt.
+- CLI-Speichermodell mit `examples/write_plan.synthetic.json`: `completed`,
+  zwölf journalisierte Operationen, keine offenen Rückstellwerte.
+- `.venv/bin/ruff check .`, Formatprüfung der neuen Python-Dateien und
+  `git diff --check`: erfolgreich.
+- `docker compose -f compose.write-test.yaml config --quiet`: erfolgreich;
+  dies validiert die Compose-Konfiguration, keinen Imagebuild.
+
+**Grenzen:** Kein Heizungsschreibtest, keine neue reale Lesesitzung und keine
+Änderung privater Konfiguration oder Messhistorie. Lokaler Docker-Zugriff auch
+außerhalb der Sandbox durch Socketrechte verweigert; Imagebuild und Unraid-
+Deployment hier nicht verifiziert. Ein zusätzlicher CI-Job baut und prüft den
+separaten Container ohne Netzwerk; dessen Ergebnis steht vor Push noch aus.
+Aktuelle Zielkonfiguration, Geräteversionsabgleich, konkrete Ausgangs-/Testwerte
+und Änderungsfreigabe bleiben vor einem Live-Lauf erforderlich. Issue #18 bleibt
+wegen des offenen autonomen Rückfalls unvollständig und wird nicht geschlossen.
+
 ## 19.10.2026 – Releasevorbereitung v0.3.1
 
 Betreiberauftrag: die abgenommene Polling-Änderung als v0.3.1 committen, pushen

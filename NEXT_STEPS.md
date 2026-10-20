@@ -1,5 +1,27 @@
 # Nächste Schritte
 
+## Separates START/SOLL-Testwerkzeug (20.10.2026)
+
+Auf Betreiberwunsch auf Branch `feature/start-soll-schreibtest` ein eigenständiges
+CLI-Testwerkzeug samt eigenem Dockerfile vorbereitet: [Bedienung](docs/SCHREIBTEST.md).
+Betreiber bestätigt START `9040` und SOLL `9020` und wünscht einen späteren
+Gerätetest nach Deployment. Transportcode für genau diese FC03-/FC06-Einzelwörter,
+privater Plan, persistentes Journal, endlicher Ablauf mit aktiver Rückstellung.
+Keine Hardwarekommunikation ausgeführt und keine Änderung der Monitoring-App.
+
+Den vom Betreiber bereitgestellten rekonstruierten Originalexport erneut statisch
+geprüft: FC06 interpretiert Dezimaltext als Hexzahl. Nur 16–25, 32–41, 48–57,
+64–73 und 80–89 °C innerhalb der Parametergrenzen sind damit darstellbar.
+Auch Rückstellwerte prüfen; ein Ausgangswert von 60 °C sperrt den Versuch.
+Vor echtem Test Übereinstimmung der installierten Version bestätigen und einen
+konkreten endlichen Plan mit aktuellen Ausgangs-/Test-/Rückstellwerten erstellen.
+Hier ist noch kein Live-Lauf geplant oder freigegeben; aktuelle Ausgangswerte
+und Zielkonfiguration fehlen. Autonomer Rückfall bleibt ungeklärt.
+Keinen automatischen Rückfall durch die Heizung behaupten:
+der Client muss aktiv zurückschreiben; bei Host-/Netzausfall manuell am Touch prüfen.
+Docker-Zugriff ist hier auch außerhalb der Sandbox durch lokale Socketrechte
+gesperrt; Imagebuild und Unraid-Deployment sind nicht verifiziert. #18 bleibt offen.
+
 Stand 15.10.2026: Projektgrundlage, `core`-Profil/Decoder, strikter FC03-Lesetransport,
 Loopback-Simulator, SQLite-Speicherung, zentraler Sammler, persistente Fehlerzustände,
 lesende API, Dashboard und Offline-Ende-zu-Ende-Abnahme (#12) umgesetzt.

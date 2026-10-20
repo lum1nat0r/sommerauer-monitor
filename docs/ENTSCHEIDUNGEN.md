@@ -2,6 +2,14 @@
 
 Stand 19.10.2026; Herkunft jeweils angegeben.
 
+Nachtrag 20.10.2026 (Betreiberauftrag): separates deploybares Werkzeug für einen
+begrenzten START-/SOLL-Test (`9040`/`9020`) entwickeln. Gewünscht sind echte Tests
+nach Deployment. Die Schreibkodierung wurde im bereitgestellten rekonstruierten
+Export erneut statisch geprüft; Geräteversionsabgleich, konkrete Werte und
+Gerätefreigabe stehen noch aus. Die Monitoring-App bleibt lesend. Rückstellung
+durch den Testclient ist aktive Gegenänderung und keine nachgewiesene automatische
+Gerätefunktion.
+
 | Entscheidung | Stand/Herkunft |
 |---|---|
 | Version 1 = Modbus-Logging + eigenes Dashboard | Nutzerauftrag |

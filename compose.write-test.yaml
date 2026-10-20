@@ -1,0 +1,12 @@
+# Separater Testclient; Standardstart zeigt nur Hilfe und hat kein Netzwerk.
+services:
+  write-test:
+    image: sommerauer-write-test:local
+    build:
+      context: .
+      dockerfile: Dockerfile.write-test
+    network_mode: none
+    restart: "no"
+    volumes:
+      - ${WRITE_TEST_DATA_PATH:-./data/write-test}:/data
+    command: ["--help"]

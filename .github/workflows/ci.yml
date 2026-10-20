@@ -35,3 +35,16 @@ jobs:
       - run: npm install --global npm@12.0.2
       - run: npm ci
       - run: npm run build
+
+  write-test-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f Dockerfile.write-test -t sommerauer-write-test:ci .
+      - name: Schreibtest-Container ohne Netzwerk synthetisch prüfen
+        run: >-
+          docker run --rm --network none
+          --mount type=bind,src="${{ github.workspace }}/examples",dst=/examples,readonly
+          --tmpfs /data:rw,noexec,nosuid,size=1m,mode=1777
+          sommerauer-write-test:ci simulate
+          --plan /examples/write_plan.synthetic.json --journal /data/synthetic.sqlite

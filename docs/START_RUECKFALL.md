@@ -3,6 +3,14 @@
 Spätere Arbeit, kein Bestandteil des Monitoring-Releases und keine Schreibfreigabe.
 Echte Temperaturmessungen bleiben unverändert.
 
+Auf Betreiberauftrag vom 20.10.2026 entsteht ein separates
+[START/SOLL-Testwerkzeug](SCHREIBTEST.md) mit privatem Testplan, Journal und
+aktiver Rückstellung. Der FC03-/FC06-Transport ist synthetisch prüfbar; die
+gerätebezogene Schreibkodierung wurde im bereitgestellten rekonstruierten Export
+erneut statisch geprüft. Darstellbarkeit beider Werte wird vor jeder Verbindung
+validiert; Geräte-/Versionsabnahme bleibt offen. Ein Softwaretimer garantiert
+keinen Rückfall bei Host-/Netzausfall.
+
 ## Belegt und nicht belegt
 
 Benutzerbeobachtung: Absenken von START hält den Kessel aus. Kein protokollierter
@@ -16,6 +24,9 @@ Beide sind jetzt ausdrücklich als lesbare Basisparameter im Leseprofil verfügb
 Die Gerätetabelle wurde laut Betreiber installiert; eigener Geräteabgleich offen.
 Diese Adressen nicht als einsatzbereiten Stellweg verwenden. Im analysierten FC06-Pfad ist die Dezimaltext-/Hex-
 Umwandlung problematisch; Werte/Kodierung nicht ungeprüft als Standard annehmen.
+Die erneute statische Prüfung vom 20.10.2026 zeigt: innerhalb 10–90 °C sind
+nur 16–25, 32–41, 48–57, 64–73 und 80–89 über diesen Pfad darstellbar.
+Auch der Ausgangswert muss darstellbar sein, damit ein Test zurückstellbar ist.
 Eine neue Zuordnungstabelle allein ergänzt keinen Rückfalltimer.
 
 START wirkt bei dieser Pufferlogik am oberen Fühler, SOLL im Zweifühlerbetrieb am
@@ -34,7 +45,8 @@ weitergeplant werden. Das ist eine bewusste betriebliche Entscheidung, keine
 technische Garantie für autonomen Rückfall. Alerting, Schreibkodierung,
 konkrete Werte/Rückstellplan und Geräteprüfung bleiben spätere Arbeit.
 Die App kann START/SOLL jetzt lesend als Temperatur-Basisparameter erfassen.
-Eine spätere Schreibnutzung bleibt ein getrennter Kandidat; weiterhin kein Schreibadapter oder Schreibendpunkt.
+Die Monitoring-App enthält weiterhin keinen Schreibadapter oder Schreibendpunkt.
+Das separate Testwerkzeug ist noch nicht am Gerät abgenommen.
 
 Benötigte Semantik, noch kein vorhandenes Gerätefeature:
 

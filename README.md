@@ -36,6 +36,13 @@ Unraid 7.3.2, Zugang im Heimnetz/Tailscale. Deployment übernimmt der Betreiber.
 
 ## Lokale Entwicklung
 
+Separates **START/SOLL-Testwerkzeug** mit eigenem CLI-Container, privatem Plan,
+Rücklesen und aktiver Rückstellung: [Bedienung](docs/SCHREIBTEST.md).
+`python -m write_test template` erzeugt lokal eine unvollständige Planvorlage,
+ohne Gerätezugriff. Das statisch geprüfte Schreibprofil kann nur bestimmte
+Temperaturen darstellen; tatsächliche Geräteversion vor Nutzung bestätigen.
+Kein garantierter Rückfall bei Host-/Netzausfall.
+
 Voraussetzungen (verbindlich): CPython 3.12.9, `uv` 0.12.2, Node.js 26.x und npm 12.x.
 Python- und Frontend-Abhängigkeiten sind in `uv.lock` bzw. `package-lock.json`
 festgehalten.

@@ -1,0 +1,12 @@
+{
+  "target_ip": "127.0.0.1",
+  "port": 1502,
+  "unit": 255,
+  "hold_seconds": 0,
+  "encoding_source": "9965d1d31300a0e96e60a75730d23628632b161679d5c5356462edeca3496323",
+  "encoding_confirmed": false,
+  "registers": [
+    {"code": "9040", "original_c": 40, "test_c": 35},
+    {"code": "9020", "original_c": 65, "test_c": 64}
+  ]
+}

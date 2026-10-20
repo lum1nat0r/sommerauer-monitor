@@ -1,0 +1,7 @@
+FROM python:3.12.9-slim-bookworm
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+WORKDIR /app
+COPY write_test ./write_test
+USER 99:100
+ENTRYPOINT ["python", "-m", "write_test"]
+CMD ["--help"]
