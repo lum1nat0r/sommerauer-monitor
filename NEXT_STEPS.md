@@ -19,8 +19,12 @@ Hier ist noch kein Live-Lauf geplant oder freigegeben; aktuelle Ausgangswerte
 und Zielkonfiguration fehlen. Autonomer Rückfall bleibt ungeklärt.
 Keinen automatischen Rückfall durch die Heizung behaupten:
 der Client muss aktiv zurückschreiben; bei Host-/Netzausfall manuell am Touch prüfen.
-Docker-Zugriff ist hier auch außerhalb der Sandbox durch lokale Socketrechte
-gesperrt; Imagebuild und Unraid-Deployment sind nicht verifiziert. #18 bleibt offen.
+Lokaler Docker-Zugriff ist durch Socketrechte gesperrt. Der separate Imagebuild
+und Container-Smoke ohne Netzwerk sind inzwischen in
+[CI erfolgreich](https://github.com/lum1nat0r/sommerauer-monitor/actions/runs/39466537764),
+ebenso Python-Prüfungen und Frontend-Build. Unraid-Deployment bleibt ungeprüft.
+Branch ist gepusht; PR-Anlage über die GitHub-Integration scheitert mit HTTP 403
+(`Resource not accessible by integration`). #18 bleibt offen.
 
 Stand 15.10.2026: Projektgrundlage, `core`-Profil/Decoder, strikter FC03-Lesetransport,
 Loopback-Simulator, SQLite-Speicherung, zentraler Sammler, persistente Fehlerzustände,

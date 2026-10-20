@@ -53,15 +53,22 @@ Host-/Netzausfall; keine autonome TTL-Funktion im untersuchten Pfad nachgewiesen
   `git diff --check`: erfolgreich.
 - `docker compose -f compose.write-test.yaml config --quiet`: erfolgreich;
   dies validiert die Compose-Konfiguration, keinen Imagebuild.
+- Nach Push: [Offline CI](https://github.com/lum1nat0r/sommerauer-monitor/actions/runs/39466537764)
+  vollständig erfolgreich. Python-/Ruff-Prüfung, Frontend-Build sowie der neue
+  Job `write-test-image` mit tatsächlichem Dockerbuild und Container-Smoke
+  unter `--network none` bestanden.
 
 **Grenzen:** Kein Heizungsschreibtest, keine neue reale Lesesitzung und keine
 Änderung privater Konfiguration oder Messhistorie. Lokaler Docker-Zugriff auch
 außerhalb der Sandbox durch Socketrechte verweigert; Imagebuild und Unraid-
-Deployment hier nicht verifiziert. Ein zusätzlicher CI-Job baut und prüft den
-separaten Container ohne Netzwerk; dessen Ergebnis steht vor Push noch aus.
+Deployment hier nicht verifiziert. Der separate Container ist inzwischen durch
+den erfolgreichen CI-Build/-Smoke belegt; das ersetzt keine Unraid-Abnahme.
 Aktuelle Zielkonfiguration, Geräteversionsabgleich, konkrete Ausgangs-/Testwerte
 und Änderungsfreigabe bleiben vor einem Live-Lauf erforderlich. Issue #18 bleibt
 wegen des offenen autonomen Rückfalls unvollständig und wird nicht geschlossen.
+Der Entwicklungsbranch ist gepusht. Die PR-Anlage über die GitHub-Integration
+wurde mit HTTP 403 (`Resource not accessible by integration`) abgewiesen;
+es wurde kein Pull Request angelegt und nichts gemergt.
 
 ## 19.10.2026 – Releasevorbereitung v0.3.1
 
