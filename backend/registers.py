@@ -14,9 +14,10 @@ SOURCE: Final = "modbus_fc03"
 class DecodeError(ValueError):
     """A register block does not satisfy the documented core data contract."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, value: int | float | None = None) -> None:
         super().__init__(message)
         self.code = code
+        self.value = value  # decoded but implausible reading, kept for storage
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +299,7 @@ def decode_register_block(offset: int, words: tuple[int, ...] | list[int]) -> tu
         except DecodeError as exc:
             quality = "unavailable" if exc.code == "missing_weather" else "invalid"
             error_code, error_message = exc.code, str(exc)
+            value = exc.value
         decoded.append(DecodedSignal(
             signal_id, value, unit, offset, raw_words,
             profile_id=PROFILE_ID if block in CORE_PROFILE else "extended",
@@ -334,7 +336,7 @@ def validate_operating_counter_progression(
 
 def _validated_temperature(value: int) -> int:
     if value == 110 or not -5 < value < 110:
-        raise DecodeError("invalid_temperature", f"Kerntemperatur außerhalb -5..110 °C (Grenzen ausgeschlossen): {value} °C")
+        raise DecodeError("invalid_temperature", f"Kerntemperatur außerhalb -5..110 °C (Grenzen ausgeschlossen): {value} °C", value)
     return value
 
 
@@ -351,7 +353,7 @@ def _decode_extended_word(raw: int, decoder: str) -> int | float:
         return raw
     if decoder == "power_limit":
         if not 30 <= raw <= 100:
-            raise DecodeError("invalid_power_limit", "Maximale Leistungsregelgröße außerhalb 30..100 %")
+            raise DecodeError("invalid_power_limit", "Maximale Leistungsregelgröße außerhalb 30..100 %", raw)
         return raw
     if decoder == "boiler_state":
         if raw not in (0, 2, 3, 4, 0x8002, 0x8003, 0x8004):
@@ -363,7 +365,7 @@ def _decode_extended_word(raw: int, decoder: str) -> int | float:
     if decoder in ("boiler_target_temperature", "buffer_threshold_temperature"):
         lower = 60 if decoder == "boiler_target_temperature" else 10
         if not lower <= value <= 90:
-            raise DecodeError("invalid_temperature_setting", f"Temperatur-Basisparameter außerhalb {lower}..90 °C: {value}")
+            raise DecodeError("invalid_temperature_setting", f"Temperatur-Basisparameter außerhalb {lower}..90 °C: {value}", value)
         return value
     if decoder == "signed":
         return value
@@ -381,7 +383,7 @@ def _decode_extended_word(raw: int, decoder: str) -> int | float:
         return raw / 10
     if decoder == "cpu_temperature":
         if not 0 <= raw < 80:
-            raise DecodeError("invalid_temperature", f"CPU-Temperatur außerhalb 0..79 °C: {raw}")
+            raise DecodeError("invalid_temperature", f"CPU-Temperatur außerhalb 0..79 °C: {raw}", raw)
         return raw
     limits = {
         "water_temperature": (-5, 110),
@@ -391,7 +393,7 @@ def _decode_extended_word(raw: int, decoder: str) -> int | float:
     }
     lower, upper = limits[decoder]
     if not lower < value < upper:
-        raise DecodeError("invalid_temperature", f"Temperatur außerhalb Kanalgrenzen ({lower}, {upper}): {value} °C")
+        raise DecodeError("invalid_temperature", f"Temperatur außerhalb Kanalgrenzen ({lower}, {upper}): {value} °C", value)
     return value
 
 

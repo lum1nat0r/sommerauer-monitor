@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  availablePresets, bufferDifference, continuousSegments, decodeBoilerState, downsampleSegment,
+  availablePresets, bufferDifference, continuousSegments, implausiblePoints, decodeBoilerState, downsampleSegment,
   displayMeasurement, isFresh, isStepped, loadHistory, localInputToUtc, nearestPoint, selectBoilerDisplay, signalGroup, statusIntervals,
 } from '../frontend/src/dashboard.ts';
 
@@ -370,4 +370,10 @@ test('Abbruch verhindert weitere Seiten und die Übernahme einer verspäteten An
   });
   await assert.rejects(loadHistory('boiler.temperature', origin, origin + 120_000, controller.signal), { name: 'AbortError' });
   assert.equal(calls, 1);
+});
+
+test('Unplausible Werte werden als Marker geliefert und nie in Linien verbunden', () => {
+  const points = [point(0, 50), point(60, 110, '°C', 'invalid'), point(120, 51), point(180, null, '°C', 'invalid')];
+  assert.deepEqual(implausiblePoints(points).map(({ value }) => value), [110]);
+  assert.deepEqual(continuousSegments(points, 60).map(({ points }) => points.map(({ value }) => value)), [[50], [51]]);
 });

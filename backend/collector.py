@@ -256,7 +256,11 @@ class Collector:
                 or len(blocked) != len(set(blocked))
             ):
                 raise ValueError("persisted blocked signal IDs are invalid")
-            self.blocked_signals = set(blocked)
+            # Wertfehler sperren nicht mehr; alte Sperren daraus beim Start verwerfen.
+            self.blocked_signals = set(blocked) & {
+                row["signal_id"] for row in self.store.current_signals()
+                if str(row.get("error_code") or "").startswith("modbus_exception")
+            }
             if saved["configuration_id"] != self._endpoint_id or saved["profile_id"] != PROFILE_ID:
                 self.error = "Saved state belongs to a different target or profile"
                 self._last_action = "Review configuration and acknowledge"
@@ -574,7 +578,7 @@ class Collector:
                     )
                 except DecodeError as exc:
                     decoded = tuple(
-                        replace(item, value=None, quality="invalid", error_code=exc.code, error_message=str(exc))
+                        replace(item, quality="invalid", error_code=exc.code, error_message=str(exc))
                         if item.signal_id == counter.signal_id else item
                         for item in decoded
                     )
@@ -697,7 +701,7 @@ class Collector:
             for signal_id in block.signal_ids
         )
 
-    def _record_observations(self, request, decoded, observed, *, quarantine=True) -> None:
+    def _record_observations(self, request, decoded, observed, *, quarantine=False) -> None:
         selected = self._selected_signals()
         active = tuple(item for item in decoded if item.signal_id not in self.blocked_signals)
         observations = [

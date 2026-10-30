@@ -1827,3 +1827,20 @@ Die API akzeptiert Diagnosezähler über fünf und liefert kein
 Displayabnahme. `.env`, reale Daten und laufende Heizungs-App blieben unverändert.
 Die neue Wiederaufnahme benötigt einen neuen App-/Image-Build und dessen Neustart;
 bestehende veröffentlichte Images wurden nicht verändert.
+
+## Unplausible Werte speichern statt sperren (30.10.2026)
+
+**Auslöser (Benutzerangabe):** Produktive Instanz meldete Kerntemperatur 110 °C
+(`invalid_temperature`); das Signal wurde bisher mit `value=NULL` dauerhaft gesperrt.
+
+**Änderung:** Bereichsfehler speichern den dekodierten Wert mit Qualität `invalid`
+(keine Schema-Migration), setzen keine Signalsperre mehr und werden im Diagramm als
+Marker, an der Kachel als „Unplausibel" gekennzeichnet. Alte Wertfehler-Sperren
+fallen beim Start weg; Modbus-Ausnahme-2/3-Sperren bleiben.
+
+**Ausgeführte Offline-Prüfungen (synthetisch/in-process):** `pytest` 420 bestanden
+(Python 3.14 statt Projekt-3.12, lokale Scratch-Umgebung), `node --test` 26 bestanden,
+`npm run build` (tsc + vite) erfolgreich.
+
+**Grenzen:** Kein Geräte- oder Unraid-Zugriff; die laufende App wurde nicht neu
+gestartet. Wirkt erst nach neuem Build und Neustart.

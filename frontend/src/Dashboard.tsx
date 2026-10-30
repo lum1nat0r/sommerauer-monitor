@@ -54,7 +54,7 @@ function SignalProblem({ signal }: { signal: Signal }) {
           : signal.quality === 'ok' ? 'Die aktuelle Beobachtung enthält keinen Messwert.'
             : 'Der Messwert kann wegen unbekannter Messqualität nicht angezeigt werden.';
   return <div className="signal-problem"><p>{message}</p>
-    {invalid && <p><strong>Wert ausgesetzt – Ursache prüfen.</strong> Keine automatische Wiederholung dieses Signals.</p>}
+    {invalid && <p><strong>Wert unplausibel – Ursache prüfen.</strong> Das Signal wird weiter regulär abgefragt und gespeichert.</p>}
     {missingWeather && !invalid && <p>Bei laufender Erfassung: erneute Abfrage im normalen Intervall.</p>}
     {code && <p className="signal-error-code">Fehlercode: {code}</p>}
   </div>;
@@ -382,9 +382,11 @@ export default function Dashboard({ view }: { view: DashboardView }) {
       <div className="value-name"><h3>{definition.label}</h3>{definition.module_status === 'inactive' && <p className="muted">Inaktives Modul / eigenständiger Kanal</p>}</div>
       <p className="signal-value">{signal && !hasProblem && signal.value !== null
         ? <>{displayed!.value!.toLocaleString('de-AT', { maximumFractionDigits: 2 })}<span>{displayed!.unit}</span></>
-        : <span aria-label="Kein gültiger Messwert">—</span>}</p>
+        : signal && signal.quality === 'invalid' && signal.value !== null
+          ? <>{signal.value.toLocaleString('de-AT', { maximumFractionDigits: 2 })}<span>{signal.unit}</span></>
+          : <span aria-label="Kein gültiger Messwert">—</span>}</p>
       <div className="value-quality"><p className={`freshness ${current && apiStatus === 'ok' ? 'fresh' : 'old'}`}>
-        {hasProblem ? signal?.quality === 'invalid' ? 'Fehler' : signal?.quality === 'unavailable' ? 'Nicht verfügbar' : 'Kein gültiger Messwert'
+        {hasProblem ? signal?.quality === 'invalid' ? signal.value !== null ? 'Unplausibel' : 'Fehler' : signal?.quality === 'unavailable' ? 'Nicht verfügbar' : 'Kein gültiger Messwert'
           : signal ? apiStatus !== 'ok' ? 'Aktualität nicht bestätigt' : current ? 'Aktuell' : 'Veraltet' : 'Noch keine Messung'}
       </p>{signal && <p className="sample-time">Datenalter: {ageLabel(ageOf(signal))}<br />Beobachtung: {formatDate(signal.observed_at, timeZone)}<br />Qualität: {signal.quality}{block && <><br />{block}</>}</p>}</div>
       {signal && hasProblem && <SignalProblem signal={signal} />}

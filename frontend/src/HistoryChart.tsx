@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent } from 'react';
 import {
-  boilerStateLabels, continuousSegments, decodeBoilerState, displayMeasurement, downsampleSegment,
+  boilerStateLabels, continuousSegments, implausiblePoints, decodeBoilerState, displayMeasurement, downsampleSegment,
   formatDate, isStepped, nearestPoint, statusIntervals,
 } from './dashboard';
 import type { BoilerState, ChartSeries, Point } from './dashboard';
@@ -49,6 +49,10 @@ export default function HistoryChart({ start, end, timeZone, series, statusPoint
         : entry.id === 'buffer.top_temperature' ? 'var(--c2)'
           : entry.id === 'buffer.bottom_temperature' ? 'var(--c3)' : `var(--c${index % 6 + 1})`,
       dash: patterns[index % patterns.length],
+      implausible: implausiblePoints(points).filter((point) => {
+        const time = Date.parse(point.observed_at);
+        return time >= start && time < end;
+      }),
       segments: continuousSegments(points, entry.intervalSeconds)
         .map((segment) => ({ ...segment, points: segment.points.filter((point) => {
           const time = Date.parse(point.observed_at);
@@ -84,10 +88,16 @@ export default function HistoryChart({ start, end, timeZone, series, statusPoint
         reduced ||= points.length < segment.points.length;
         return { entry, points, sourcePoints: segment.points };
       }));
+      const marks = entries.flatMap((entry) => entry.implausible
+        .filter((point) => (point.unit ?? 'Einheit unbekannt') === unit).map((point) => ({ entry, point })));
+      for (const { point } of marks) {
+        min = Math.min(min, point.value!);
+        max = Math.max(max, point.value!);
+      }
       const empty = !Number.isFinite(min);
       if (empty) { min = 0; max = 1; }
       const padding = max === min ? Math.max(1, Math.abs(min) * 0.05) : (max - min) * 0.08;
-      return { unit, entries, paths, min: min - padding, max: max + padding, reduced, empty, top: panelIndex * 242 + 32 };
+      return { unit, entries, paths, marks, min: min - padding, max: max + padding, reduced, empty, top: panelIndex * 242 + 32 };
     });
   }, [prepared, hidden, plotWidth, start, end]);
   const bands = useMemo(() => statusPoints === undefined ? [] : statusIntervals(statusPoints, start, end), [statusPoints, start, end]);
@@ -231,6 +241,12 @@ export default function HistoryChart({ start, end, timeZone, series, statusPoint
                   <path d={path} stroke={entry.color} strokeWidth="2" strokeDasharray={entry.dash} fill="none" />
                   {points.length === 1 && <circle cx={x(Date.parse(points[0].observed_at))} cy={y(points[0].value!)} r="3" fill={entry.color} />}
                 </g>;
+              })}
+              {panel.marks.map(({ entry, point }) => {
+                const mx = x(Date.parse(point.observed_at));
+                const my = y(point.value!);
+                return <path key={`${entry.id}-${point.observed_at}`} d={`M${mx - 4},${my - 4}L${mx + 4},${my + 4}M${mx - 4},${my + 4}L${mx + 4},${my - 4}`}
+                  stroke="var(--error)" strokeWidth="2" fill="none"><title>{`${entry.label}: unplausibel ${point.value} ${point.unit ?? ''}`}</title></path>;
               })}
             </g>
             {panel.empty && <text x={left + plotWidth / 2} y={panel.top + 92} textAnchor="middle" fill="var(--muted)">Keine gültigen Messungen</text>}

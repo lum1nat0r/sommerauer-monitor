@@ -69,7 +69,10 @@ def test_synthetic_decoder_examples_match_the_core_decoder() -> None:
         if "expected_error" in case:
             decoded = decode_register_block(case["offset"], tuple(case["words"]))
             assert any(signal.error_code == case["expected_error"] for signal in decoded)
-            assert all(signal.value is None for signal in decoded if signal.quality != "ok")
+            assert all(
+                signal.value is None or signal.error_code.startswith(("invalid_temperature", "invalid_power"))
+                for signal in decoded if signal.quality != "ok"
+            )
         elif "signed16_result" in case:
             assert signed16(case["words"][0]) == case["signed16_result"]
         else:
@@ -89,7 +92,7 @@ def test_signed16_boundaries_and_temperature_validity() -> None:
         signal, = decode_register_block(4102, (word,))
         assert signal.error_code == "invalid_temperature"
         assert signal.quality == "invalid"
-        assert signal.value is None
+        assert signal.value == signed16(word)  # implausibler Rohwert bleibt erhalten
 
 
 def test_counter_accepts_1439_and_rejects_1440_minutes() -> None:
@@ -206,7 +209,7 @@ def test_extended_temperature_errors_are_not_replaced_with_zero(code: str, raw: 
     signal, = decode_register_block(int(code, 16), (raw,))
     assert signal.error_code == "invalid_temperature"
     assert signal.quality == "invalid"
-    assert signal.value is None
+    assert signal.value in (raw, signed16(raw))  # implausibler Wert bleibt erhalten
     assert signal.raw_words == (raw,)
 
 
@@ -252,7 +255,7 @@ def test_buffer_channels_are_validated_independently(words):
     for signal, word in zip(signals, words, strict=True):
         assert signal.raw_words == words
         assert signal.quality == ("invalid" if word == 110 else "ok")
-        assert signal.value == (None if word == 110 else word)
+        assert signal.value == signed16(word)
         assert signal.error_code == ("invalid_temperature" if word == 110 else None)
 
 
@@ -329,4 +332,8 @@ def test_added_parameter_read_decoders_keep_original_words(code, raw, expected, 
 ])
 def test_added_parameter_errors_never_become_current_zero(code, raw, error):
     signal, = decode_register_block(int(code, 16), (raw,))
-    assert (signal.value, signal.quality, signal.error_code, signal.raw_words) == (None, "invalid", error, (raw,))
+    assert (signal.quality, signal.error_code, signal.raw_words) == ("invalid", error, (raw,))
+    if error.startswith("unknown_"):
+        assert signal.value is None
+    else:
+        assert signal.value in (raw, signed16(raw))

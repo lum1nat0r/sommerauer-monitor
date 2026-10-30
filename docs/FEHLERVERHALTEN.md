@@ -71,16 +71,19 @@ Kopie des alten Werts. Historie und CSV behalten Fehlerbeobachtungen mit
   und −1 beim Wetterstatus ergeben `unavailable`/`missing_weather`. Die übrigen
   Werte werden weiter erfasst; Wetterwerte werden im normalen 300-s-Intervall
   erneut gelesen. Wenn wieder Daten vorliegen, wird die Kachel wieder aktuell.
-- **Ungültiger Einzelwert/Zähler:** `invalid` mit konkreter Ursache. Nur das
-  betroffene Signal wird ausgesetzt und in `blocked_signals` persistent gesperrt.
-  Ein gesunder Nachbar im selben Pufferblock wird weiter gelesen und gespeichert;
-  für das gesperrte Signal entstehen keine automatischen Wiederholungsmessungen.
+- **Unplausibler Einzelwert/Zähler (Änderung 30.10.2026):** `invalid` mit konkreter
+  Ursache; der dekodierte Wert (z. B. 110 °C) wird zusammen mit den Rohwörtern
+  gespeichert und in Kachel/Diagramm als „unplausibel" markiert (Marker, keine Linie).
+  Es gibt keine Signalsperre und keine Freigabe: das Signal wird im normalen Intervall
+  weiter gelesen, bei gültigem Wert wieder `ok`. Strukturell unbekannte Zustandswörter
+  (`unknown_*`) und Restminuten >=1440 behalten `value=null`. Alte Wertfehler-Sperren
+  aus gespeichertem Zustand werden beim Start automatisch verworfen.
 - **Gültige Modbus-Ablehnung 2 oder 3:** Der betroffene Registerblock wird mit
   `modbus_exception_2` beziehungsweise `_3` ausgesetzt; andere Blöcke laufen weiter.
   Das umfasst nicht allgemeine Geräte-, Busy- oder Gatewayfehler.
 
-Neustart, normale Pause/Fortsetzung und CSV-Speichern heben Signalsperren nicht
-auf. Zur bewussten Freigabe zuerst die Ursache prüfen und die Erfassung pausieren;
+Neustart, normale Pause/Fortsetzung und CSV-Speichern heben Registersperren
+(Modbus-Ausnahme 2/3) nicht auf. Zur bewussten Freigabe zuerst die Ursache prüfen und die Erfassung pausieren;
 `POST /api/collector/acknowledge-and-start` hebt die Sperren ausdrücklich auf
 und startet die Erfassung. Das ist eine erneute Freigabe aller gesperrten Werte,
 keine Hintergrundwiederholung. Anfragebudget und Historie bleiben erhalten.
@@ -164,7 +167,7 @@ nicht als reine Nichterreichbarkeit.
 
 Ungültige Wertebereiche, Ersatzwerte wie 110 bei Kern-Temperaturkanälen,
 Restminuten >=1440 und widersprüchliche Zähler ergeben isolierte ungültige
-Signale statt eines Stopps aller Werte. Strukturell falsche Wortanzahl oder
+Signale (Wert bleibt, soweit dekodierbar, gespeichert) statt eines Stopps aller Werte. Strukturell falsche Wortanzahl oder
 ungültige Registerworttypen bleiben globale Datenfehler. Rohworte und sichere
 Fehlerdetails werden gespeichert, soweit die Datenbank funktioniert.
 DB voll/nicht beschreibbar/Migrationsfehler -> Speicherstopp, keine weiteren Reads.
