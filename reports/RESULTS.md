@@ -1,5 +1,26 @@
 # Ergebnisse
 
+## 30.10.2026 – Releasevorbereitung v0.3.2
+
+Betreiberauftrag: die Änderung „Unplausible Werte speichern, markieren und weiter
+abfragen“ (`8efd6cf`) und die CI-Pinnung (`f6c40d0`) als v0.3.2 vorbereiten.
+Ausgangspunkt `ba8a536` auf `main`, Arbeitsbranch `release/0.3.2`. Paket-/Lockversionen,
+FastAPI-Metadaten, Docker-/Compose-Vorgaben, Unraid-Template und Deploymentdokumentation
+einheitlich auf 0.3.2 angehoben.
+
+Ausgeführte Releaseprüfungen (synthetisch/lokal, keine Anlagenzugriffe):
+
+- `ruff check .`: erfolgreich.
+- `pytest`: 420 bestanden, 19 Warnungen (Bibliotheks-Deprecations). Die Umgebung
+  wurde mit den Pins aus `pyproject.toml` in einem Scratch-venv (Python 3.14, da kein
+  3.12 vorhanden) installiert; `uv sync --locked` wurde nicht ausgeführt.
+- `npm ci` und `npm run build`: erfolgreich.
+- `node --test tests/`: Dashboard-Tests ohne Fehlschläge.
+
+Nicht geprüft: Docker-Image-Build, GHCR-Veröffentlichung nach Tag `v0.3.2`, anonymer
+Pull, Unraid-Deployment und Gerätebetrieb. Der Tag wird erst nach Merge des Release-PRs
+auf `main` gesetzt.
+
 ## 19.10.2026 – Releasevorbereitung v0.3.1
 
 Betreiberauftrag: die abgenommene Polling-Änderung als v0.3.1 committen, pushen
