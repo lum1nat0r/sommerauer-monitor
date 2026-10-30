@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>sommerauer-monitor</Name>
-  <Repository>ghcr.io/lum1nat0r/sommerauer-monitor:0.3.1</Repository>
+  <Repository>ghcr.io/lum1nat0r/sommerauer-monitor:0.3.2</Repository>
   <Registry>https://github.com/lum1nat0r/sommerauer-monitor/pkgs/container/sommerauer-monitor</Registry>
   <Network>bridge</Network>
   <MyIP></MyIP>

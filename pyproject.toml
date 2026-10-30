@@ -1,6 +1,6 @@
 [project]
 name = "sommerauer-monitor"
-version = "0.3.1"
+version = "0.3.2"
 description = "Lokale, zunächst deaktivierte Monitoring-App für eine Sommerauer-Pelletsheizung"
 requires-python = ">=3.12,<3.13"
 dependencies = [
