@@ -260,7 +260,8 @@ veröffentlichen. [Dateivertrag und Grenzen](docs/MODBUS.md#aufzeichnung-zwische
 
 Fehler einzelner Werte sind jetzt direkt an deren Kachel sichtbar. Fehlende
 Wetterdaten werden als „Nicht verfügbar“ weiter im normalen Intervall geprüft;
-ungültige Werte und registerbezogene Ablehnungen werden einzeln ausgesetzt,
+unplausible Werte werden samt Wert gespeichert, markiert und weiter abgefragt;
+registerbezogene Ablehnungen (Modbus 2/3) werden einzeln ausgesetzt,
 während die übrige Erfassung weiterläuft. Verbindungsfehler führen im Dauerbetrieb
 nicht zum Abschalten; Protokoll- und Speicherprobleme behalten ihre Schutzstopps.
 Ein neuer Build übernimmt alte reine Transportstopps automatisch, sofern beide

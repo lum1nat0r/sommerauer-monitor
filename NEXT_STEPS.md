@@ -150,9 +150,10 @@ gezielt und ohne parallelen Leser planen.
 
 Wertbezogene Fehler werden nun mit Zeit, Ursache und Leseblock an der jeweiligen
 Anlagenkachel gespeichert/angezeigt. Fehlende Wetterdaten blockieren nicht mehr
-den Sammler; echte ungültige Signale und Modbus-Ablehnungen 2/3 werden isoliert
-ausgesetzt. Globale Geräte-/Protokoll-/Speicherfehler bleiben Stopps. Sperren
-überstehen Neustart und CSV-Speichern; Freigabe erst bewusst nach Ursachenprüfung.
+den Sammler; unplausible Werte werden samt Wert als `invalid` gespeichert, im Diagramm
+markiert und weiter abgefragt (keine Sperre, alte Wertfehler-Sperren fallen beim Start weg).
+Nur Modbus-Ablehnungen 2/3 werden isoliert ausgesetzt. Globale Geräte-/Protokoll-/
+Speicherfehler bleiben Stopps. Registersperren überstehen Neustart und CSV-Speichern.
 Die laufende Heizungs-App wurde dafür nicht neu gestartet oder quittiert.
 Vor Nutzung neuen Build laden, konsistent sichern und den bisherigen gespeicherten
 Fehlerstopp erst nach Prüfung bewusst quittieren. Details: [Fehlerverhalten](docs/FEHLERVERHALTEN.md).

@@ -286,6 +286,11 @@ export function continuousSegments(points: Point[], intervalSeconds: number): Ch
   }
   return segments;
 }
+// Implausible readings (quality invalid, value kept) are drawn as markers, never joined into lines.
+export function implausiblePoints(points: Point[]): Point[] {
+  return points.filter((point) => point.quality === 'invalid' && point.value !== null
+    && Number.isFinite(point.value) && Number.isFinite(Date.parse(point.observed_at)));
+}
 export function isStepped(kind: string) {
   return ['status', 'setting', 'counter', 'device_time', 'raw'].includes(kind);
 }

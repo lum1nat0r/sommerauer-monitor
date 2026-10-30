@@ -273,11 +273,11 @@ def test_counter_regression_records_invalid_and_continues_other_signals(tmp_path
     assert collector.state == "completed"
     assert len(client.starts) == 9
     rows = store.history("boiler.operating_minutes")
-    assert [row["value"] for row in rows] == [2, None]
+    assert [row["value"] for row in rows] == [2, 1, 1]  # unplausibler Wert bleibt gespeichert, weiter abgefragt
     assert rows[-1]["quality"] == "invalid"
     assert rows[-1]["error_code"] == "invalid_counter_regression"
-    assert collector.blocked_signals == {"boiler.operating_minutes"}
-    assert client.counter_reads == 2
+    assert collector.blocked_signals == set()
+    assert client.counter_reads > 2
 
 
 def test_storage_failure_stops_without_another_read(tmp_path):
@@ -843,7 +843,7 @@ def test_stoker_invalid_remaining_minutes_records_error_and_blocks_signal(tmp_pa
     assert signal["quality"] == "invalid"
     assert signal["error_code"] == "invalid_counter"
     assert signal["raw_words"] == [1, 1440]
-    assert collector.blocked_signals == {"stoker.operating_minutes"}
+    assert collector.blocked_signals == set()
 
 
 def test_simulator_supports_the_explicit_read_profile_with_decodable_synthetic_values():
@@ -902,23 +902,35 @@ def test_weather_error_replaces_good_value_without_blocking_other_signals(tmp_pa
     assert len(events) == 2
 
 
-def test_invalid_buffer_channel_is_not_resaved_while_healthy_neighbor_continues(tmp_path):
+def test_implausible_buffer_channel_is_stored_flagged_and_keeps_being_read(tmp_path):
     collector, client, _ = make_collector(tmp_path, limit=8)
     client.VALUES = {**FakeClient.VALUES, 36864: (110, 20)}
     collector.run()
 
     assert collector.state == "completed"
-    assert collector.blocked_signals == {"buffer.top_temperature"}
-    invalid, = collector.store.history("buffer.top_temperature")
-    assert invalid["value"] is None
-    assert invalid["error_code"] == "invalid_temperature"
-    assert invalid["raw_words"] == [110, 20]
+    assert collector.blocked_signals == set()
+    invalid = collector.store.history("buffer.top_temperature")
+    assert len(invalid) == 2
+    assert invalid[0]["value"] == 110
+    assert invalid[0]["quality"] == "invalid"
+    assert invalid[0]["error_code"] == "invalid_temperature"
+    assert invalid[0]["raw_words"] == [110, 20]
     assert len(collector.store.history("buffer.bottom_temperature")) == 2
-    assert collector.store.get_collector_state()["blocked_signals"] == ["buffer.top_temperature"]
-    collector.state = "running"
-    collector.error = None
-    assert collector.status()["blocked_signal_count"] == 1
-    assert "ausgesetzt" in collector.status()["reason"]
+    assert collector.store.get_collector_state()["blocked_signals"] == []
+    assert collector.status()["blocked_signal_count"] == 0
+
+
+def test_old_value_error_block_is_dropped_on_restart_but_exception_block_stays(tmp_path):
+    collector, _, _ = make_collector(tmp_path, limit=1)
+    collector.run()
+    collector.store.record_cycle(
+        {"request_id": "r-old", "started_at": "2026-01-01T00:00:00+00:00", "function_code": 3,
+         "unit_id": 255, "offset": 4102, "register_count": 1, "outcome": "error"}, [])
+    saved = collector.store.get_collector_state()
+    saved["blocked_signals"] = ["boiler.temperature"]
+    collector.store.save_collector_state(saved, collector.now().isoformat())
+    restored, _, _ = make_collector(tmp_path, store=collector.store)
+    assert restored.blocked_signals == set()
 
 
 @pytest.mark.parametrize("offset", [4102, 36864, 0x85E0])
@@ -990,7 +1002,9 @@ def test_signal_failure_during_recovery_clears_retry_deadlines(tmp_path, failure
     client.read = recovering_failure
     collector.run()
     assert collector.state == "completed"
-    assert collector.blocked_signals == {"boiler.temperature"}
+    assert collector.blocked_signals == (
+        {"boiler.temperature"} if isinstance(failure, ModbusExceptionError) else set()
+    )
     assert collector._retry_at is None
     rows = collector.store.history("boiler.temperature")
     assert rows[0]["error_code"] == "transport_error"

@@ -39,7 +39,7 @@ jobs:
 
   release:
     if: github.event_name == 'push' && github.repository == 'lum1nat0r/sommerauer-monitor'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       issues: read

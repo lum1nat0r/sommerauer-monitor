@@ -50,7 +50,8 @@ aufgelöst. Ein früherer guter Wert wird nicht mehr als aktuelle Messung ausgeg
 Historie/CSV enthalten dieselben Fehlerfelder; die CSV hängt sie hinten an.
 Fehlerbeobachtungen unterbrechen Diagrammlinien, auch innerhalb des normalen
 Zeitintervalls. Bekannte Wetterfehlwerte können ohne Freigabe wieder verfügbar
-werden; wirklich ungültige Signale bleiben bis zur bewussten Freigabe ausgesetzt.
+werden. Unplausible Werte (z. B. 110 °C) werden mit Rohwert und Qualität `invalid` gespeichert,
+im Diagramm als Marker gekennzeichnet und weiter regulär abgefragt; keine Freigabe nötig.
 
 `backend/storage.py` verwaltet versionierte Tabellen für Signaldefinitionen/Profile,
 Leseanfragen, Beobachtungen, Ereignisse, Konfigurationsversionen, Sammlerzustand und
