@@ -1,5 +1,30 @@
 # Ergebnisse
 
+## 06.11.2026 – Pelletverbrauch und Tankfüllstand
+
+Betreiberauftrag: Verbrauch seit letzter Befüllung und Tankfüllstand auf der Übersicht,
+Lieferungen erfassen und in der Datenbank speichern. Betreiberangaben: Tank wird immer
+randvoll befüllt, Excel-Betriebsstunden entsprechen dem Anlagen-Betriebszähler.
+Ergänzt: Schema 5/6, `/api/pellets`, zwei Kacheln, eigener Tab Lieferungen mit optionalem
+Lieferanten und Preis in €/t, Bearbeiten und Löschen von Lieferungen.
+
+Prüfungen ausschließlich synthetisch/Loopback, keine Anlagenzugriffe:
+
+- `ruff check .` erfolgreich; `pytest` 435 bestanden; Node-Tests 26 bestanden; Build erfolgreich.
+  Python-Prüfungen in der `.venv` aus `uv sync --locked` mit CPython 3.12.9 und `uv` 0.12.2.
+- Loopback-Simulator und API mit den Variablen aus `launch.json`, Temp-Datenverzeichnis:
+  Health `ok`, Sammler `running`, `/api/pellets` liefert den simulierten Betriebszähler.
+- Gebautes Dashboard mit isolierter API und synthetischem Zähler in Chromium: Kapazität und
+  Lieferungen gespeichert, doppelter Betriebsstundenstand abgewiesen, Löschen,
+  Kacheln mit 5 kg/h, 2,5 t und 5,5 t von 8 t, kein horizontales Scrollen bei 390 px.
+
+- Betreiberbefund: Speichern über den Vite-Dev-Server scheiterte mit HTTP 403, weil der Proxy
+  den `Host` umschrieb. Das traf alle mutierenden Requests im Dev-Betrieb, nicht die ausgelieferte
+  App. Proxy erhält nun den `Host`; eigene Origin passiert, fremde Origin bleibt bei 403.
+
+Nicht geprüft: echte Lieferdaten aus der Betreiber-Excel, reale Datenbank-Migration,
+Deployment und Genauigkeit der Schätzung gegen den tatsächlichen Tankinhalt.
+
 ## 30.10.2026 – Releasevorbereitung v0.3.2
 
 Betreiberauftrag: die Änderung „Unplausible Werte speichern, markieren und weiter

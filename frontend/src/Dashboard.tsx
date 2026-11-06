@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import HistoryChart from './HistoryChart';
+import PelletDeliveries from './PelletDeliveries';
 import {
   ageLabel, availablePresets, blockLabel, boilerStateLabels, bufferDifference, chartPresets,
   displayMeasurement, formatDate, isFresh, kindLabels, loadHistory, localInputToUtc,
@@ -9,7 +10,7 @@ import {
 } from './dashboard';
 import type {
   BoilerSourceReason, ChartSeries, CollectorStatus, Config, ControlCandidate, DashboardView,
-  EventItem, Period, Point, Signal, SignalDefinition,
+  EventItem, PelletStatus, Period, Point, Signal, SignalDefinition,
 } from './dashboard';
 
 function savedValue(key: string, fallback = '') {
@@ -62,7 +63,7 @@ function SignalProblem({ signal }: { signal: Signal }) {
 
 const emptyPoints: Point[] = [];
 const titles: Record<DashboardView, string> = {
-  overview: 'Übersicht', analysis: 'Analyse', values: 'Alle Werte', settings: 'Einstellungen',
+  overview: 'Übersicht', analysis: 'Analyse', values: 'Alle Werte', deliveries: 'Lieferungen', settings: 'Einstellungen',
 };
 const boilerSourceReasons: Record<BoilerSourceReason, string> = {
   not_selected: 'lokal nicht zur Aufzeichnung ausgewählt',
@@ -87,13 +88,14 @@ type Snapshot = {
   candidates: ControlCandidate[];
   recordedIds: string[];
   events: EventItem[];
+  pellets: PelletStatus | null;
   receivedAt: number;
 };
 
 export default function Dashboard({ view }: { view: DashboardView }) {
   const [snapshot, setSnapshot] = useState<Snapshot>({
     config: null, collector: null, signals: [], definitions: null,
-    candidates: [], recordedIds: [], events: [], receivedAt: 0,
+    candidates: [], recordedIds: [], events: [], pellets: null, receivedAt: 0,
   });
   const [apiStatus, setApiStatus] = useState<'loading' | 'ok' | 'degraded' | 'error'>('loading');
   const [now, setNow] = useState(Date.now);
@@ -124,7 +126,7 @@ export default function Dashboard({ view }: { view: DashboardView }) {
   const pollGeneration = useRef(0);
   const mounted = useRef(false);
   const currentTimezone = useRef('Europe/Vienna');
-  const { config, collector, signals, definitions, candidates, recordedIds, events, receivedAt } = snapshot;
+  const { config, collector, signals, definitions, candidates, recordedIds, events, pellets, receivedAt } = snapshot;
   const timeZone = config?.display_timezone || 'Europe/Vienna';
 
   const refresh = useCallback(async (replace = false) => {
@@ -135,7 +137,7 @@ export default function Dashboard({ view }: { view: DashboardView }) {
     const generation = ++pollGeneration.current;
     const init = { signal: controller.signal };
     try {
-      const [health, current, status, settings, eventResult, catalog, logging] = await Promise.all([
+      const [health, current, status, settings, eventResult, catalog, logging, pelletStatus] = await Promise.all([
         requestJson<{ status: 'ok' | 'degraded' }>('/api/health', init),
         requestJson<{ signals: Signal[] }>('/api/signals/current', init),
         requestJson<CollectorStatus>('/api/collector/status', init),
@@ -143,6 +145,7 @@ export default function Dashboard({ view }: { view: DashboardView }) {
         requestJson<{ items: EventItem[] }>('/api/events?limit=20', init),
         requestJson<{ signals: SignalDefinition[]; control_candidates: ControlCandidate[] }>('/api/signals', init),
         requestJson<{ entries: { record: boolean; signal_id: string | null }[] }>('/api/logging-config', init),
+        requestJson<PelletStatus>('/api/pellets', init),
       ]);
       if (controller.signal.aborted || !mounted.current || generation !== pollGeneration.current) return;
       const previousTimezone = currentTimezone.current;
@@ -152,7 +155,7 @@ export default function Dashboard({ view }: { view: DashboardView }) {
       setSnapshot({ config: settings, collector: status, signals: current.signals,
         definitions: catalog.signals, candidates: catalog.control_candidates,
         recordedIds: [...new Set(logging.entries.filter((entry) => entry.record && entry.signal_id).map((entry) => entry.signal_id as string))],
-        events: eventResult.items, receivedAt: received });
+        events: eventResult.items, pellets: pelletStatus, receivedAt: received });
       setNow(received);
       setApiStatus(health.status);
     } catch {
@@ -394,6 +397,18 @@ export default function Dashboard({ view }: { view: DashboardView }) {
     </article>;
   };
 
+  const pelletCard = (title: string, tonnes: number | null | undefined, note: string) => <article className="metric-card">
+    <div className="value-name"><h3>{title}</h3></div>
+    <p className="signal-value">{typeof tonnes === 'number' ? <>{tonnes.toLocaleString('de-AT', { maximumFractionDigits: 2 })}<span>t</span></> : <span aria-label="Kein Rechenwert">—</span>}</p>
+    <div className="value-quality"><p className="sample-time">{note}<br /><a href="#/lieferungen">Lieferungen verwalten</a></p></div>
+  </article>;
+  const pelletGap = !pellets ? 'Wird geladen'
+    : pellets.consumption_kg_per_hour === null ? 'Mindestens zwei Lieferungen nötig'
+      : pellets.operating_hours === null ? 'Kein gültiger Betriebszähler' : undefined;
+  const pelletStand = pellets?.operating_hours_observed_at ? ` · Stand ${formatDate(pellets.operating_hours_observed_at, timeZone)}` : '';
+  const capacity = pellets?.tank_capacity_tonnes;
+  const level = pellets?.tank_level_tonnes;
+
   const historyPanel = <section className="history-panel" aria-labelledby="history-title">
     <div className="section-heading"><div><p className="eyebrow">GESPEICHERTE ORIGINALBEOBACHTUNGEN</p><h2 id="history-title">{activePreset?.label || 'Verlauf'}</h2></div>
       {visibleDefinitions.length && rangeValid ? <a className="button secondary download" href={`/api/export.csv?${new URLSearchParams({ start: range.start!.toISOString(), end: range.end!.toISOString() })}`} download>Alle Originalbeobachtungen als CSV</a> : <button className="button secondary" disabled>CSV herunterladen</button>}
@@ -464,7 +479,10 @@ export default function Dashboard({ view }: { view: DashboardView }) {
         </details>
       </section>
       {errorListCurrent && errorList && <p className={errorList.value! > 0 ? 'alert warning' : 'status-meta'}>{errorList.value === 0 ? 'Fehlerliste leer' : `Fehlerliste: ${errorList.value! > 0 ? `Fehlernummer ${errorList.value}` : `Rohwert ${errorList.value}`} · Stand ${formatDate(errorList.observed_at, timeZone)}`}</p>}
-      <section className="metrics" aria-label="Ausgewählte Kessel- und Pufferwerte">{['boiler.temperature', 'buffer.top_temperature', 'buffer.bottom_temperature', 'boiler.operating_minutes'].map((id) => definitionById.get(id)).filter((definition): definition is SignalDefinition => Boolean(definition)).map((definition) => renderValue(definition, true))}</section>
+      <section className="metrics" aria-label="Ausgewählte Kessel- und Pufferwerte">{['boiler.temperature', 'buffer.top_temperature', 'buffer.bottom_temperature', 'boiler.operating_minutes'].map((id) => definitionById.get(id)).filter((definition): definition is SignalDefinition => Boolean(definition)).map((definition) => renderValue(definition, true))}
+        {pelletCard('Pelletverbrauch seit Befüllung', pellets?.consumed_since_fill_tonnes, pelletGap ?? `Schätzung: ${pellets!.consumption_kg_per_hour!.toLocaleString('de-AT', { maximumFractionDigits: 2 })} kg/h aus Lieferungen${pelletStand}`)}
+        {pelletCard('Tankfüllstand', level, pelletGap ?? (typeof capacity === 'number' && typeof level === 'number' ? `Schätzung: ${Math.round(level / capacity * 100)} % von ${capacity.toLocaleString('de-AT')} t${pelletStand}` : 'Tankkapazität fehlt'))}
+      </section>
       {historyPanel}
     </>}
     {view === 'analysis' && historyPanel}
@@ -476,6 +494,7 @@ export default function Dashboard({ view }: { view: DashboardView }) {
         return items.length > 0 && <section className="value-group" key={group}><h2>{group} <span className="muted">({items.length})</span></h2><div className="value-list">{items.map((definition) => renderValue(definition))}</div></section>;
       })}
     </>}
+    {view === 'deliveries' && (pellets ? <PelletDeliveries pellets={pellets} onChanged={() => refresh(true)} /> : <p>Lieferungen werden geladen …</p>)}
     {view === 'settings' && <>
       <section className="collector-panel" aria-labelledby="collector-title"><div className="collector-copy"><p className="eyebrow">ERFASSUNG · KEINE HEIZUNGSBEDIENUNG</p><h2 id="collector-title">{collector ? stateLabels[collector.state] || 'Unbekannter Zustand' : 'Status wird geladen'}</h2>
         <p>{collector?.reason || (collector?.state === 'unconfigured' ? 'Die Installation ist noch nicht für die Erfassung eingerichtet.' : collector?.state === 'completed' ? 'Der endliche Erfassungslauf ist beendet. Dies ist keine Aussage zum Heizungszustand.' : 'Keine aktive Fehlermeldung.')}</p>

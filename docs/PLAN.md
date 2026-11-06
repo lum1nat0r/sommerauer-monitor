@@ -18,6 +18,11 @@ Aktueller Vertrag: [Fehlerverhalten](FEHLERVERHALTEN.md).
 fortlaufendes Polling bei reinen Verbindungsfehlern im bestehenden Intervall.
 Keine steigenden Retry-Pausen; endliche Prüfläufe und harte Stopps bleiben getrennt.
 
+**Nachtrag 06.11.2026:** Der Betreiber beauftragt Pelletverbrauch und Tankfüllstand
+aus selbst erfassten Lieferungen. Beides erscheint als Schätzung, nicht als Messwert:
+[Pelletlager](DATENMODELL.md#pelletlager). Die Einschränkung unten gilt weiter für
+eine Darstellung als Messwert.
+
 ## 1. Festgehaltene Nutzerentscheidungen
 
 | Thema | Entscheidung / Herkunft |

@@ -242,7 +242,9 @@ def test_legacy_database_preserves_minute_values_and_extra_tables_on_restore(tmp
     with sqlite3.connect(path) as connection:
         connection.execute("ALTER TABLE observations DROP COLUMN error_code")
         connection.execute("ALTER TABLE observations DROP COLUMN error_message")
-        connection.execute("DELETE FROM schema_migrations WHERE version = 4")
+        connection.execute("ALTER TABLE pellet_deliveries DROP COLUMN supplier")
+        connection.execute("ALTER TABLE pellet_deliveries DROP COLUMN price_eur_per_tonne")
+        connection.execute("DELETE FROM schema_migrations WHERE version >= 4")
         if version < 3:
             connection.execute("DROP TABLE logging_config")
             connection.execute("DELETE FROM schema_migrations WHERE version = 3")

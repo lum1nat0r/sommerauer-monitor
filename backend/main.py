@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 import csv
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import io
 import json
 import os
@@ -11,15 +11,18 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from backend.collector import Collector, CollectorStopped
 from backend.config import get_settings
 from backend.logging_config import (
     MAX_REQUEST_BYTES, LoggingConfigError, export_configuration, import_configuration, merge_csv,
 )
+from backend.pellets import OPERATING_COUNTER_SIGNAL, pellet_status
 from backend.registers import CONTROL_CANDIDATES, SIGNAL_DEFINITIONS
-from backend.storage import LoggingConfigConflict, SQLiteStore, StorageError, utc_now
+from backend.storage import (
+    LoggingConfigConflict, PelletDeliveryConflict, SQLiteStore, StorageError, utc_now,
+)
 
 
 @asynccontextmanager
@@ -51,6 +54,20 @@ app = FastAPI(title="Sommerauer Monitor", version="0.3.2", lifespan=lifespan)
 
 class AppConfigUpdate(BaseModel):
     display_timezone: str = Field(min_length=1, max_length=100)
+
+
+class PelletDeliveryInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    delivered_on: date
+    operating_hours: float = Field(ge=0, allow_inf_nan=False)
+    tonnes: float = Field(gt=0, allow_inf_nan=False)
+    supplier: str | None = Field(default=None, max_length=100)
+    price_eur_per_tonne: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+
+class PelletTankInput(BaseModel):
+    capacity_tonnes: float = Field(gt=0, allow_inf_nan=False)
 
 
 def _storage(request: Request) -> SQLiteStore:
@@ -297,6 +314,81 @@ def current_signals(request: Request) -> dict[str, object]:
     except (StorageError, ValueError) as exc:
         raise HTTPException(503, "Signal data unavailable") from exc
     return {"signals": result, "as_of": now.isoformat()}
+
+
+@app.get("/api/pellets")
+def pellets(request: Request) -> dict[str, object]:
+    storage = _storage(request)
+    try:
+        data = storage.pellet_data()
+        counter = next(
+            (row for row in storage.current_signals() if row["signal_id"] == OPERATING_COUNTER_SIGNAL),
+            None,
+        )
+    except StorageError as exc:
+        raise HTTPException(503, "Pelletdaten sind nicht verfügbar.") from exc
+    usable = counter is not None and counter["quality"] == "ok" and counter["value"] is not None
+    hours = counter["value"] / 60 if usable else None
+    return {
+        "tank_capacity_tonnes": data["capacity_tonnes"],
+        "deliveries": data["deliveries"][::-1],
+        "operating_hours": hours,
+        "operating_hours_observed_at": counter["observed_at"] if usable else None,
+        **pellet_status(data["deliveries"], data["capacity_tonnes"], hours),
+    }
+
+
+@app.post("/api/pellets/deliveries", status_code=201)
+def add_pellet_delivery(payload: PelletDeliveryInput, request: Request) -> dict[str, str]:
+    delivery_id = str(uuid4())
+    try:
+        _storage(request).add_pellet_delivery(
+            delivery_id, payload.delivered_on.isoformat(), payload.operating_hours, payload.tonnes,
+            payload.supplier or None, payload.price_eur_per_tonne,
+        )
+    except PelletDeliveryConflict as exc:
+        raise HTTPException(409, "Für diesen Betriebsstundenstand gibt es bereits eine Lieferung.") from exc
+    except StorageError as exc:
+        raise HTTPException(503, "Lieferung konnte nicht gespeichert werden.") from exc
+    return {"delivery_id": delivery_id}
+
+
+@app.put("/api/pellets/deliveries/{delivery_id}")
+def update_pellet_delivery(
+    delivery_id: str, payload: PelletDeliveryInput, request: Request,
+) -> dict[str, bool]:
+    try:
+        updated = _storage(request).update_pellet_delivery(
+            delivery_id, payload.delivered_on.isoformat(), payload.operating_hours, payload.tonnes,
+            payload.supplier or None, payload.price_eur_per_tonne,
+        )
+    except PelletDeliveryConflict as exc:
+        raise HTTPException(409, "Für diesen Betriebsstundenstand gibt es bereits eine Lieferung.") from exc
+    except StorageError as exc:
+        raise HTTPException(503, "Lieferung konnte nicht gespeichert werden.") from exc
+    if not updated:
+        raise HTTPException(404, "Lieferung nicht gefunden.")
+    return {"updated": True}
+
+
+@app.delete("/api/pellets/deliveries/{delivery_id}")
+def delete_pellet_delivery(delivery_id: str, request: Request) -> dict[str, bool]:
+    try:
+        deleted = _storage(request).delete_pellet_delivery(delivery_id)
+    except StorageError as exc:
+        raise HTTPException(503, "Lieferung konnte nicht gelöscht werden.") from exc
+    if not deleted:
+        raise HTTPException(404, "Lieferung nicht gefunden.")
+    return {"deleted": True}
+
+
+@app.put("/api/pellets/tank")
+def save_pellet_tank(payload: PelletTankInput, request: Request) -> dict[str, float]:
+    try:
+        _storage(request).save_pellet_capacity(payload.capacity_tonnes)
+    except StorageError as exc:
+        raise HTTPException(503, "Tankkapazität konnte nicht gespeichert werden.") from exc
+    return {"capacity_tonnes": payload.capacity_tonnes}
 
 
 @app.get("/api/history/{signal_id}")

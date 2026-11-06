@@ -15,8 +15,8 @@ from backend.logging_config import (
 )
 
 
-SCHEMA_VERSION = 4
-SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, SCHEMA_VERSION)
+SCHEMA_VERSION = 6
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, SCHEMA_VERSION)
 
 
 class StorageError(RuntimeError):
@@ -25,6 +25,10 @@ class StorageError(RuntimeError):
 
 class LoggingConfigConflict(StorageError):
     """Der Entwurf basiert nicht mehr auf der gespeicherten Revision."""
+
+
+class PelletDeliveryConflict(StorageError):
+    """Für diesen Betriebsstundenstand ist bereits eine Lieferung gespeichert."""
 
 
 class SQLiteStore:
@@ -166,6 +170,41 @@ class SQLiteStore:
                 COMMIT;
                 """
             )
+        if version < 5:
+            connection.executescript(
+                """
+                BEGIN IMMEDIATE;
+                    CREATE TABLE IF NOT EXISTS pellet_deliveries (
+                        delivery_id TEXT PRIMARY KEY,
+                        delivered_on TEXT NOT NULL,
+                        operating_hours REAL NOT NULL UNIQUE CHECK (operating_hours >= 0),
+                        tonnes REAL NOT NULL CHECK (tonnes > 0),
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS pellet_tank (
+                        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                        capacity_tonnes REAL NOT NULL CHECK (capacity_tonnes > 0),
+                        updated_at TEXT NOT NULL
+                    );
+                    INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+                        VALUES (5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                    PRAGMA user_version = 5;
+                COMMIT;
+                """
+            )
+        if version < 6:
+            connection.executescript(
+                """
+                BEGIN IMMEDIATE;
+                    ALTER TABLE pellet_deliveries ADD COLUMN supplier TEXT;
+                    ALTER TABLE pellet_deliveries ADD COLUMN price_eur_per_tonne REAL
+                        CHECK (price_eur_per_tonne > 0);
+                    INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+                        VALUES (6, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                    PRAGMA user_version = 6;
+                COMMIT;
+                """
+            )
 
     @staticmethod
     def _logging_snapshot(connection: sqlite3.Connection) -> dict[str, Any]:
@@ -214,6 +253,81 @@ class SQLiteStore:
                 return {"revision": revision, "entries": normalized}
         except (sqlite3.Error, OSError) as exc:
             raise StorageError(f"Aufzeichnungskonfiguration konnte nicht gespeichert werden: {exc}") from exc
+
+    def pellet_data(self) -> dict[str, Any]:
+        """Return tank capacity and deliveries ordered by ascending operating hours."""
+        try:
+            with self._connection() as connection:
+                tank = connection.execute(
+                    "SELECT capacity_tonnes FROM pellet_tank WHERE singleton=1"
+                ).fetchone()
+                rows = connection.execute(
+                    """SELECT delivery_id, delivered_on, operating_hours, tonnes,
+                    supplier, price_eur_per_tonne
+                    FROM pellet_deliveries ORDER BY operating_hours"""
+                ).fetchall()
+        except sqlite3.Error as exc:
+            raise StorageError(f"Pelletdaten konnten nicht gelesen werden: {exc}") from exc
+        return {
+            "capacity_tonnes": tank["capacity_tonnes"] if tank else None,
+            "deliveries": [dict(row) for row in rows],
+        }
+
+    def add_pellet_delivery(
+        self, delivery_id: str, delivered_on: str, operating_hours: float, tonnes: float,
+        supplier: str | None = None, price_eur_per_tonne: float | None = None,
+    ) -> None:
+        try:
+            with self._connection() as connection:
+                connection.execute(
+                    """INSERT INTO pellet_deliveries
+                    (delivery_id, delivered_on, operating_hours, tonnes, supplier,
+                     price_eur_per_tonne, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (delivery_id, delivered_on, operating_hours, tonnes, supplier,
+                     price_eur_per_tonne, utc_now()),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise PelletDeliveryConflict("Lieferung existiert bereits.") from exc
+        except sqlite3.Error as exc:
+            raise StorageError(f"Lieferung konnte nicht gespeichert werden: {exc}") from exc
+
+    def update_pellet_delivery(
+        self, delivery_id: str, delivered_on: str, operating_hours: float, tonnes: float,
+        supplier: str | None, price_eur_per_tonne: float | None,
+    ) -> bool:
+        try:
+            with self._connection() as connection:
+                return connection.execute(
+                    """UPDATE pellet_deliveries SET delivered_on=?, operating_hours=?, tonnes=?,
+                    supplier=?, price_eur_per_tonne=? WHERE delivery_id=?""",
+                    (delivered_on, operating_hours, tonnes, supplier, price_eur_per_tonne, delivery_id),
+                ).rowcount > 0
+        except sqlite3.IntegrityError as exc:
+            raise PelletDeliveryConflict("Lieferung existiert bereits.") from exc
+        except sqlite3.Error as exc:
+            raise StorageError(f"Lieferung konnte nicht gespeichert werden: {exc}") from exc
+
+    def delete_pellet_delivery(self, delivery_id: str) -> bool:
+        try:
+            with self._connection() as connection:
+                return connection.execute(
+                    "DELETE FROM pellet_deliveries WHERE delivery_id=?", (delivery_id,)
+                ).rowcount > 0
+        except sqlite3.Error as exc:
+            raise StorageError(f"Lieferung konnte nicht gelöscht werden: {exc}") from exc
+
+    def save_pellet_capacity(self, capacity_tonnes: float) -> None:
+        try:
+            with self._connection() as connection:
+                connection.execute(
+                    """INSERT INTO pellet_tank(singleton, capacity_tonnes, updated_at)
+                    VALUES (1, ?, ?) ON CONFLICT(singleton) DO UPDATE SET
+                    capacity_tonnes=excluded.capacity_tonnes, updated_at=excluded.updated_at""",
+                    (capacity_tonnes, utc_now()),
+                )
+        except sqlite3.Error as exc:
+            raise StorageError(f"Tankkapazität konnte nicht gespeichert werden: {exc}") from exc
 
     def record_cycle(
         self,
