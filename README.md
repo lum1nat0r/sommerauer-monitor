@@ -191,6 +191,16 @@ explizite Auswahl gilt das Systemtheme. Storageausfälle verhindern die Bedienun
 nicht; keine externen Fonts oder neue UI-Abhängigkeiten.
 
 
+### Pelletverbrauch und Tankfüllstand
+
+Die Übersicht zeigt Pelletverbrauch seit der letzten Befüllung und den Tankfüllstand.
+Beides sind Schätzungen aus Lieferungen und Anlagen-Betriebszähler, keine Messwerte.
+Im Tab **Lieferungen** einmal die Tankkapazität eintragen und jede Lieferung mit Datum,
+Betriebsstunden und Tonnen erfassen, optional mit Lieferant und Preis in €/t; auch ältere Lieferungen lassen sich
+in beliebiger Reihenfolge nachtragen und später bearbeiten. Die Rechnung setzt voraus, dass jede Lieferung
+den Tank randvoll füllt, und braucht mindestens zwei Lieferungen:
+[Rechenregeln](docs/DATENMODELL.md#pelletlager).
+
 ### Modbus-Werte auswählen
 
 Die Navigation **Modbus-Aufzeichnung** öffnet eine separate Konfigurationsseite.

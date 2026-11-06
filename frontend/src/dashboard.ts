@@ -23,7 +23,16 @@ export type EventItem = {
   details?: Record<string, unknown> | null;
 };
 export type Period = '1h' | '24h' | 'week' | 'month' | 'custom';
-export type DashboardView = 'overview' | 'analysis' | 'values' | 'settings';
+export type PelletDelivery = {
+  delivery_id: string; delivered_on: string; operating_hours: number; tonnes: number;
+  supplier: string | null; price_eur_per_tonne: number | null;
+};
+export type PelletStatus = {
+  tank_capacity_tonnes: number | null; deliveries: PelletDelivery[];
+  operating_hours: number | null; operating_hours_observed_at: string | null;
+  consumption_kg_per_hour: number | null; consumed_since_fill_tonnes: number | null; tank_level_tonnes: number | null;
+};
+export type DashboardView = 'overview' | 'analysis' | 'values' | 'deliveries' | 'settings';
 export type ChartSeries = {
   id: string; label: string; unit: string; kind: string; intervalSeconds: number; points: Point[];
 };

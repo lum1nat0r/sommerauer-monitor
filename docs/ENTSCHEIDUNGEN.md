@@ -1,6 +1,6 @@
 # Entscheidungen und offene Punkte
 
-Stand 19.10.2026; Herkunft jeweils angegeben.
+Stand 06.11.2026; Herkunft jeweils angegeben.
 
 | Entscheidung | Stand/Herkunft |
 |---|---|
@@ -16,6 +16,7 @@ Stand 19.10.2026; Herkunft jeweils angegeben.
 | Python/FastAPI + SQLite + React/TypeScript in einem Container | Architekturvorschlag im positiv aufgenommenen Plan; bei Umsetzung konkretisieren |
 | 60 s für Kernblöcke; Zusatzwerte langsamer | Technischer Entwurf, Lastvorgaben einhalten |
 | Kein Retry-Backoff oder Fünf-Versuche-Limit; 60 s Kern/300 s Zusatz, endliche Prüfläufe und Read-to-clear-Schutz unverändert | Betreiberauftrag vom 19.10.2026; [Fehlervertrag](FEHLERVERHALTEN.md) |
+| Pelletverbrauch und Tankfüllstand als gekennzeichnete Schätzung aus Lieferungen und Anlagen-Betriebszähler; jede Lieferung füllt den Tank randvoll | Betreiberauftrag und -angabe vom 06.11.2026; [Datenmodell](DATENMODELL.md#pelletlager) |
 
 | Projektgrundlage | Entscheidung / Herkunft |
 |---|---|

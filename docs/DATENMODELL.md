@@ -75,13 +75,31 @@ Qualität, frei wählbarem Zeitraum. Keine doppelten/ausgelassenen Stunden beim
 Sommerzeitwechsel. Große Exporte streamen; Abfrageumfang/Sortierung deterministisch.
 
 Die individuelle Registerauswahl liegt mit Revision und Betreiber-Metadaten
-atomar in `logging_config` derselben Datenbank. Aktuelles Schema ist 4:
-Schema 1/2/3 wird additiv erweitert, bisherige Beobachtungen erhalten NULL in
+atomar in `logging_config` derselben Datenbank. Aktuelles Schema ist 6:
+Schema 1/2/3/4/5 wird additiv erweitert, bisherige Beobachtungen erhalten NULL in
 den neuen Fehlerfeldern. Minutenhistorie und alte zusätzliche Tabellen bleiben
 erhalten. Ein konkurrierender veralteter Entwurf wird über
 Revisionsvergleich unter `BEGIN IMMEDIATE` abgewiesen. Inhaltlich unveränderte
 Speicherung ist ein No-op. Die aktive Zyklusrevision steht zusätzlich im
 Sammlerzustand; Importfelder sind keine nachträgliche Decoderänderung.
+
+## Pelletlager
+
+Schema 5 ergänzt `pellet_deliveries` (Datum, Betriebsstunden, Tonnen; Betriebsstunden
+eindeutig) und `pellet_tank` (Kapazität in Tonnen). Schema 6 ergänzt die optionalen Felder
+`supplier` und `price_eur_per_tonne` für spätere Preisauswertungen. Alles sind Betreibereingaben.
+Verbrauch und Füllstand werden beim Lesen berechnet, nicht gespeichert und sind
+Schätzungen, keine Messwerte. Betreiberangabe: Jede Lieferung füllt den Tank randvoll.
+
+- Verbrauch (kg/h) = Tonnen aller Lieferungen außer der ersten × 1000 ÷ Betriebsstunden
+  zwischen erster und letzter Lieferung; frühestens ab zwei Lieferungen.
+- Verbrauch seit Befüllung (t) = Verbrauch × Betriebsstunden seit letzter Lieferung.
+- Füllstand (t) = Tankkapazität − Verbrauch seit Befüllung, nicht unter 0.
+
+Betriebsstunden stammen aus der neuesten Beobachtung von `boiler.operating_minutes`.
+Ohne gültige Beobachtung (Qualität `ok`, Wert vorhanden) liefert die API `null`
+statt eines älteren Stands. Der Anlagen-Betriebszähler ist keine Brennerlaufzeit;
+Teillast und Saison gehen deshalb nur als Mittelwert in die Schätzung ein.
 
 ## HTTP-API
 
@@ -99,6 +117,11 @@ Alle Leseendpunkte arbeiten ausschließlich mit SQLite; kein Refresh löst Modbu
 | `PUT /api/logging-config` | JSON `{revision, entries}`: vollständige atomare Auswahl und Metadaten; HTTP 409 bei Versionskonflikt |
 | `GET /api/signals/current` | Letzter Originalwert, gespeicherte Einheit, Messzeit, `age_seconds`, Qualität, `fresh_until_age_seconds` und `fresh` |
 | `GET /api/history/{signal_id}` | ISO-8601-Zeitbereich, UTC-normalisiert, seitenweise bis 10.000 Rohpunkte |
+| `GET /api/pellets` | Tankkapazität, Lieferungen (neueste zuerst), Betriebszählerstand sowie berechneter Verbrauch und Füllstand; `null`, wenn eine Grundlage fehlt |
+| `POST /api/pellets/deliveries` | JSON `{delivered_on, operating_hours, tonnes, supplier?, price_eur_per_tonne?}`; HTTP 409 bei bereits erfasstem Betriebsstundenstand |
+| `PUT /api/pellets/deliveries/{delivery_id}` | Ersetzt alle Felder einer Lieferung; HTTP 404, wenn unbekannt, HTTP 409 bei bereits erfasstem Betriebsstundenstand |
+| `DELETE /api/pellets/deliveries/{delivery_id}` | Löscht eine fehlerhaft erfasste Lieferung; HTTP 404, wenn unbekannt |
+| `PUT /api/pellets/tank` | JSON `{capacity_tonnes}` |
 | `GET /api/events` | Neueste Ereignisse mit `limit`/`offset` |
 | `GET /api/export.csv` | Streamt alle passenden Originalmessungen ohne Downsampling |
 | `GET /api/collector/status` | Zustand, Wiederaufnahme ohne Versuchslimit und nächster regulärer Abfragetermin |

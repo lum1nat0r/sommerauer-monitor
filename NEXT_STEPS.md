@@ -14,6 +14,13 @@ Zieladresse und Unraid-Poolpfad sind private Deployment-Konfiguration. Für spä
 Live-Arbeit aktuelle freigegebene Werte aus Betreiberkontext verwenden, nicht erraten.
 Bei fehlendem Gerätezugang die Offline-Arbeit fortsetzen und Live-Nachweise offen lassen.
 
+## Pelletverbrauch und Tankfüllstand
+
+Betreiberauftrag vom 06.11.2026 offline umgesetzt, noch nicht deployt. Nach dem
+Deployment Tankkapazität und bisherige Lieferungen aus der Betreiber-Excel unter
+im Tab Lieferungen eintragen. Schema 6 ist additiv, ältere Builds öffnen die
+Datenbank danach nicht mehr: vor dem Upgrade konsistent sichern. Keine neuen Modbus-Lesungen.
+
 ## Fortlaufendes Polling bei Verbindungsfehlern
 
 Betreiberauftrag vom 19.10.2026 umgesetzt: kein Fünf-Versuche-Limit, keine

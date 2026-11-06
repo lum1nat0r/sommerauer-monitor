@@ -10,6 +10,7 @@ const links: { hash: string; label: string; view?: DashboardView }[] = [
   { hash: '#/', label: 'Übersicht', view: 'overview' },
   { hash: '#/analyse', label: 'Analyse', view: 'analysis' },
   { hash: '#/werte', label: 'Alle Werte', view: 'values' },
+  { hash: '#/lieferungen', label: 'Lieferungen', view: 'deliveries' },
   { hash: '#/einstellungen', label: 'Einstellungen', view: 'settings' },
   { hash: '#/modbus', label: 'Modbus-Aufzeichnung' },
 ];
