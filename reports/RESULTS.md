@@ -1,5 +1,26 @@
 # Ergebnisse
 
+## 06.11.2026 – Releasevorbereitung v0.4.0
+
+Betreiberauftrag: Pelletlieferungen, Verbrauch und Tankfüllstand (PR #63) als v0.4.0
+veröffentlichen. Ausgangspunkt `06a86b2` auf `main`, Arbeitsbranch `release/0.4.0`.
+Paket-/Lockversionen, FastAPI-Metadaten, Docker-/Compose-Vorgaben, Unraid-Template und
+Deploymentdokumentation einheitlich auf 0.4.0 angehoben. Datenbankschema 6: ältere
+Versionen öffnen die Datenbank nach dem Upgrade nicht mehr, Rückweg ist die Sicherung.
+Die Migration wurde auf Betreiberentscheidung nicht vorab an einer Kopie der realen
+Datenbank geprüft, nur synthetisch.
+
+Ausgeführte Releaseprüfungen (synthetisch/lokal, keine Anlagenzugriffe):
+
+- `uv sync --locked` (CPython 3.12.9), `ruff check .`: erfolgreich.
+- `pytest`: 435 bestanden. Node-Tests: 26 bestanden.
+- `npm ci` und `npm run build`: erfolgreich.
+- Lokaler Docker-Build und `scripts/smoke_image.sh`: erfolgreich (Exit 0).
+
+Nicht geprüft: GHCR-Veröffentlichung nach Tag `v0.4.0`, anonymer Pull, Unraid-Deployment,
+Migration der realen Datenbank und Gerätebetrieb. Der Tag wird erst nach Merge des
+Release-PRs auf `main` gesetzt.
+
 ## 06.11.2026 – Pelletverbrauch und Tankfüllstand
 
 Betreiberauftrag: Verbrauch seit letzter Befüllung und Tankfüllstand auf der Übersicht,

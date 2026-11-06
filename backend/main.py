@@ -49,7 +49,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             collector.stop()
 
 
-app = FastAPI(title="Sommerauer Monitor", version="0.3.2", lifespan=lifespan)
+app = FastAPI(title="Sommerauer Monitor", version="0.4.0", lifespan=lifespan)
 
 
 class AppConfigUpdate(BaseModel):
