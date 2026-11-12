@@ -308,15 +308,15 @@ Solarprognose/START-SOLL sind spätere Arbeitspakete. Keine Aktivierung von
 Heizungsänderungen aus dieser Übergabe ableiten.
 
 Image-Workflow: Pull Requests bauen `linux/amd64` ohne Push; Release-Tags
-`vX.Y.Z` veröffentlichen erst nach Offline-Prüfungen. Version 0.3.2 ist getaggt;
-die Veröffentlichung von 0.4.0 (Pelletlieferungen, Verbrauch und Tankfüllstand) ist ausdrücklich beauftragt.
+`vX.Y.Z` veröffentlichen erst nach Offline-Prüfungen. Version 0.4.0 ist getaggt;
+die Veröffentlichung von 0.5.0 (Erfassung startet nach Neustart immer) ist ausdrücklich beauftragt.
 MIT ist für eigenen App-Code festgelegt. Branch-/Tag-Schutz und
 GHCR-Sichtbarkeit bleiben bei der Veröffentlichung zu beachten.
 Details: [Unraid-/Release-Strategie](docs/UNRAID.md#github-image-build-und-veröffentlichungsgrenze).
 
-Für Version 0.4.0 ist `compose.unraid.yaml` auf
-`ghcr.io/lum1nat0r/sommerauer-monitor:0.4.0` festgelegt, ohne lokalen Build.
-Git-Tag dafür: `v0.4.0`, nicht `0.4.0`. Nach erfolgreichem Release-Workflow
+Für Version 0.5.0 ist `compose.unraid.yaml` auf
+`ghcr.io/lum1nat0r/sommerauer-monitor:0.5.0` festgelegt, ohne lokalen Build.
+Git-Tag dafür: `v0.5.0`, nicht `0.5.0`. Nach erfolgreichem Release-Workflow
 die öffentliche GHCR-Verfügbarkeit anonym prüfen; erst danach auf Unraid
 mit privater `.env` und vorbereitetem Datenpfad starten
 ([Anleitung](docs/UNRAID.md#unraid-veröffentlichtes-image-verwenden)).
