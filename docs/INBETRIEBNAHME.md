@@ -82,7 +82,9 @@ Die Laufpläne und tatsächlichen Ergebnisse bleiben in `NEXT_STEPS.md` und
   aktivierten, weiterhin unbeschränkten Dienststart automatisch aufgehoben.
 - **Harte Stopps:** Protokoll-/Teilantwort-/strukturelle Daten-/Speicherfehler,
   ungewisse Read-to-clear-Auslesungen, Betreiber-Stopp oder Anlagenauffälligkeit
-  beenden weitere Reads. Keine automatische Quittierung oder künstliche Live-Störung.
+  beenden weitere Reads bis zur Quittierung; im Dauerbetrieb startet ein
+  Neustart die Erfassung wieder (Betreiberentscheidung 12.11.2026).
+  Keine künstliche Live-Störung.
   Bei Auffälligkeit Zeitpunkt und Ursache prüfen, nicht blind erneut starten.
 - **Persistenz/Beobachtung:** Alle Minutenbeobachtungen dauerhaft erhalten,
   Lücken/Alter/Qualität sichtbar lassen; Transportlogs getrennt behandeln.

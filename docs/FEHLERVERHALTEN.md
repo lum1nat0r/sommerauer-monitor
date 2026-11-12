@@ -17,8 +17,10 @@ Prüfläufe, harte Fehler und ungewisse Read-to-clear-Auslesungen behalten ihre 
 **Betreiberentscheidung 12.11.2026:** Im Dauerbetrieb startet jeder Container-/
 Prozessneustart die Erfassung. Das hebt Nutzerpause, `stopped_protocol`,
 `stopped_data`, `stopped_storage`, `completed`, die Zielwechselsperre und ungültigen
-gespeicherten Zustand (dann ohne alte Zähler) auf. Ausgenommen: ungewisse
-Read-to-clear-Auslesungen, endliche Prüfläufe und Signalsperren (Modbus 2/3).
+gespeicherten Zustand (dann ohne alte Zähler) und `stopped_transport` auf, auch
+nach ungewisser Read-to-clear-Auslesung. Der betroffene Block wartet sein volles
+Intervall; dabei können Ausgangsbits eines Intervalls fehlen (in Kauf genommen).
+Ausgenommen: endliche Prüfläufe und Signalsperren (Modbus 2/3).
 
 ## Zustände und Übergänge
 
@@ -29,8 +31,8 @@ Read-to-clear-Auslesungen, endliche Prüfläufe und Signalsperren (Modbus 2/3).
 | `running` | Geplante Reads; erfolgreicher Zyklus bleibt running |
 | `completed` | Endliches Anfrage-/Zeitlimit erreicht; keine weiteren Reads bis zu bewusstem `acknowledge_and_start` oder Neustart im Dauerbetrieb |
 | `reconnect_wait` | Verbindungsfehler sichtbar; normale Abfragefolge und Blockintervalle laufen ohne Versuchslimit weiter |
-| `stopped_transport` | Endlicher Lauf nach Transportfehler oder ungewisse Read-to-clear-Auslesung; Ursache prüfen, bewusst quittieren |
-| `stopped_protocol` | Ungültige/teilweise Antwort oder übergreifender Modbus-Gerätefehler; keine Reads bis Quittierung oder Neustart (außer Read-to-clear) |
+| `stopped_transport` | Endlicher Lauf nach Transportfehler oder ungewisse Read-to-clear-Auslesung; quittieren oder Neustart im Dauerbetrieb |
+| `stopped_protocol` | Ungültige/teilweise Antwort oder übergreifender Modbus-Gerätefehler; keine Reads bis Quittierung oder Neustart |
 | `stopped_data` | Strukturell ungültige Registerblockdaten; keine Reads bis Quittierung oder Neustart |
 | `stopped_storage` | Speicherung/Zustand nicht sicher möglich; keine Reads bis Quittierung oder Neustart |
 
@@ -54,7 +56,7 @@ Alte `stopped_transport`-Zustände werden beim Start des aktivierten Sammlers
 automatisch in reguläres Polling überführt, sofern weder der gespeicherte noch
 der neue Lauf endlich ist und kein Read-to-clear-Block betroffen ist.
 Das entfernt die alte Budgetsperre ohne Löschen von Historie oder Anfragezählern.
-Endliche Läufe, Signalsperren und Read-to-clear-Sperren bleiben erhalten.
+Endliche Läufe und Signalsperren bleiben erhalten.
 Eine deaktivierte App führt durch das Upgrade weiterhin keine Reads aus.
 
 `GET /api/collector/status` liefert Zustand, sichere Ursache, nächste Aktion und
@@ -141,7 +143,8 @@ behandelt: nächster regulärer Termin, mindestens 300 s ab Abschluss, ohne
 zusätzliche Backoff-Stufe. Fällige Kernwerte werden dadurch nicht verdrängt.
 Für Read-to-clear-Blöcke bleibt ein ungewisser Ausgang gesperrt:
 Transportfehler führen zu `stopped_transport`, ungültige/teilweise Antworten
-zu `stopped_protocol`. Ein Neustart darf solche Auslesungen nicht wiederholen.
+zu `stopped_protocol`. Zur Laufzeit keine Wiederholung; ein Neustart im
+Dauerbetrieb wiederholt sie nach vollem Intervall (Betreiberentscheidung 12.11.2026).
 
 ## Reine Verbindungsfehler
 

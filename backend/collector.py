@@ -296,15 +296,6 @@ class Collector:
                 interval = self._block_interval(block)
                 self._last_completed[offset] = self.monotonic() - min(elapsed, interval)
                 self._last_completed_at[offset] = completed
-            # Read-to-clear-Stopps bleiben: erneutes Lesen würde Herstellerdaten löschen.
-            if self.state == "paused" or (
-                continuous
-                and self.state in {"stopped_protocol", "stopped_data", "stopped_storage", "completed"}
-                and not self._read_to_clear(self._block_by_offset(self._retry_block_offset))
-            ):
-                self.state = "running"
-                self.error = None
-                self._last_action = "Erfassung nach Neustart fortgesetzt"
             if not saved.get("request_in_flight", False):
                 for _ in READ_PROFILE:
                     candidate = self._block_by_offset(self._next_offset)
@@ -312,6 +303,14 @@ class Collector:
                         break
                     self._advance_block(candidate)
             self._last_action = saved.get("next_action")
+            # Betreiber nimmt in Kauf, dass eine ungewisse Read-to-clear-Auslesung
+            # wiederholt wird: Dann fehlen nur Ausgangsbits eines Intervalls.
+            if self.state == "paused" or (continuous and self.state in {
+                "stopped_transport", "stopped_protocol", "stopped_data", "stopped_storage", "completed",
+            }):
+                self.state = "reconnect_wait" if self.state == "stopped_transport" else "running"
+                self.error = None
+                self._last_action = "Erfassung nach Neustart fortgesetzt"
             block = self._block_by_offset(self._retry_block_offset)
             in_flight = saved.get("request_in_flight", False)
             pending_retry = (
@@ -319,22 +318,13 @@ class Collector:
                 or saved.get("retry_delay_seconds") is not None
             )
             if (
-                self.state in {"running", "reconnect_wait", "paused", "stopped_transport"}
+                not continuous
+                and self.state in {"running", "reconnect_wait", "paused", "stopped_transport"}
                 and self._read_to_clear(block) and (in_flight or pending_retry)
             ):
                 self.state = "stopped_transport"
                 self.error = "Ungewisser Ausgang einer Read-to-clear-Auslesung; keine automatische Wiederholung"
                 self._last_action = "Protokollauslesung prüfen und ausdrücklich bestätigen"
-            elif (
-                self.state == "stopped_transport"
-                and self.retry_on_transport_error
-                and self.max_requests is None and self.max_duration_seconds is None
-                and saved.get("max_requests") is None and saved.get("max_duration_seconds") is None
-                and not self._read_to_clear(block)
-            ):
-                # Alte Transportstopps ohne endlichen Lauf dürfen den Dauerbetrieb nicht sperren.
-                self.state = "reconnect_wait"
-                pending_retry = True
             if in_flight or pending_retry:
                 self._last_completed[block.offset] = self.monotonic()
                 self._last_completed_at[block.offset] = self.now()

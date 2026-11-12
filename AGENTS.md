@@ -56,8 +56,8 @@ Echte Sensormesswerte bleiben unverändert. Später allenfalls START/SOLL änder
   Read-to-clear-Auslesungen und Protokoll-/Daten-/Speicherfehler behalten ihre
   Schutzgrenzen während der Laufzeit. Nach Betreiberentscheidung vom 12.11.2026
   startet im Dauerbetrieb jeder Container-/Prozessneustart die Erfassung neu
-  (Nutzerpause, harte Stopps, `completed`, Zielwechsel, ungültiger Zustand);
-  ausgenommen bleiben ungewisse Read-to-clear-Auslesungen und endliche Testläufe.
+  (Nutzerpause, harte Stopps, `completed`, Zielwechsel, ungültiger Zustand,
+  ungewisse Read-to-clear-Auslesungen); ausgenommen bleiben endliche Testläufe.
 - Technisch erforderlichen Displayabgleich gezielt erfragen. Kein allgemeiner
   Beobachtungs-/Zustimmungsdialog vor jeder erlaubten Lesesitzung.
 - Netzwerk-/Sandboxbeschränkungen sind keine Gerätefehler. Erforderliche gezielte

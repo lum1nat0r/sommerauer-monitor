@@ -25,7 +25,7 @@ Stand 06.11.2026; Herkunft jeweils angegeben.
 | Erststart ohne Host, Erfassung standardmäßig deaktiviert; Host in API-Ausgabe redigiert | Offline-sichere Projektkonfiguration; keine Gerätezugriffe implementiert |
 | CI nur mit synthetischen/in-process Tests und Frontend-Build | GitHub Actions workflow `.github/workflows/ci.yml`; keine Anlagenzugriffe/Secrets |
 | Image-Build/Registry: PR-Build ohne Push, kein `main`-Image, Release nur aus `vX.Y.Z` nach Offline-Prüfungen | Arbeitsentscheidung für Issue #14; Release selbst bleibt bis Lizenz-/Abnahmefreigabe aus |
-| Container-/Prozessneustart startet im Dauerbetrieb immer die Erfassung: hebt Nutzerpause, harte Protokoll-/Daten-/Speicherstopps, `completed`, Zielwechselsperre und ungültigen Zustand auf; nur Read-to-clear-Ungewissheit, endliche Testläufe und Signalsperren (Modbus 2/3) bleiben | Betreiberentscheidung am 12.11.2026 („Lesend kann nichts passieren“) |
+| Container-/Prozessneustart startet im Dauerbetrieb immer die Erfassung: hebt Nutzerpause, harte Protokoll-/Daten-/Speicherstopps, `completed`, Zielwechselsperre und ungültigen Zustand und ungewisse Read-to-clear-Auslesungen auf (Verlust der Ausgangsbits eines Intervalls in Kauf genommen); nur endliche Testläufe und Signalsperren (Modbus 2/3) bleiben | Betreiberentscheidung am 12.11.2026 |
 | Lizenz für eigenen App-Code: MIT, siehe `LICENSE`; Herstellerdateien und Abhängigkeiten nicht umlizenziert | Explizite Betreiberbestätigung am 15.10.2026 |
 
 Noch offen: Wahl einer Modbus-Bibliothek vs. kleinem

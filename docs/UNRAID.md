@@ -148,7 +148,7 @@ Healthcheck prüft API- und Datenbank-Erreichbarkeit (`/api/health`), nicht den
 Erfassungszustand. Neustartstrategie `unless-stopped` beziehungsweise Unraid
 `unless-stopped`: Im Dauerbetrieb startet jeder Container-Neustart die Erfassung,
 auch nach Nutzerpause oder hartem Stopp (Betreiberentscheidung 12.11.2026).
-Ungewisse Read-to-clear-Auslesungen und endliche Laufgrenzen bleiben gesperrt.
+Das gilt auch für ungewisse Read-to-clear-Auslesungen; endliche Laufgrenzen bleiben.
 Reine Verbindungsfehler im Dauerbetrieb haben kein Versuchslimit mehr. Alte
 Transportstopps werden mit dem neuen Build automatisch fortgesetzt, sofern
 alter und neuer Lauf unbeschränkt sind und kein Read-to-clear-Block betroffen ist.
