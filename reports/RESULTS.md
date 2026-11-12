@@ -1,5 +1,24 @@
 # Ergebnisse
 
+## 12.11.2026 – Releasevorbereitung v0.5.0
+
+Betreiberauftrag: Collector startet nach jedem Container-/Prozessneustart im
+Dauerbetrieb die Erfassung (PR #65) und wird als v0.5.0 veröffentlicht. Neustart hebt
+Nutzerpause, harte Protokoll-/Daten-/Speicherstopps, `completed`, Zielwechselsperre,
+ungültigen Zustand und ungewisse Read-to-clear-Auslesungen auf; der betroffene Block
+wartet sein volles Intervall. Endliche Testläufe und Signalsperren bleiben.
+Arbeitsbranch `release/0.5.0`; Versionsangaben einheitlich auf 0.5.0. Kein Schemawechsel.
+
+Ausgeführte Releaseprüfungen (synthetisch/lokal, keine Anlagenzugriffe):
+
+- `uv sync --locked`, `ruff check .`: erfolgreich.
+- `pytest`: 435 bestanden. Node-Tests: 26 bestanden.
+- `npm ci` und `npm run build`: erfolgreich.
+- Lokaler Docker-Build und `scripts/smoke_image.sh`: erfolgreich (Exit 0).
+
+Nicht geprüft: GHCR-Veröffentlichung nach Tag `v0.5.0`, anonymer Pull,
+Unraid-Deployment und Verhalten am echten Gerät nach Neustart.
+
 ## 06.11.2026 – Releasevorbereitung v0.4.0
 
 Betreiberauftrag: Pelletlieferungen, Verbrauch und Tankfüllstand (PR #63) als v0.4.0
