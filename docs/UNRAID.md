@@ -146,8 +146,9 @@ Root-Dateisystem und 20 Sekunden Shutdown-Frist.
 
 Healthcheck prüft API- und Datenbank-Erreichbarkeit (`/api/health`), nicht den
 Erfassungszustand. Neustartstrategie `unless-stopped` beziehungsweise Unraid
-`unless-stopped`: harte Stopps und endliche Laufgrenzen bleiben in SQLite erhalten;
-ein Container-Neustart quittiert sie nicht. Eine Nutzerpause hebt der Neustart auf.
+`unless-stopped`: Im Dauerbetrieb startet jeder Container-Neustart die Erfassung,
+auch nach Nutzerpause oder hartem Stopp (Betreiberentscheidung 12.11.2026).
+Ungewisse Read-to-clear-Auslesungen und endliche Laufgrenzen bleiben gesperrt.
 Reine Verbindungsfehler im Dauerbetrieb haben kein Versuchslimit mehr. Alte
 Transportstopps werden mit dem neuen Build automatisch fortgesetzt, sofern
 alter und neuer Lauf unbeschränkt sind und kein Read-to-clear-Block betroffen ist.

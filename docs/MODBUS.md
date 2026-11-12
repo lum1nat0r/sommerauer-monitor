@@ -236,11 +236,11 @@ sichtbar. Ein laufender Zyklus verwendet seinen festen Snapshot; Übernahme erst
 an der nächsten Zyklusgrenze, auch nach Verbindungsfehlern. Eine
 pausierte/gestoppte Erfassung bleibt pausiert/gestoppt; Änderungen können bis zum
 nächsten Start als „ausstehend“ erscheinen. Bei Prozessstart wird die gespeicherte
-Auswahl geladen; Signalsperren und harte Stopps bleiben erhalten, eine Nutzerpause nicht. Fehlgeschlagenes
+Auswahl geladen; Signalsperren bleiben erhalten, Nutzerpause und harte Stopps nicht. Fehlgeschlagenes
 Speichern oder ein Versionskonflikt verändert weder Speicherung noch aktive
 Auswahl; nach Konflikt ausdrücklich neu laden. Upload und Speichern führen selbst
 keinen Gerätezugriff aus. Bei leerer Auswahl wartet der normale Zeitplan ohne Reads.
-Endliche Anfragebudgets und harte Stopps bleiben erhalten, siehe
+Endliche Anfragebudgets und Read-to-clear-Sperren bleiben erhalten, siehe
 [Fehlerverhalten](FEHLERVERHALTEN.md).
 
 Ohne gespeicherte Auswahl bleiben die fünf bestätigten Register wie bisher

@@ -5,6 +5,7 @@ import time
 import pytest
 
 from backend.collector import Collector, CollectorOwnershipError, _ProcessLock
+from backend.registers import READ_PROFILE
 from backend.logging_config import merge_csv
 from backend.modbus import (
     ConnectionError as ModbusConnectionError,
@@ -139,14 +140,16 @@ def test_finite_request_budget_stops_on_first_transport_error_without_retry(tmp_
     assert collector.state == "stopped_transport"
     assert collector.store.get_collector_state()["request_count"] == 1
 
-def test_completed_finite_run_does_not_resume_after_restart(tmp_path):
+def test_completed_finite_run_resumes_in_continuous_mode_after_restart(tmp_path):
     first, _, _ = make_collector(tmp_path, limit=1)
     first.run()
-    restored, client, _ = make_collector(tmp_path, limit=None, store=first.store)
+    assert first.state == "completed"
+    restored, _, _ = make_collector(tmp_path, limit=None, store=first.store)
+    assert restored.state == "running"
 
-    restored.start()
-
-    assert restored.state == "completed"
+    finite, client, _ = make_collector(tmp_path, limit=1, store=first.store)
+    finite.start()
+    assert finite.state == "completed"
     assert client.starts == []
 
 def test_second_owner_for_same_deployment_is_rejected(tmp_path):
@@ -359,7 +362,7 @@ def test_long_outage_has_no_attempt_limit_or_backoff(tmp_path, recover):
         IncompleteResponseError("synthetic partial response"),
     ],
 )
-def test_protocol_failure_stops_without_retry_or_next_block(tmp_path, failure):
+def test_protocol_failure_stops_without_retry_and_restart_resumes(tmp_path, failure):
     clock = FakeClock()
 
     class BadProtocol(FakeClient):
@@ -399,10 +402,9 @@ def test_protocol_failure_stops_without_retry_or_next_block(tmp_path, failure):
         wait=clock.wait,
         now=clock.now,
     )
-    restarted.start()
 
-    assert restarted.state == "stopped_protocol"
-    assert restarted_client.starts == []
+    assert restarted.state == "running"
+    assert restarted.error is None
 
 
 def test_restart_from_running_reserves_request_and_waits_conservatively(tmp_path):
@@ -467,7 +469,7 @@ def test_user_pause_is_lifted_by_restart(tmp_path):
     assert restored.state == "completed"
 
 
-def test_changed_target_cannot_resume_saved_retry_state(tmp_path):
+def test_changed_target_starts_fresh_after_restart(tmp_path):
     clock = FakeClock()
     store = SQLiteStore(tmp_path / "target-change.sqlite3")
     original = Collector(
@@ -482,6 +484,7 @@ def test_changed_target_cannot_resume_saved_retry_state(tmp_path):
     )
     original.state = "reconnect_wait"
     original.error = "synthetic connection failure"
+    original._reconnect_attempts = 5
     original._persist_state()
 
     client = FakeClient(clock)
@@ -495,11 +498,9 @@ def test_changed_target_cannot_resume_saved_retry_state(tmp_path):
         wait=clock.wait,
         now=clock.now,
     )
-    restarted.start()
-
-    assert restarted.state == "paused"
-    assert restarted.error == "Saved state belongs to a different target or profile"
-    assert client.starts == []
+    assert restarted.state == "running"
+    assert restarted.error is None
+    assert restarted.status()["reconnect_attempts"] == 0
 
 
 def test_logging_selection_changes_only_at_cycle_boundary_and_keeps_history(tmp_path):
@@ -805,13 +806,18 @@ def test_extended_completion_and_offsets_restore_without_losing_interval_or_budg
 def test_restore_rejects_unknown_or_nonblock_offsets(tmp_path, offset):
     collector, _, _ = extended_collector(tmp_path)
     collector._next_offset = offset
+    collector._request_count = 7
     collector._persist_state()
 
-    restarted, client, _ = make_collector(tmp_path, store=collector.store, limit=None)
-    restarted.start()
-
-    assert restarted.state == "stopped_storage"
+    finite, client, _ = make_collector(tmp_path, store=collector.store, limit=3)
+    finite.start()
+    assert finite.state == "stopped_storage"
     assert client.starts == []
+
+    restarted, _, _ = make_collector(tmp_path, store=collector.store, limit=None)
+    assert restarted.state == "running"
+    assert restarted._next_offset == READ_PROFILE[0].offset
+    assert restarted._request_count == 0
 
 
 def test_stoker_counter_only_requires_valid_word_pair_not_boiler_uptime_progression(tmp_path):
@@ -967,6 +973,7 @@ def test_valid_exception_blocks_only_its_signals_and_survives_restart(tmp_path, 
     )
     assert restored.blocked_signals == set(block.signal_ids)
     assert restored.state == "running"
+    monkeypatch.setattr(restored, "start", lambda: None)
     restored.run()
     assert all(actual != offset for actual, _ in restored_client.starts)
     assert restored.blocked_signals == set(block.signal_ids)

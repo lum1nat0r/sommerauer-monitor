@@ -14,6 +14,12 @@ keine steigenden Wartezeiten bei reinen Verbindungsfehlern. Ausgewählte Kern-
 und Zusatzblöcke bleiben in ihrem normalen 60-/300-s-Zeitplan. Endliche
 Prüfläufe, harte Fehler und ungewisse Read-to-clear-Auslesungen behalten ihre Stopps.
 
+**Betreiberentscheidung 12.11.2026:** Im Dauerbetrieb startet jeder Container-/
+Prozessneustart die Erfassung. Das hebt Nutzerpause, `stopped_protocol`,
+`stopped_data`, `stopped_storage`, `completed`, die Zielwechselsperre und ungültigen
+gespeicherten Zustand (dann ohne alte Zähler) auf. Ausgenommen: ungewisse
+Read-to-clear-Auslesungen, endliche Prüfläufe und Signalsperren (Modbus 2/3).
+
 ## Zustände und Übergänge
 
 | Zustand | Verhalten / erlaubter Übergang |
@@ -21,15 +27,15 @@ Prüfläufe, harte Fehler und ungewisse Read-to-clear-Auslesungen behalten ihre 
 | `unconfigured` | Kein Ziel/Profil, keine Verbindung; konfigurieren -> `paused` |
 | `paused` | Nutzerpause oder Erstinstallation; expliziter App-Start oder Containerneustart -> `running` |
 | `running` | Geplante Reads; erfolgreicher Zyklus bleibt running |
-| `completed` | Endliches Anfrage-/Zeitlimit erreicht; keine weiteren Reads bis zu bewusstem `acknowledge_and_start` |
+| `completed` | Endliches Anfrage-/Zeitlimit erreicht; keine weiteren Reads bis zu bewusstem `acknowledge_and_start` oder Neustart im Dauerbetrieb |
 | `reconnect_wait` | Verbindungsfehler sichtbar; normale Abfragefolge und Blockintervalle laufen ohne Versuchslimit weiter |
 | `stopped_transport` | Endlicher Lauf nach Transportfehler oder ungewisse Read-to-clear-Auslesung; Ursache prüfen, bewusst quittieren |
-| `stopped_protocol` | Ungültige/teilweise Antwort oder übergreifender Modbus-Gerätefehler; keine automatischen Reads |
-| `stopped_data` | Strukturell ungültige Registerblockdaten; keine automatischen Reads |
-| `stopped_storage` | Speicherung/Zustand nicht sicher möglich; keine neuen Reads |
+| `stopped_protocol` | Ungültige/teilweise Antwort oder übergreifender Modbus-Gerätefehler; keine Reads bis Quittierung oder Neustart (außer Read-to-clear) |
+| `stopped_data` | Strukturell ungültige Registerblockdaten; keine Reads bis Quittierung oder Neustart |
+| `stopped_storage` | Speicherung/Zustand nicht sicher möglich; keine Reads bis Quittierung oder Neustart |
 
-Nutzer-Stopp oder Anlagenauffälligkeit überstimmt alles. Harte Fehlerstopps können
-nur nach Klärung bewusst quittiert werden; ein Neustart ist keine Quittierung.
+Nutzer-Stopp oder Anlagenauffälligkeit überstimmt alles. Harte Fehlerstopps werden
+zur Laufzeit bewusst quittiert; im Dauerbetrieb hebt ein Neustart sie ebenfalls auf.
 Web-API/Diagramme bleiben unabhängig vom Messzustand erreichbar.
 Ein gespeicherter Zustand `completed` bleibt auch bei deaktiviertem Sammler
 über die lesende API „Erfassung abgeschlossen“, nicht `stopped_storage`.
@@ -37,8 +43,8 @@ Ein gespeicherter Zustand `completed` bleibt auch bei deaktiviertem Sammler
 Die SQLite-Zustandszeile speichert Fehlerstatus, Ursache, Anfragezähler, nächsten
 Block, letzten Anfrageblock und Abschlusszeiten. Jeder Socketzugriff wird vorher
 persistent reserviert. Die Konfiguration wird nur als SHA-256-Fingerprint aus
-Ziel, Port, Unit und Profil gespeichert; eine abweichende Konfiguration liest
-nicht automatisch weiter. Laufzeitfristen verwenden eine monotone Uhr.
+Ziel, Port, Unit und Profil gespeichert; bei abweichender Konfiguration beginnt
+die Erfassung ohne alte Zähler und Signalsperren neu. Laufzeitfristen verwenden eine monotone Uhr.
 Nach Neustart wartet ein unterbrochener oder zur Wiederaufnahme vorgesehener
 Block wieder sein volles reguläres Intervall; andere fällige Blöcke laufen weiter.
 Gespeicherte Abschlusszeiten bestimmen deren Fälligkeit. Eine Nutzerpause wird nach
@@ -48,7 +54,7 @@ Alte `stopped_transport`-Zustände werden beim Start des aktivierten Sammlers
 automatisch in reguläres Polling überführt, sofern weder der gespeicherte noch
 der neue Lauf endlich ist und kein Read-to-clear-Block betroffen ist.
 Das entfernt die alte Budgetsperre ohne Löschen von Historie oder Anfragezählern.
-`completed`, Zielwechsel, Signalsperren und harte Stopps bleiben erhalten.
+Endliche Läufe, Signalsperren und Read-to-clear-Sperren bleiben erhalten.
 Eine deaktivierte App führt durch das Upgrade weiterhin keine Reads aus.
 
 `GET /api/collector/status` liefert Zustand, sichere Ursache, nächste Aktion und
@@ -104,7 +110,7 @@ auch Verbindungsfehler halten diese Übernahme nicht mehr auf.
 Gespeicherte und aktive Revision/Auswahl sind über `/api/logging-config` sichtbar.
 Bei Pause oder hartem Stopp kann eine neue Revision bis zum nächsten bewussten
 Start ausstehen. Bei Prozessstart wird die gespeicherte Auswahl geladen;
-Signalsperren und harte Fehlerstopps bleiben wirksam, eine Nutzerpause nicht.
+Signalsperren bleiben wirksam, Nutzerpause und harte Fehlerstopps nicht.
 
 Abgewählte Blöcke entfallen aus dem normalen Plan. Bei einem teilweise
 ausgewählten Zweierblock werden beide Wörter unverändert validiert, aber nur
