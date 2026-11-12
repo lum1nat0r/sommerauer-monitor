@@ -31,8 +31,9 @@ Historie und sichtbare Fehlerbeobachtungen bleiben erhalten.
 
 Beim Start eines aktivierten Sammlers mit dem neuen Build werden alte reine
 Transportstopps automatisch fortgesetzt, wenn alter und neuer Lauf unbeschränkt
-sind und kein Read-to-clear-Block betroffen ist. Nutzerpause, `completed`,
-endliche Budgets, Signalsperren und harte Fehlerstopps bleiben erhalten.
+sind und kein Read-to-clear-Block betroffen ist. Seit 12.11.2026 hebt ein Neustart
+im Dauerbetrieb auch Nutzerpause, `completed`, harte Fehlerstopps und
+Read-to-clear-Sperren auf; endliche Budgets und Signalsperren bleiben erhalten.
 Eine deaktivierte Instanz wird nicht automatisch aktiviert. Vor Upgrade
 konsistent sichern; keine Datenbank löschen. Für Dauerbetrieb muss
 `COLLECTOR_MAX_REQUESTS` leer bleiben; endliche Prüfläufe bleiben absichtlich begrenzt.

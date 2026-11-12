@@ -210,7 +210,8 @@ Modul-Ausgangsbits. Auch sie werden beim Upload im Entwurf vorgewählt;
 Warnungen stehen direkt an der Auswahl. Vor dem Speichern prüfen und bei
 Bedarf abwählen. Konkurrierende Leser können Informationen verlieren.
 Diese Werte sind kein Störungsjournal. Nach einem ungewissen
-Ausleseausgang erfolgt keine automatische Wiederholung, auch nicht nach Neustart.
+Ausleseausgang erfolgt zur Laufzeit keine automatische Wiederholung; ein Neustart
+im Dauerbetrieb wiederholt sie nach vollem Intervall (Betreiberentscheidung 12.11.2026).
 
 Einheiten/Skalen sind kanalbezogen: Temperaturen in ganzen °C mit jeweils
 eigenen Grenzen, Versorgung in 0,1 V, interne Leistungsregelgrößen in Prozent,
@@ -236,11 +237,11 @@ sichtbar. Ein laufender Zyklus verwendet seinen festen Snapshot; Übernahme erst
 an der nächsten Zyklusgrenze, auch nach Verbindungsfehlern. Eine
 pausierte/gestoppte Erfassung bleibt pausiert/gestoppt; Änderungen können bis zum
 nächsten Start als „ausstehend“ erscheinen. Bei Prozessstart wird die gespeicherte
-Auswahl geladen; Nutzerpause, Signalsperren und harte Stopps bleiben erhalten. Fehlgeschlagenes
+Auswahl geladen; Signalsperren bleiben erhalten, Nutzerpause und harte Stopps nicht. Fehlgeschlagenes
 Speichern oder ein Versionskonflikt verändert weder Speicherung noch aktive
 Auswahl; nach Konflikt ausdrücklich neu laden. Upload und Speichern führen selbst
 keinen Gerätezugriff aus. Bei leerer Auswahl wartet der normale Zeitplan ohne Reads.
-Endliche Anfragebudgets und harte Stopps bleiben erhalten, siehe
+Endliche Anfragebudgets bleiben erhalten, siehe
 [Fehlerverhalten](FEHLERVERHALTEN.md).
 
 Ohne gespeicherte Auswahl bleiben die fünf bestätigten Register wie bisher

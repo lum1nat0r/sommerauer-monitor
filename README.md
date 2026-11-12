@@ -27,7 +27,7 @@ weitere Register nach Prüfung. Alle Minutenmessungen bleiben dauerhaft erhalten
 Fehler einzelner Werte werden isoliert; übergreifende Protokoll-/Speicherfehler stoppen.
 Reine Verbindungsfehler beenden den Dauerbetrieb nicht mehr: weiter im normalen
 60-/300-s-Intervall, ohne Fehlversuchslimit oder steigende Wartezeiten.
-Endliche Prüfläufe und ungewisse Read-to-clear-Auslesungen behalten ihre Stopps.
+Endliche Prüfläufe und ungewisse Read-to-clear-Auslesungen stoppen bis zum Neustart.
 Messlücken und Datenalter bleiben sichtbar.
 
 Vorgesehener Aufbau: Python/FastAPI, SQLite, React/TypeScript, ein Docker-Container.
@@ -276,7 +276,9 @@ während die übrige Erfassung weiterläuft. Verbindungsfehler führen im Dauerb
 nicht zum Abschalten; Protokoll- und Speicherprobleme behalten ihre Schutzstopps.
 Ein neuer Build übernimmt alte reine Transportstopps automatisch, sofern beide
 Laufkonfigurationen unbeschränkt sind und kein Read-to-clear-Register betroffen ist.
-Nutzerpause, abgeschlossene Prüfläufe und harte Stopps werden nicht aufgehoben.
+Im Dauerbetrieb startet jeder Container-/Prozessneustart die Erfassung, auch nach
+Nutzerpause, hartem Stopp oder ungewisser Read-to-clear-Auslesung. Nur endliche
+Prüfläufe bleiben gesperrt.
 [Fehlerbehandlung und bewusste Freigabe](docs/FEHLERVERHALTEN.md).
 Vor dem Upgrade konsistent sichern: Schema 1/2/3 wird auf 4 erweitert;
 eine alte App-Version kann die migrierte Datenbank nicht öffnen.

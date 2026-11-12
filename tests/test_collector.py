@@ -139,14 +139,16 @@ def test_finite_request_budget_stops_on_first_transport_error_without_retry(tmp_
     assert collector.state == "stopped_transport"
     assert collector.store.get_collector_state()["request_count"] == 1
 
-def test_completed_finite_run_does_not_resume_after_restart(tmp_path):
+def test_completed_finite_run_resumes_in_continuous_mode_after_restart(tmp_path):
     first, _, _ = make_collector(tmp_path, limit=1)
     first.run()
-    restored, client, _ = make_collector(tmp_path, limit=None, store=first.store)
+    assert first.state == "completed"
+    restored, _, _ = make_collector(tmp_path, limit=None, store=first.store)
+    assert restored.state == "running"
 
-    restored.start()
-
-    assert restored.state == "completed"
+    finite, client, _ = make_collector(tmp_path, limit=1, store=first.store)
+    finite.start()
+    assert finite.state == "completed"
     assert client.starts == []
 
 def test_second_owner_for_same_deployment_is_rejected(tmp_path):
@@ -359,7 +361,7 @@ def test_long_outage_has_no_attempt_limit_or_backoff(tmp_path, recover):
         IncompleteResponseError("synthetic partial response"),
     ],
 )
-def test_protocol_failure_stops_without_retry_or_next_block(tmp_path, failure):
+def test_protocol_failure_stops_without_retry_and_restart_resumes(tmp_path, failure):
     clock = FakeClock()
 
     class BadProtocol(FakeClient):
@@ -399,10 +401,9 @@ def test_protocol_failure_stops_without_retry_or_next_block(tmp_path, failure):
         wait=clock.wait,
         now=clock.now,
     )
-    restarted.start()
 
-    assert restarted.state == "stopped_protocol"
-    assert restarted_client.starts == []
+    assert restarted.state == "running"
+    assert restarted.error is None
 
 
 def test_restart_from_running_reserves_request_and_waits_conservatively(tmp_path):
@@ -443,7 +444,7 @@ def test_restart_from_running_reserves_request_and_waits_conservatively(tmp_path
 
 
 
-def test_user_pause_is_persisted_and_does_not_autostart_after_restart(tmp_path):
+def test_user_pause_is_lifted_by_restart(tmp_path):
     clock = FakeClock()
     store = SQLiteStore(tmp_path / "pause.sqlite3")
     collector = Collector(
@@ -460,13 +461,14 @@ def test_user_pause_is_persisted_and_does_not_autostart_after_restart(tmp_path):
     collector.pause()
 
     restored, client, _ = make_collector(tmp_path, store=store, limit=2)
-    restored.start()
+    assert restored.state == "running"
+    restored.run()
 
-    assert restored.state == "paused"
-    assert client.starts == []
+    assert len(client.starts) == 2
+    assert restored.state == "completed"
 
 
-def test_changed_target_cannot_resume_saved_retry_state(tmp_path):
+def test_changed_target_starts_fresh_after_restart(tmp_path):
     clock = FakeClock()
     store = SQLiteStore(tmp_path / "target-change.sqlite3")
     original = Collector(
@@ -481,6 +483,7 @@ def test_changed_target_cannot_resume_saved_retry_state(tmp_path):
     )
     original.state = "reconnect_wait"
     original.error = "synthetic connection failure"
+    original._reconnect_attempts = 5
     original._persist_state()
 
     client = FakeClient(clock)
@@ -494,11 +497,9 @@ def test_changed_target_cannot_resume_saved_retry_state(tmp_path):
         wait=clock.wait,
         now=clock.now,
     )
-    restarted.start()
-
-    assert restarted.state == "paused"
-    assert restarted.error == "Saved state belongs to a different target or profile"
-    assert client.starts == []
+    assert restarted.state == "running"
+    assert restarted.error is None
+    assert restarted.status()["reconnect_attempts"] == 0
 
 
 def test_logging_selection_changes_only_at_cycle_boundary_and_keeps_history(tmp_path):
@@ -736,10 +737,13 @@ def test_read_to_clear_failure_stops_without_retry(tmp_path, failure_type):
     assert observation["quality"] != "ok"
     assert observation["value"] is None
     assert observation["raw_words"] == []
-    restarted, restarted_client, _ = make_collector(tmp_path, store=collector.store, limit=None)
-    restarted.start()
-    assert restarted.state == expected_state
-    assert restarted_client.starts == []
+    finite, finite_client, _ = make_collector(tmp_path, store=collector.store, limit=3)
+    finite.start()
+    assert finite.state == expected_state
+    assert finite_client.starts == []
+    # Dauerbetrieb: Betreiber nimmt die Wiederholung der Read-to-clear-Auslesung in Kauf.
+    restarted, _, _ = make_collector(tmp_path, store=collector.store, limit=None)
+    assert restarted.state in {"running", "reconnect_wait"}
 
 
 @pytest.mark.parametrize("offset", [0x85E0])
@@ -752,7 +756,7 @@ def test_read_to_clear_failure_stops_without_retry(tmp_path, failure_type):
         ("paused", False, 60),
     ],
 )
-def test_uncertain_read_to_clear_request_cannot_resume_after_restart(
+def test_uncertain_read_to_clear_request_resumes_only_in_continuous_mode(
     tmp_path, offset, state, in_flight, retry_delay
 ):
     collector, _, _ = extended_collector(tmp_path)
@@ -767,14 +771,19 @@ def test_uncertain_read_to_clear_request_cannot_resume_after_restart(
     saved["retry_delay_seconds"] = retry_delay
     collector.store.save_collector_state(saved, collector.now().isoformat())
 
-    restarted, client, _ = make_collector(tmp_path, store=collector.store, limit=None)
-    restarted.start()
-
-    assert restarted.state == "stopped_transport"
-    assert restarted.status()["reconnect_attempts"] == 2
-    assert restarted.status()["next_action_at"] is None
-    assert restarted._request_count == 7
+    finite, client, _ = make_collector(tmp_path, store=collector.store, limit=10)
+    finite.start()
+    assert finite.state == "stopped_transport"
+    assert finite.status()["next_action_at"] is None
     assert client.starts == []
+
+    restarted, _, _ = make_collector(tmp_path, store=collector.store, limit=None)
+    assert restarted.state == "reconnect_wait"
+    assert restarted.status()["reconnect_attempts"] == 2
+    assert restarted._request_count == 7
+    block = restarted._block_by_offset(offset)
+    # Wiederholung erst nach vollem Intervall, kein sofortiger Burst.
+    assert restarted._due_at(block) - restarted.monotonic() == 300
 
 
 def test_extended_completion_and_offsets_restore_without_losing_interval_or_budget(tmp_path):
@@ -793,7 +802,7 @@ def test_extended_completion_and_offsets_restore_without_losing_interval_or_budg
         client=FakeClient(clock), monotonic=clock.monotonic, wait=clock.wait, now=clock.now,
     )
 
-    assert restarted.state == "paused"
+    assert restarted.state == "running"
     assert restarted._next_offset == restarted._retry_block_offset == 0x100A
     assert restarted._request_count == 7
     assert restarted.status()["reconnect_attempts"] == 2
@@ -804,13 +813,18 @@ def test_extended_completion_and_offsets_restore_without_losing_interval_or_budg
 def test_restore_rejects_unknown_or_nonblock_offsets(tmp_path, offset):
     collector, _, _ = extended_collector(tmp_path)
     collector._next_offset = offset
+    collector._request_count = 7
     collector._persist_state()
 
-    restarted, client, _ = make_collector(tmp_path, store=collector.store, limit=None)
-    restarted.start()
-
-    assert restarted.state == "stopped_storage"
+    finite, client, _ = make_collector(tmp_path, store=collector.store, limit=3)
+    finite.start()
+    assert finite.state == "stopped_storage"
     assert client.starts == []
+
+    restarted, _, _ = make_collector(tmp_path, store=collector.store, limit=None)
+    assert restarted.state == "running"
+    assert restarted._next_offset == READ_PROFILE[0].offset
+    assert restarted._request_count == 0
 
 
 def test_stoker_counter_only_requires_valid_word_pair_not_boiler_uptime_progression(tmp_path):
@@ -965,8 +979,8 @@ def test_valid_exception_blocks_only_its_signals_and_survives_restart(tmp_path, 
         tmp_path, limit=None, duration=130, store=collector.store
     )
     assert restored.blocked_signals == set(block.signal_ids)
+    assert restored.state == "running"
     monkeypatch.setattr(restored, "start", lambda: None)
-    restored.resume()
     restored.run()
     assert all(actual != offset for actual, _ in restored_client.starts)
     assert restored.blocked_signals == set(block.signal_ids)
@@ -1132,17 +1146,19 @@ def test_restart_continues_after_old_budget_or_interrupted_request(tmp_path, cod
 
 
 @pytest.mark.parametrize(("limit", "duration"), [(3, None), (None, 10)])
-def test_old_finite_transport_stop_is_not_automatically_released(tmp_path, limit, duration):
+def test_old_finite_transport_stop_is_released_in_continuous_mode(tmp_path, limit, duration):
     original, _, _ = make_collector(tmp_path, limit=limit, duration=duration)
     original.state = "stopped_transport"
     original._persist_state()
-    restored, client, _ = make_collector(tmp_path, limit=None, store=original.store)
-    restored.start()
-    assert restored.state == "stopped_transport"
+    finite, client, _ = make_collector(tmp_path, limit=3, store=original.store)
+    finite.start()
+    assert finite.state == "stopped_transport"
     assert client.starts == []
+    restored, _, _ = make_collector(tmp_path, limit=None, store=original.store)
+    assert restored.state == "reconnect_wait"
 
 
-def test_pause_during_outage_survives_restart_and_resume_keeps_interval(tmp_path, monkeypatch):
+def test_pause_during_outage_is_lifted_by_restart_and_keeps_interval(tmp_path):
     original, _, clock = make_collector(tmp_path, limit=None)
     select_extended(original, ("1006",), keep_core=False)
     original.state = "reconnect_wait"
@@ -1152,11 +1168,7 @@ def test_pause_during_outage_survives_restart_and_resume_keeps_interval(tmp_path
     original.pause()
 
     restored, client, _ = make_collector(tmp_path, limit=1, store=original.store)
-    restored.start()
-    assert restored.state == "paused"
-    assert client.starts == []
-    monkeypatch.setattr(restored, "start", lambda: None)
-    restored.resume()
+    assert restored.state == "reconnect_wait"
     restored.run()
     assert client.starts == [(4102, 60)]
     assert restored.state == "completed"

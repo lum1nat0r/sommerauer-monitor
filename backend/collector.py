@@ -236,7 +236,11 @@ class Collector:
         )
 
     def _restore_state(self) -> None:
-
+        # Betreiberentscheidung 12.11.2026: Im Dauerbetrieb startet jeder Neustart die Erfassung.
+        continuous = (
+            self.retry_on_transport_error
+            and self.max_requests is None and self.max_duration_seconds is None
+        )
         try:
             saved = self.store.get_collector_state()
         except StorageError:
@@ -262,8 +266,10 @@ class Collector:
                 if str(row.get("error_code") or "").startswith("modbus_exception")
             }
             if saved["configuration_id"] != self._endpoint_id or saved["profile_id"] != PROFILE_ID:
-                self.error = "Saved state belongs to a different target or profile"
-                self._last_action = "Review configuration and acknowledge"
+                # Neues Ziel aus der Konfiguration: frisch beginnen, alte Zähler nicht übernehmen.
+                self.blocked_signals.clear()
+                self.state = "running"
+                self._last_action = "Start collection"
                 return
             self.state = saved["state"]
             self.error = saved.get("error")
@@ -297,6 +303,14 @@ class Collector:
                         break
                     self._advance_block(candidate)
             self._last_action = saved.get("next_action")
+            # Betreiber nimmt in Kauf, dass eine ungewisse Read-to-clear-Auslesung
+            # wiederholt wird: Dann fehlen nur Ausgangsbits eines Intervalls.
+            if self.state == "paused" or (continuous and self.state in {
+                "stopped_transport", "stopped_protocol", "stopped_data", "stopped_storage", "completed",
+            }):
+                self.state = "reconnect_wait" if self.state == "stopped_transport" else "running"
+                self.error = None
+                self._last_action = "Erfassung nach Neustart fortgesetzt"
             block = self._block_by_offset(self._retry_block_offset)
             in_flight = saved.get("request_in_flight", False)
             pending_retry = (
@@ -304,22 +318,13 @@ class Collector:
                 or saved.get("retry_delay_seconds") is not None
             )
             if (
-                self.state in {"running", "reconnect_wait", "paused", "stopped_transport"}
+                not continuous
+                and self.state in {"running", "reconnect_wait", "paused", "stopped_transport"}
                 and self._read_to_clear(block) and (in_flight or pending_retry)
             ):
                 self.state = "stopped_transport"
                 self.error = "Ungewisser Ausgang einer Read-to-clear-Auslesung; keine automatische Wiederholung"
                 self._last_action = "Protokollauslesung prüfen und ausdrücklich bestätigen"
-            elif (
-                self.state == "stopped_transport"
-                and self.retry_on_transport_error
-                and self.max_requests is None and self.max_duration_seconds is None
-                and saved.get("max_requests") is None and saved.get("max_duration_seconds") is None
-                and not self._read_to_clear(block)
-            ):
-                # Alte Transportstopps ohne endlichen Lauf dürfen den Dauerbetrieb nicht sperren.
-                self.state = "reconnect_wait"
-                pending_retry = True
             if in_flight or pending_retry:
                 self._last_completed[block.offset] = self.monotonic()
                 self._last_completed_at[block.offset] = self.now()
@@ -336,10 +341,21 @@ class Collector:
             }:
                 raise ValueError("unknown persisted collector state")
         except (KeyError, TypeError, ValueError, OverflowError):
-            self.state = "stopped_storage"
-            self.error = "Persisted collector state is invalid"
             self._retry_at = None
-            self._last_action = "Inspect persisted state; no automatic reads"
+            if continuous:
+                # Ungültigen Zustand verwerfen und ohne alte Zähler/Sperren neu beginnen.
+                self.state = "running"
+                self.error = None
+                self.blocked_signals.clear()
+                self._request_count = self._reconnect_attempts = 0
+                self._next_offset = self._retry_block_offset = READ_PROFILE[0].offset
+                self._last_completed.clear()
+                self._last_completed_at.clear()
+                self._last_action = "Start collection"
+            else:
+                self.state = "stopped_storage"
+                self.error = "Persisted collector state is invalid"
+                self._last_action = "Inspect persisted state; no automatic reads"
         if self.state not in {"running", "reconnect_wait"}:
             self._paused.set()
 
