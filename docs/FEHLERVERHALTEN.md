@@ -19,7 +19,7 @@ Prüfläufe, harte Fehler und ungewisse Read-to-clear-Auslesungen behalten ihre 
 | Zustand | Verhalten / erlaubter Übergang |
 |---|---|
 | `unconfigured` | Kein Ziel/Profil, keine Verbindung; konfigurieren -> `paused` |
-| `paused` | Nutzerpause oder Erstinstallation; expliziter App-Start -> `running` |
+| `paused` | Nutzerpause oder Erstinstallation; expliziter App-Start oder Containerneustart -> `running` |
 | `running` | Geplante Reads; erfolgreicher Zyklus bleibt running |
 | `completed` | Endliches Anfrage-/Zeitlimit erreicht; keine weiteren Reads bis zu bewusstem `acknowledge_and_start` |
 | `reconnect_wait` | Verbindungsfehler sichtbar; normale Abfragefolge und Blockintervalle laufen ohne Versuchslimit weiter |
@@ -41,13 +41,14 @@ Ziel, Port, Unit und Profil gespeichert; eine abweichende Konfiguration liest
 nicht automatisch weiter. Laufzeitfristen verwenden eine monotone Uhr.
 Nach Neustart wartet ein unterbrochener oder zur Wiederaufnahme vorgesehener
 Block wieder sein volles reguläres Intervall; andere fällige Blöcke laufen weiter.
-Gespeicherte Abschlusszeiten bestimmen deren Fälligkeit. Eine Nutzerpause bleibt pausiert.
+Gespeicherte Abschlusszeiten bestimmen deren Fälligkeit. Eine Nutzerpause wird nach
+Betreiberentscheidung vom 12.11.2026 durch Container-/Prozessneustart aufgehoben.
 
 Alte `stopped_transport`-Zustände werden beim Start des aktivierten Sammlers
 automatisch in reguläres Polling überführt, sofern weder der gespeicherte noch
 der neue Lauf endlich ist und kein Read-to-clear-Block betroffen ist.
 Das entfernt die alte Budgetsperre ohne Löschen von Historie oder Anfragezählern.
-`completed`, Nutzerpause, Zielwechsel, Signalsperren und harte Stopps bleiben erhalten.
+`completed`, Zielwechsel, Signalsperren und harte Stopps bleiben erhalten.
 Eine deaktivierte App führt durch das Upgrade weiterhin keine Reads aus.
 
 `GET /api/collector/status` liefert Zustand, sichere Ursache, nächste Aktion und
@@ -103,7 +104,7 @@ auch Verbindungsfehler halten diese Übernahme nicht mehr auf.
 Gespeicherte und aktive Revision/Auswahl sind über `/api/logging-config` sichtbar.
 Bei Pause oder hartem Stopp kann eine neue Revision bis zum nächsten bewussten
 Start ausstehen. Bei Prozessstart wird die gespeicherte Auswahl geladen;
-Nutzerpause, Signalsperren und harte Fehlerstopps bleiben wirksam.
+Signalsperren und harte Fehlerstopps bleiben wirksam, eine Nutzerpause nicht.
 
 Abgewählte Blöcke entfallen aus dem normalen Plan. Bei einem teilweise
 ausgewählten Zweierblock werden beide Wörter unverändert validiert, aber nur

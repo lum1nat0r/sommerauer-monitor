@@ -54,7 +54,8 @@ Echte Sensormesswerte bleiben unverändert. Später allenfalls START/SOLL änder
   Verbindungsfehler im Dauerbetrieb ohne Versuchslimit und ohne Backoff im normalen
   Blockintervall fort: siehe docs/FEHLERVERHALTEN.md. Endliche Tests, ungewisse
   Read-to-clear-Auslesungen und Protokoll-/Daten-/Speicherfehler behalten ihre
-  Schutzgrenzen; Nutzerpausen und harte Stopps über Neustarts erhalten.
+  Schutzgrenzen; harte Stopps über Neustarts erhalten. Nutzerpausen
+  hebt ein Containerneustart nach Betreiberentscheidung vom 12.11.2026 auf.
 - Technisch erforderlichen Displayabgleich gezielt erfragen. Kein allgemeiner
   Beobachtungs-/Zustimmungsdialog vor jeder erlaubten Lesesitzung.
 - Netzwerk-/Sandboxbeschränkungen sind keine Gerätefehler. Erforderliche gezielte

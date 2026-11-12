@@ -443,7 +443,7 @@ def test_restart_from_running_reserves_request_and_waits_conservatively(tmp_path
 
 
 
-def test_user_pause_is_persisted_and_does_not_autostart_after_restart(tmp_path):
+def test_user_pause_is_lifted_by_restart(tmp_path):
     clock = FakeClock()
     store = SQLiteStore(tmp_path / "pause.sqlite3")
     collector = Collector(
@@ -460,10 +460,11 @@ def test_user_pause_is_persisted_and_does_not_autostart_after_restart(tmp_path):
     collector.pause()
 
     restored, client, _ = make_collector(tmp_path, store=store, limit=2)
-    restored.start()
+    assert restored.state == "running"
+    restored.run()
 
-    assert restored.state == "paused"
-    assert client.starts == []
+    assert len(client.starts) == 2
+    assert restored.state == "completed"
 
 
 def test_changed_target_cannot_resume_saved_retry_state(tmp_path):
@@ -793,7 +794,7 @@ def test_extended_completion_and_offsets_restore_without_losing_interval_or_budg
         client=FakeClient(clock), monotonic=clock.monotonic, wait=clock.wait, now=clock.now,
     )
 
-    assert restarted.state == "paused"
+    assert restarted.state == "running"
     assert restarted._next_offset == restarted._retry_block_offset == 0x100A
     assert restarted._request_count == 7
     assert restarted.status()["reconnect_attempts"] == 2
@@ -965,8 +966,7 @@ def test_valid_exception_blocks_only_its_signals_and_survives_restart(tmp_path, 
         tmp_path, limit=None, duration=130, store=collector.store
     )
     assert restored.blocked_signals == set(block.signal_ids)
-    monkeypatch.setattr(restored, "start", lambda: None)
-    restored.resume()
+    assert restored.state == "running"
     restored.run()
     assert all(actual != offset for actual, _ in restored_client.starts)
     assert restored.blocked_signals == set(block.signal_ids)
@@ -1142,7 +1142,7 @@ def test_old_finite_transport_stop_is_not_automatically_released(tmp_path, limit
     assert client.starts == []
 
 
-def test_pause_during_outage_survives_restart_and_resume_keeps_interval(tmp_path, monkeypatch):
+def test_pause_during_outage_is_lifted_by_restart_and_keeps_interval(tmp_path):
     original, _, clock = make_collector(tmp_path, limit=None)
     select_extended(original, ("1006",), keep_core=False)
     original.state = "reconnect_wait"
@@ -1152,11 +1152,7 @@ def test_pause_during_outage_survives_restart_and_resume_keeps_interval(tmp_path
     original.pause()
 
     restored, client, _ = make_collector(tmp_path, limit=1, store=original.store)
-    restored.start()
-    assert restored.state == "paused"
-    assert client.starts == []
-    monkeypatch.setattr(restored, "start", lambda: None)
-    restored.resume()
+    assert restored.state == "reconnect_wait"
     restored.run()
     assert client.starts == [(4102, 60)]
     assert restored.state == "completed"

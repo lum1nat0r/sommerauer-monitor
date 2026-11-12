@@ -31,7 +31,7 @@ Historie und sichtbare Fehlerbeobachtungen bleiben erhalten.
 
 Beim Start eines aktivierten Sammlers mit dem neuen Build werden alte reine
 Transportstopps automatisch fortgesetzt, wenn alter und neuer Lauf unbeschränkt
-sind und kein Read-to-clear-Block betroffen ist. Nutzerpause, `completed`,
+sind und kein Read-to-clear-Block betroffen ist. `completed`,
 endliche Budgets, Signalsperren und harte Fehlerstopps bleiben erhalten.
 Eine deaktivierte Instanz wird nicht automatisch aktiviert. Vor Upgrade
 konsistent sichern; keine Datenbank löschen. Für Dauerbetrieb muss

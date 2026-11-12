@@ -119,9 +119,10 @@ Betreiberentscheidung vom 19.10.2026, umgesetzt und offline geprüft:
 - Alte reine Transportstopps eines unbeschränkten Laufs werden beim aktivierten,
   ebenfalls unbeschränkten Sammlerstart automatisch fortgesetzt. Keine
   Datenlöschung oder manuelle Budgetquittierung erforderlich.
-- Nutzerpause, abgeschlossene/endliche Prüfläufe, Signalsperren und harte
+- Abgeschlossene/endliche Prüfläufe, Signalsperren und harte
   Protokoll-/strukturelle Daten-/Speicherstopps bleiben erhalten. Ungewisse
-  Read-to-clear-Auslesungen werden nicht automatisch wiederholt.
+  Read-to-clear-Auslesungen werden nicht automatisch wiederholt. Eine Nutzerpause
+  hebt ein Container-/Prozessneustart auf (Betreiberentscheidung 12.11.2026).
 - Fehlerhafte Einzelwerte und registerbezogene Modbus-Ausnahmen bleiben wie
   im Nachtrag vom 18.10.2026 isoliert. Teilantworten sind Protokollfehler,
   keine reine Nichterreichbarkeit. Fehlende Messungen bleiben Lücken.

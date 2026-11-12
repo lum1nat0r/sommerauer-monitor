@@ -276,7 +276,8 @@ während die übrige Erfassung weiterläuft. Verbindungsfehler führen im Dauerb
 nicht zum Abschalten; Protokoll- und Speicherprobleme behalten ihre Schutzstopps.
 Ein neuer Build übernimmt alte reine Transportstopps automatisch, sofern beide
 Laufkonfigurationen unbeschränkt sind und kein Read-to-clear-Register betroffen ist.
-Nutzerpause, abgeschlossene Prüfläufe und harte Stopps werden nicht aufgehoben.
+Abgeschlossene Prüfläufe und harte Stopps werden nicht aufgehoben; eine Nutzerpause
+endet mit dem nächsten Container-/Prozessneustart.
 [Fehlerbehandlung und bewusste Freigabe](docs/FEHLERVERHALTEN.md).
 Vor dem Upgrade konsistent sichern: Schema 1/2/3 wird auf 4 erweitert;
 eine alte App-Version kann die migrierte Datenbank nicht öffnen.

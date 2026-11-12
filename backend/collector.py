@@ -265,7 +265,8 @@ class Collector:
                 self.error = "Saved state belongs to a different target or profile"
                 self._last_action = "Review configuration and acknowledge"
                 return
-            self.state = saved["state"]
+            # Betreiberentscheidung: Containerneustart hebt eine Nutzerpause auf.
+            self.state = "running" if saved["state"] == "paused" else saved["state"]
             self.error = saved.get("error")
             self._request_count = int(saved.get("request_count", 0))
             self._reconnect_attempts = int(saved.get("reconnect_attempts", 0))
