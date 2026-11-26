@@ -18,8 +18,9 @@ from backend.config import get_settings
 from backend.logging_config import (
     MAX_REQUEST_BYTES, LoggingConfigError, export_configuration, import_configuration, merge_csv,
 )
+from backend.mqtt import MqttPublisher
 from backend.pellets import OPERATING_COUNTER_SIGNAL, pellet_status
-from backend.registers import CONTROL_CANDIDATES, SIGNAL_DEFINITIONS
+from backend.registers import CONTROL_CANDIDATES, SIGNAL_DEFINITIONS, signal_freshness_seconds
 from backend.storage import (
     LoggingConfigConflict, PelletDeliveryConflict, SQLiteStore, StorageError, utc_now,
 )
@@ -28,6 +29,7 @@ from backend.storage import (
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    started_at = datetime.now(timezone.utc)
     storage = SQLiteStore(settings.data_dir / "monitor.sqlite3")
     application.state.storage = storage
     collector = None
@@ -42,9 +44,15 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         )
         collector.start()
     application.state.collector = collector
+    publisher = None
     try:
+        if settings.mqtt_enabled and collector is not None:
+            publisher = MqttPublisher(settings, storage, collector, started_at)
+            publisher.start()
         yield
     finally:
+        if publisher is not None:
+            publisher.stop()
         if collector is not None:
             collector.stop()
 
@@ -301,7 +309,7 @@ def current_signals(request: Request) -> dict[str, object]:
         for row in storage.current_signals():
             measured = datetime.fromisoformat(row["observed_at"].replace("Z", "+00:00"))
             age = max(0.0, (now - measured).total_seconds())
-            fresh_until_age_seconds = 4 * SIGNAL_DEFINITIONS.get(row["signal_id"], {}).get("interval_seconds", 60)
+            fresh_until_age_seconds = signal_freshness_seconds(row["signal_id"])
             result.append({
                 "signal_id": row["signal_id"], "value": row["value"], "unit": row["unit"],
                 "observed_at": row["observed_at"], "age_seconds": age,

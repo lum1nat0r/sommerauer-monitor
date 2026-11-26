@@ -1970,3 +1970,31 @@ fallen beim Start weg; Modbus-Ausnahme-2/3-Sperren bleiben.
 
 **Grenzen:** Kein Geräte- oder Unraid-Zugriff; die laufende App wurde nicht neu
 gestartet. Wirkt erst nach neuem Build und Neustart.
+
+## Home Assistant per MQTT (#15, 26.11.2026)
+
+Der optionale MQTT-Adapter veröffentlicht die aktiv aufgezeichneten, gültigen
+SQLite-Beobachtungen per Device Discovery. Er prüft den Servernamen und
+authentifiziert sich mit einem Clientzertifikat. Die API und das SQLite-Schema
+bleiben unverändert.
+
+**Offline-Prüfung mit synthetischen Daten:** Home Assistant 2026.11.3 und
+Mosquitto 2.1.4 liefen in einem separaten lokalen Docker-Netz. Geprüft wurden
+Discovery, ein gültiger Nullwert, Einheiten, Statistikklassen, Originalzeit,
+fehlende und veraltete Daten, ungültige Werte, Sperre und Pause. Home Assistant
+behielt über seinen Neustart die IDs aktiver Sensoren und bereinigte die während
+seiner Offline-Zeit entfernte Entität. Ein Monitor-Neustart hielt alte Werte
+zurück. Nach Broker-Neustart kamen gültige Werte wieder an. Während des
+Brokerausfalls speicherte der Collector neue Daten vom Loopback-Simulator.
+TLS lehnte einen falschen Servernamen und ein fehlendes Clientzertifikat ab.
+Der Broker verweigerte einen Schreibversuch auf ein fremdes Test-Topic.
+Mit der vorgesehenen Listener-Konfiguration funktionierten der Passwort-
+Listener und der separat gebundene mTLS-Listener parallel.
+
+Die Python-Suite meldete 447 bestandene Tests. Ruff, Dashboard-Test und
+Frontend-Build waren erfolgreich.
+
+**Produktion:** SSH, laufende Dienste und MQTT-Discovery-Einstellungen wurden
+lesend geprüft. Der produktive MQTT-Rollout und der Vergleich über zwei
+Messzyklen stehen aus. Es gab keine Anlagenabfrage für diese Prüfung und keine
+Änderung auf Apollo oder im produktiven Home Assistant.

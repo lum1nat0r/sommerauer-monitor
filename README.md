@@ -31,7 +31,7 @@ Endliche Prüfläufe und ungewisse Read-to-clear-Auslesungen stoppen bis zum Neu
 Messlücken und Datenalter bleiben sichtbar.
 
 Vorgesehener Aufbau: Python/FastAPI, SQLite, React/TypeScript, ein Docker-Container.
-Ein zentraler Sammler; Browser und später Home Assistant verwenden seine Daten.
+Ein zentraler Sammler versorgt den Browser und optional Home Assistant über MQTT.
 Unraid 7.3.2, Zugang im Heimnetz/Tailscale. Deployment übernimmt der Betreiber.
 
 ## Lokale Entwicklung
@@ -320,7 +320,8 @@ Lizenz: eigener App-Code unter [MIT](LICENSE), vom Betreiber am 15.10.2026 best�
 | [Fehlerverhalten](docs/FEHLERVERHALTEN.md) | Zustände, fortlaufendes Polling und Schutzstopps |
 | [Inbetriebnahme](docs/INBETRIEBNAHME.md) | Begrenzte Lesetests und Übergang zum Dauerbetrieb |
 | [Unraid](docs/UNRAID.md) | Anforderungen an Container, Sicherung und Releases |
-| [Ausbau](docs/AUSBAU.md) | MQTT, Solarthermie und externe Prognose |
+| [Home Assistant](docs/HOME_ASSISTANT.md) | Optionale MQTT-Anbindung mit Discovery und TLS |
+| [Ausbau](docs/AUSBAU.md) | Solarthermie und externe Prognose |
 | [START-Rückfall](docs/START_RUECKFALL.md) | Noch offener Rückfall und Grenze späterer Steuerung |
 | [Quellen](docs/QUELLEN.md) | Herkunft, Prüfsummen und Nachweisgrenzen |
 

@@ -241,11 +241,15 @@ class Collector:
         }
 
     def _selected_signals(self) -> set[str]:
-        return {
+        active, suspended = self.telemetry_signals()
+        return active - suspended
+
+    def telemetry_signals(self) -> tuple[set[str], set[str]]:
+        active = {
             entry["signal_id"] for entry in self._logging_config["entries"]
             if entry["record"] and entry["eligible"] and entry["signal_id"] is not None
-            and entry["signal_id"] not in self.blocked_signals
-        } - self._suspended_signals()
+        }
+        return active, self.blocked_signals.copy() | self._suspended_signals()
 
     def _suspended_signals(self) -> set[str]:
         return {
