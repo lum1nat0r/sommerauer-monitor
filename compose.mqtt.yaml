@@ -1,0 +1,23 @@
+# Zusammen mit compose.unraid.yaml oder compose.yaml verwenden.
+services:
+  monitor:
+    environment:
+      MQTT_ENABLED: "true"
+      MQTT_HOST: ${MQTT_HOST:-sommerauer-mqtt}
+      MQTT_PORT: ${MQTT_PORT:-8883}
+      MQTT_INSTANCE_ID: ${MQTT_INSTANCE_ID:-sommerauer-monitor}
+    volumes:
+      - type: bind
+        source: ${MQTT_TLS_PATH:?MQTT_TLS_PATH auf das private Client-Zertifikatsverzeichnis setzen}
+        target: /run/secrets/sommerauer-mqtt
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - default
+      - mqtt
+
+networks:
+  mqtt:
+    external: true
+    name: ${MQTT_NETWORK:-sommerauer-mqtt}

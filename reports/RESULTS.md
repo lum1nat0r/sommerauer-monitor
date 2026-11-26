@@ -1970,3 +1970,40 @@ fallen beim Start weg; Modbus-Ausnahme-2/3-Sperren bleiben.
 
 **Grenzen:** Kein Geräte- oder Unraid-Zugriff; die laufende App wurde nicht neu
 gestartet. Wirkt erst nach neuem Build und Neustart.
+
+## Home Assistant per MQTT (#15, 26.11.2026)
+
+Der optionale MQTT-Adapter veröffentlicht die aktiv aufgezeichneten, gültigen
+SQLite-Beobachtungen per Device Discovery. Er prüft den Servernamen und
+authentifiziert sich mit einem Clientzertifikat. Die API und das SQLite-Schema
+bleiben unverändert.
+
+**Offline-Prüfung mit synthetischen Daten:** Home Assistant 2026.11.3 und
+Mosquitto 2.1.4 liefen in einem separaten lokalen Docker-Netz. Geprüft wurden
+Discovery, ein gültiger Nullwert, Einheiten, Statistikklassen, Originalzeit,
+fehlende und veraltete Daten, ungültige Werte, Sperre und Pause. Home Assistant
+behielt über seinen Neustart die IDs aktiver Sensoren und bereinigte die während
+seiner Offline-Zeit entfernte Entität. Ein Monitor-Neustart hielt alte Werte
+zurück. Nach Broker-Neustart kamen gültige Werte wieder an. Während des
+Brokerausfalls speicherte der Collector neue Daten vom Loopback-Simulator.
+TLS lehnte einen falschen Servernamen und ein fehlendes Clientzertifikat ab.
+Der Broker verweigerte einen Schreibversuch auf ein fremdes Test-Topic.
+Mit der vorgesehenen Listener-Konfiguration funktionierten der Passwort-
+Listener und der separat gebundene mTLS-Listener parallel.
+
+Die Python-Suite meldete 447 bestandene Tests. Ruff, Dashboard-Test und
+Frontend-Build waren erfolgreich.
+
+**Produktionsabnahme (26.11.2026):** Nach Betreiberfreigabe wurde der geprüfte
+Kandidat für Revision `7efdc510be4033dc5e736b9d7335b150ee47a8dd` ausgerollt.
+Der Docker-Digest der geladenen amd64-Konfiguration lautet
+`sha256:78563a215537b4d5458d6f876df579a3dfa679b989bb6ba06e808696a1b5dd40`.
+Home Assistant zeigte ein MQTT-Gerät mit genau den 74 eindeutigen aktiven
+Signal-IDs. Kesseltemperatur, Anlagen-Betriebszeit und Versorgungsspannung
+stimmten in jeweils zwei Live-Stichproben in Wert, Einheit und Originalzeit
+mit der Monitor-Historie überein. Die Aufzeichnung lief weiter, der Monitor
+meldete `healthy` und Zigbee2MQTT war wieder verbunden. SQLite-Sicherung und
+Rollback-Konfiguration sind vorhanden. Die Verfügbarkeitsfehler wurden offline
+geprüft. Der produktive Sammler hatte bei der Abnahme keine gesperrten Signale.
+Es wurde keine zusätzliche Modbus-Abfrage ausgelöst, und der neue MQTT-Port
+hat keine Host-Freigabe.

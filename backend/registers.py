@@ -233,6 +233,10 @@ for _code, _name, _unit, _kind, _decoder, _description in _REGISTER_ROWS:
         )},
     })
 
+def signal_freshness_seconds(signal_id: str) -> int:
+    return 4 * SIGNAL_DEFINITIONS.get(signal_id, {}).get("interval_seconds", 60)
+
+
 CONTROL_CANDIDATES: Final = [
     {
         "code": code, "name": name, "kind": "control_candidate",

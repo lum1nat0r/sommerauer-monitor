@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=Path("/data"), alias="DATA_DIR")
     display_timezone: str = Field(default="Europe/Vienna", alias="DISPLAY_TIMEZONE")
     public_origin: AnyHttpUrl | None = Field(default=None, alias="PUBLIC_ORIGIN")
+    mqtt_enabled: bool = Field(default=False, alias="MQTT_ENABLED")
+    mqtt_host: str = Field(default="", alias="MQTT_HOST")
+    mqtt_port: int = Field(default=8883, alias="MQTT_PORT", ge=1, le=65535)
+    mqtt_instance_id: str = Field(
+        default="sommerauer-monitor", alias="MQTT_INSTANCE_ID", pattern=r"^[a-z0-9][a-z0-9_-]{0,62}$",
+    )
+    mqtt_tls_dir: Path = Field(default=Path("/run/secrets/sommerauer-mqtt"), alias="MQTT_TLS_DIR")
 
     @field_validator("public_origin", mode="before")
     @classmethod
@@ -68,6 +75,8 @@ class Settings(BaseSettings):
     def require_host_for_enabled_collector(self) -> "Settings":
         if self.collector_enabled and self.modbus_host is None:
             raise ValueError("MODBUS_HOST is required when COLLECTOR_ENABLED=true")
+        if self.mqtt_enabled and not self.mqtt_host.strip():
+            raise ValueError("MQTT_HOST is required when MQTT_ENABLED=true")
         return self
 
     def public_summary(self) -> dict[str, str | int | bool]:

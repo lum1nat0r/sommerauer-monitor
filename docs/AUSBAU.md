@@ -1,18 +1,11 @@
 # Spätere Erweiterungen
 
-Diese Arbeit gehört zur Roadmap nach Version 1. Jetzt nur stabile Signalnamen,
-Herkunft, Qualitäts-/Zeitinformationen und klare Modulgrenzen berücksichtigen.
+Diese Seite beschreibt Erweiterungen nach der ersten Monitoring-Version.
 
 ## MQTT / Home Assistant
 
-Vorhandenen Broker verwenden, keine zweite Modbus-Erfassung. Optionaler Adapter
-publiziert validierte Messwerte mit stabilen Unique IDs, Gerätenamen, Einheiten,
-passenden Klassen und MQTT Discovery. Verfügbarkeit/Last Will und Datenalter
-abbilden; nach Neustart keine alten Werte als frisch publizieren. Brokerausfall
-darf lokale Erfassung/DB nicht stoppen. Zugangsdaten privat und redigiert halten.
-Nachrichten sind Telemetrie, keine MQTT-Steuerbefehle für die Heizung.
-Quellen: [MQTT](https://www.home-assistant.io/integrations/mqtt/),
-[MQTT Sensor](https://www.home-assistant.io/integrations/sensor.mqtt/).
+Der optionale MQTT-Adapter ist in [Home Assistant über MQTT](HOME_ASSISTANT.md)
+beschrieben.
 
 ## Tatsächliche Solarthermie-Messungen
 
