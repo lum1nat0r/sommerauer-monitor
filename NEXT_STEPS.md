@@ -311,24 +311,15 @@ App-/Dashboard-Prüfprozesse wurden beendet; `.env` blieb unverändert.
 
 ## Weitere Releasepunkte
 
-MIT für eigenen App-Code ist vom Betreiber bestätigt; Lizenzdatei `LICENSE` vorhanden.
-Zugriffsschutz bei den zugeordneten Issues festlegen. Foundation-Laufzeiten und -Bibliotheken sind festgepinnt; MQTT/
-Solarprognose/START-SOLL sind spätere Arbeitspakete. Keine Aktivierung von
-Heizungsänderungen aus dieser Übergabe ableiten.
+Version 1.0.0 enthält die optionale MQTT-Anbindung mit Home Assistant Discovery.
+Die Produktionsabnahme des MQTT-Kandidaten ist in [RESULTS.md](reports/RESULTS.md)
+dokumentiert. Pull Requests bauen das Image für `linux/amd64` ohne Registry-Push.
+Das Release-Image wird über den Tag `v1.0.0` nach bestandenen
+Offline-Prüfungen als `ghcr.io/lum1nat0r/sommerauer-monitor:1.0.0` veröffentlicht.
 
-Image-Workflow: Pull Requests bauen `linux/amd64` ohne Push; Release-Tags
-`vX.Y.Z` veröffentlichen erst nach Offline-Prüfungen. Version 0.5.0 ist getaggt.
-Version 0.6.0 bereitet die automatische Fehlererholung im Dauerbetrieb für
-das nächste Release vor.
-MIT ist für eigenen App-Code festgelegt. Branch-/Tag-Schutz und
-GHCR-Sichtbarkeit bleiben bei der Veröffentlichung zu beachten.
-Details: [Unraid-/Release-Strategie](docs/UNRAID.md#github-image-build-und-veröffentlichungsgrenze).
+Ein Server-Upgrade ist ein eigener Schritt. Bei bestehenden MQTT-Deployments
+das MQTT-Compose-Override, die Zertifikate und die Instanz-ID beibehalten.
+Details stehen in [Home Assistant](docs/HOME_ASSISTANT.md) und [Unraid](docs/UNRAID.md).
 
-Für Version 0.6.0 verwendet `compose.unraid.yaml` das vorbereitete Image
-`ghcr.io/lum1nat0r/sommerauer-monitor:0.6.0`. Der Git-Tag dafür ist `v0.6.0`.
-Nach erfolgreichem Release-Workflow
-die öffentliche GHCR-Verfügbarkeit anonym prüfen; erst danach auf Unraid
-mit privater `.env` und vorbereitetem Datenpfad starten
-([Anleitung](docs/UNRAID.md#unraid-veröffentlichtes-image-verwenden)).
-Die lokale Build-Datei `compose.yaml` bleibt getrennt. Release- und Image-Nachweis
-werden im GitHub-Release verlinkt; das Betreiber-Deployment bleibt davon getrennt.
+Verwaltungszugriffsschutz, Solarthermie und externe Prognosen bleiben separate
+Arbeitspakete. Änderungen an Heizungsparametern erfordern eine eigene Freigabe.
