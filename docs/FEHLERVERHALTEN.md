@@ -22,6 +22,12 @@ nach ungewisser Read-to-clear-Auslesung. Der betroffene Block wartet sein volles
 Intervall; dabei können Ausgangsbits eines Intervalls fehlen (in Kauf genommen).
 Ausgenommen: endliche Prüfläufe und Signalsperren (Modbus 2/3).
 
+**Betreiberentscheidung 26.11.2026:** Nur die manuelle Pause hält die Erfassung
+im laufenden Dauerbetrieb global an. Die Pause endet bei manueller Fortsetzung
+oder Neustart. Abfragefehler werden im regulären Intervall erneut versucht.
+Ein ungewisser Read-to-clear-Ausgang sperrt nur den betroffenen Block.
+Endliche Prüfläufe behalten ihre Grenzen und Fehlerstopps.
+
 ## Zustände und Übergänge
 
 | Zustand | Verhalten / erlaubter Übergang |
@@ -31,13 +37,13 @@ Ausgenommen: endliche Prüfläufe und Signalsperren (Modbus 2/3).
 | `running` | Geplante Reads; erfolgreicher Zyklus bleibt running |
 | `completed` | Endliches Anfrage-/Zeitlimit erreicht; keine weiteren Reads bis zu bewusstem `acknowledge_and_start` oder Neustart im Dauerbetrieb |
 | `reconnect_wait` | Verbindungsfehler sichtbar; normale Abfragefolge und Blockintervalle laufen ohne Versuchslimit weiter |
-| `stopped_transport` | Endlicher Lauf nach Transportfehler oder ungewisse Read-to-clear-Auslesung; quittieren oder Neustart im Dauerbetrieb |
-| `stopped_protocol` | Ungültige/teilweise Antwort oder übergreifender Modbus-Gerätefehler; keine Reads bis Quittierung oder Neustart |
-| `stopped_data` | Strukturell ungültige Registerblockdaten; keine Reads bis Quittierung oder Neustart |
-| `stopped_storage` | Speicherung/Zustand nicht sicher möglich; keine Reads bis Quittierung oder Neustart |
+| `retry_wait` | Protokoll-, Geräte- oder struktureller Datenfehler im Dauerbetrieb; Wiederholung des Blocks im regulären Intervall |
+| `storage_wait` | SQLite-Zugriff wird alle 60 s wiederholt; bis dahin keine weiteren Geräteabfragen |
+| `stopped_transport`, `stopped_protocol`, `stopped_data`, `stopped_storage` | Fehlerstopp eines endlichen Laufs; Quittierung erforderlich |
 
-Nutzer-Stopp oder Anlagenauffälligkeit überstimmt alles. Harte Fehlerstopps werden
-zur Laufzeit bewusst quittiert; im Dauerbetrieb hebt ein Neustart sie ebenfalls auf.
+Der Nutzer kann auch während einer automatischen Fehlererholung pausieren.
+Eine laufende Abfrage darf fertig verarbeitet werden. Während der Pause
+werden keine neuen Modbus-Anfragen gestellt.
 Web-API/Diagramme bleiben unabhängig vom Messzustand erreichbar.
 Ein gespeicherter Zustand `completed` bleibt auch bei deaktiviertem Sammler
 über die lesende API „Erfassung abgeschlossen“, nicht `stopped_storage`.
@@ -96,7 +102,7 @@ Neustart, normale Pause/Fortsetzung und CSV-Speichern heben Registersperren
 `POST /api/collector/acknowledge-and-start` hebt die Sperren ausdrücklich auf
 und startet die Erfassung. Das ist eine erneute Freigabe aller gesperrten Werte,
 keine Hintergrundwiederholung. Anfragebudget und Historie bleiben erhalten.
-Die Oberfläche besitzt bisher keinen separaten Einzelwert-Freigabeknopf.
+Nach der Pause bietet die Oberfläche **Gesperrte Werte freigeben und fortsetzen** an.
 Sind alle ausgewählten Signale gesperrt, wartet der Sammler ohne Busy-Loop.
 
 Globale Transport-/Protokollfehler erhalten ebenfalls eine sichere Fehleranzeige
@@ -141,10 +147,10 @@ gekennzeichnet; Wiederholungen oder andere Leser können Informationen verlieren
 Reine Verbindungsfehler bei normalen Zusatzblöcken werden wie bei Kernblöcken
 behandelt: nächster regulärer Termin, mindestens 300 s ab Abschluss, ohne
 zusätzliche Backoff-Stufe. Fällige Kernwerte werden dadurch nicht verdrängt.
-Für Read-to-clear-Blöcke bleibt ein ungewisser Ausgang gesperrt:
-Transportfehler führen zu `stopped_transport`, ungültige/teilweise Antworten
-zu `stopped_protocol`. Zur Laufzeit keine Wiederholung; ein Neustart im
-Dauerbetrieb wiederholt sie nach vollem Intervall (Betreiberentscheidung 12.11.2026).
+Im Dauerbetrieb wird bei ungewisser Read-to-clear-Auslesung nur der betroffene
+Block ausgesetzt. Die übrigen Blöcke bleiben im Zeitplan. Nach bewusster Freigabe
+oder Neustart wartet der ausgesetzte Block das volle Mindestintervall.
+In endlichen Läufen bleibt der globale Fehlerstopp für diese Auslesungen bestehen.
 
 ## Reine Verbindungsfehler
 
@@ -160,14 +166,13 @@ wieder als erreichbar. Wertfehler behalten unabhängig davon ihre eigene Qualit�
 und gegebenenfalls Signalsperre. Es gibt keine Erholungszyklen oder Budgetresets mehr.
 
 Explizit endliche App-Läufe (`COLLECTOR_MAX_REQUESTS`) und Einzeltestwerkzeuge
-behalten ihren Fehlerstopp ohne automatische Wiederholung. Wenn der gespeicherte
-Zustand nicht verlässlich lesbar ist: Speicherstopp statt automatischem Neubeginn.
+behalten ihren Fehlerstopp ohne automatische Wiederholung. Ein nicht lesbarer
+gespeicherter Zustand führt bei endlichen App-Läufen zum Speicherstopp.
 
-## Harte Fehler
+## Protokoll-, Daten- und Speicherfehler
 
 Falsche Unit/Funktion/Transaktion, ungültige MBAP-Länge oder Protokoll-ID,
-falsche Byteanzahl und unvollständige Antworten führen weiterhin zum
-Protokollstopp. Ebenso globale Modbus-Fehler, etwa Gerätefehler 4, Busy 6 oder
+falsche Byteanzahl und unvollständige Antworten sind Protokollfehler. Ebenso globale Modbus-Fehler, etwa Gerätefehler 4, Busy 6 oder
 Gatewayfehler; nur registerbezogene Ausnahmen 2/3 werden isoliert.
 Der Transport liefert dazu die empfangene
 Byteanzahl: Verbindungsfehler/Timeout ohne Antwortbytes ist von Teilantwort/Abbruch
@@ -178,9 +183,15 @@ nicht als reine Nichterreichbarkeit.
 Ungültige Wertebereiche, Ersatzwerte wie 110 bei Kern-Temperaturkanälen,
 Restminuten >=1440 und widersprüchliche Zähler ergeben isolierte ungültige
 Signale (Wert bleibt, soweit dekodierbar, gespeichert) statt eines Stopps aller Werte. Strukturell falsche Wortanzahl oder
-ungültige Registerworttypen bleiben globale Datenfehler. Rohworte und sichere
-Fehlerdetails werden gespeichert, soweit die Datenbank funktioniert.
-DB voll/nicht beschreibbar/Migrationsfehler -> Speicherstopp, keine weiteren Reads.
+ungültige Registerworttypen sind strukturelle Datenfehler. Rohworte und sichere
+Fehlerdetails werden gespeichert, soweit die Datenbank funktioniert. Im
+Dauerbetrieb erhalten gewöhnliche Blöcke ihren nächsten regulären Termin.
+
+Bei Speicherfehlern wird der fehlgeschlagene SQLite-Zugriff nach jeweils 60 s
+wiederholt. Bis zum Erfolg erfolgen keine neuen Modbus-Anfragen. Beobachtungen
+bleiben im laufenden Prozess zur Wiederholung mit derselben Anfrage-ID verfügbar.
+Migrationsfehler vor dem Dienststart werden weiterhin vom Startprozess gemeldet.
+Bei Speicher- oder Geräteausfällen können Messlücken entstehen.
 
 ## Offline-Prüfungen
 
@@ -188,7 +199,10 @@ Synthetische Tests prüfen Ausfälle über die frühere Fünf-Versuche-Grenze hi
 unveränderte 60-/300-s-Abstände, Wiederkehr gültiger Werte, fehlende Verdrängung
 der Kernwerte durch Zusatzfehler, Systemuhrsprung, Neustart mit alten
 Budgetsperren und unterbrochenen Anfragen, Nutzerpause/Fortsetzung, Zielwechsel,
-endliche Grenzen sowie unveränderte Protokoll-/Speicher-/Read-to-clear-Stopps.
+endliche Grenzen sowie deren Protokoll-/Speicher-/Read-to-clear-Stopps.
+Für den Dauerbetrieb gibt es zusätzliche Tests für blockweise Wiederholung,
+SQLite-Erholung vor und nach einer Anfrage, Nutzerpause während eines
+Speicherfehlers und die isolierte Read-to-clear-Sperre.
 Ein Loopback-Smoke mit echtem FC03-Transport und virtueller Schedulerzeit belegt
 21 Verbindungsfehler und anschließend drei erfolgreiche Reads.
 Dies ist kein Geräte- oder Langzeitnachweis.

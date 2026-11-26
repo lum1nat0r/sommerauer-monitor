@@ -1,5 +1,45 @@
 # Ergebnisse
 
+## 26.11.2026 – Releasevorbereitung v0.6.0
+
+Im Dauerbetrieb lässt sich die gesamte Aufzeichnung über **Einstellungen →
+Erfassung pausieren** anhalten. Gewöhnliche Abfragefehler werden im regulären
+Intervall erneut versucht. Ungewisse Read-to-clear-Auslesungen setzen nur den
+betroffenen Block aus. Nach einem SQLite-Ausfall setzt die Erfassung bei
+sicherer Speicherung automatisch wieder ein. Ein Neustart hebt die Nutzerpause auf.
+Endliche Prüfläufe behalten ihre Fehlerstopps und Limits.
+
+Paketmetadaten, API-Version und Container-Konfiguration stehen auf 0.6.0.
+Schema und Abhängigkeitsversionen entsprechen v0.5.0.
+
+- 444 Python-Tests mit synthetischen Daten und Loopback, Dashboard-Tests,
+  Ruff, Lockfile-Prüfung und Frontend-Build bestanden.
+- Lokaler Docker-Build für `linux/amd64` und `scripts/smoke_image.sh`
+  bestanden. Der Smoke-Test prüfte Health, Version und Sammlerstatus mit
+  deaktivierter Erfassung und leerer Zieladresse.
+- npm meldete beim Installieren der Frontend-Buildabhängigkeiten einen
+  Audit-Befund mit hohem Schweregrad.
+
+Der Arbeitsbranch ist `release/0.6.0`. Die Veröffentlichung über den vorgesehenen
+Tag `v0.6.0`, der anonyme Pull und die Inbetriebnahme auf Unraid stehen aus.
+
+## 26.11.2026 – Automatische Fehlererholung im Dauerbetrieb
+
+Die globale Pause liegt unter **Einstellungen → Erfassung pausieren**. Ein
+Neustart setzt die Erfassung wieder fort. Fehler gewöhnlicher Blöcke werden
+im regulären Intervall wiederholt. Ungewisse Read-to-clear-Auslesungen setzen
+nur den betroffenen Block aus. Bei SQLite-Fehlern wartet der Sammler auf
+sichere Speicherung und setzt danach automatisch fort. Endliche Prüfläufe
+behalten ihre Fehlerstopps und Limits.
+
+- 444 Python-Tests bestanden, einschließlich synthetischer Fehlerfälle und
+  des lokalen FC03-Simulators. Dashboard-Tests, Frontend-Build und Ruff bestanden.
+- Synthetisch geprüft wurden wiederholte Blockfehler, SQLite-Erholung vor
+  und nach einer Anfrage, Pause während der Erholung sowie blockweise Sperre
+  und Wiederaufnahme von Read-to-clear-Auslesungen.
+- Die Abnahme erfolgte offline. Bei längeren Laufzeitfehlern oder Prozessausfällen
+  können Messlücken entstehen.
+
 ## 12.11.2026 – Releasevorbereitung v0.5.0
 
 Betreiberauftrag: Collector startet nach jedem Container-/Prozessneustart im

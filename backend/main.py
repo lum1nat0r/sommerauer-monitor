@@ -49,7 +49,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             collector.stop()
 
 
-app = FastAPI(title="Sommerauer Monitor", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="Sommerauer Monitor", version="0.6.0", lifespan=lifespan)
 
 
 class AppConfigUpdate(BaseModel):
@@ -480,6 +480,7 @@ def collector_status(request: Request) -> dict[str, object]:
     reasons = {
         "running": "Erfassung läuft",
         "reconnect_wait": "Verbindungsfehler; Abfragen laufen im regulären Intervall weiter",
+        "retry_wait": "Abfragefehler; der Block wird im regulären Intervall erneut abgefragt",
         "stopped_transport": "Transportfehler; Erfassung angehalten",
         "stopped_protocol": "Protokollfehler; Erfassung angehalten",
         "stopped_data": "Datenfehler; Erfassung angehalten",

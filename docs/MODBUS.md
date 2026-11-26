@@ -250,10 +250,11 @@ Historische Beobachtungen werden nicht gelöscht oder anhand neuer Importfelder
 umgedeutet. Schema 1/2/3 wird additiv auf 4 migriert; vor Upgrade eine konsistente
 Sicherung erstellen. Alte App-Versionen unterstützen Schema 4 nicht.
 
-Fehlende Wetterwerte erscheinen jetzt als `unavailable` an der Kachel, ohne die
-übrigen Werte zu stoppen. Ungültige Einzelwerte und registerbezogene
-Modbus-Ausnahmen 2/3 werden persistent ausgesetzt; gesunde Nachbarn bleiben
-auslesbar. Globale Geräte-/Protokollfehler bleiben Stopps.
+Fehlende Wetterwerte erscheinen als `unavailable` an der Kachel, unplausible
+Einzelwerte als `invalid`. Registerbezogene Modbus-Ausnahmen 2/3 setzen den
+betroffenen Block bis zur bewussten Freigabe aus. Im Dauerbetrieb werden
+gewöhnliche Blöcke nach Geräte- und Protokollfehlern im regulären Intervall erneut
+abgefragt.
 Details und bewusste Freigabe: [Fehlerverhalten](FEHLERVERHALTEN.md).
 
 ### Aufzeichnung zwischen Instanzen übertragen

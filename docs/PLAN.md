@@ -106,6 +106,10 @@ automatisch eine atomare Momentaufnahme aller darin enthaltenen Werte.
 
 ### Fehlerverhalten für den Dauerbetrieb
 
+Die Betreiberentscheidung vom 26.11.2026 ersetzt die globalen Fehlerstopps
+im laufenden Dauerbetrieb. Die aktuelle Regel steht unter
+[Fehlerverhalten](FEHLERVERHALTEN.md).
+
 Betreiberentscheidung vom 19.10.2026, umgesetzt und offline geprüft:
 
 - Reine TCP-Verbindungsfehler und Timeouts ohne Antwortbytes als Fehlerbeobachtung

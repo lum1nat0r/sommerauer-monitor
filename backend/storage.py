@@ -392,11 +392,12 @@ class SQLiteStore:
         try:
             with self._connection() as connection:
                 connection.execute(
-                    """INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(event_id) DO NOTHING""",
                     (event_id, occurred_at, kind, severity, message,
                      json.dumps(details or {}, sort_keys=True)),
                 )
-        except sqlite3.Error as exc:
+        except (sqlite3.Error, OSError) as exc:
             raise StorageError(f"Could not store event: {exc}") from exc
 
     def save_config(self, version: int, config: Mapping[str, Any], created_at: str) -> None:
