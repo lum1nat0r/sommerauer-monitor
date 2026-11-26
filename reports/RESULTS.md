@@ -1994,7 +1994,16 @@ Listener und der separat gebundene mTLS-Listener parallel.
 Die Python-Suite meldete 447 bestandene Tests. Ruff, Dashboard-Test und
 Frontend-Build waren erfolgreich.
 
-**Produktion:** SSH, laufende Dienste und MQTT-Discovery-Einstellungen wurden
-lesend geprüft. Der produktive MQTT-Rollout und der Vergleich über zwei
-Messzyklen stehen aus. Es gab keine Anlagenabfrage für diese Prüfung und keine
-Änderung auf Apollo oder im produktiven Home Assistant.
+**Produktionsabnahme (26.11.2026):** Nach Betreiberfreigabe wurde der geprüfte
+Kandidat für Revision `7efdc510be4033dc5e736b9d7335b150ee47a8dd` ausgerollt.
+Der Docker-Digest der geladenen amd64-Konfiguration lautet
+`sha256:78563a215537b4d5458d6f876df579a3dfa679b989bb6ba06e808696a1b5dd40`.
+Home Assistant zeigte ein MQTT-Gerät mit genau den 74 eindeutigen aktiven
+Signal-IDs. Kesseltemperatur, Anlagen-Betriebszeit und Versorgungsspannung
+stimmten in jeweils zwei Live-Stichproben in Wert, Einheit und Originalzeit
+mit der Monitor-Historie überein. Die Aufzeichnung lief weiter, der Monitor
+meldete `healthy` und Zigbee2MQTT war wieder verbunden. SQLite-Sicherung und
+Rollback-Konfiguration sind vorhanden. Die Verfügbarkeitsfehler wurden offline
+geprüft. Der produktive Sammler hatte bei der Abnahme keine gesperrten Signale.
+Es wurde keine zusätzliche Modbus-Abfrage ausgelöst, und der neue MQTT-Port
+hat keine Host-Freigabe.
