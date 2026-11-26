@@ -3,10 +3,10 @@
 Zielplattform: `linux/amd64` (Unraid x86_64). Ein nicht privilegierter Container
 liefert Frontend und FastAPI über Port 8000 und nutzt lokales persistentes `/data`.
 `compose.yaml` baut lokal; `compose.unraid.yaml` ist ein eigenständiger Stack
-ohne Build-Schritt und lädt `ghcr.io/lum1nat0r/sommerauer-monitor:1.0.0`.
+ohne Build-Schritt und lädt `ghcr.io/lum1nat0r/sommerauer-monitor:1.0.1`.
 Das alternative `unraid-template.xml` verwendet denselben Image-Tag.
-Für Version 1.0.0 ist der Git-Tag **`v1.0.0`** vorgesehen; der Image-Tag
-lautet **`1.0.0`**. Vor erfolgreicher Veröffentlichung und öffentlicher
+Für Version 1.0.1 ist der Git-Tag **`v1.0.1`** vorgesehen; der Image-Tag
+lautet **`1.0.1`**. Vor erfolgreicher Veröffentlichung und öffentlicher
 GHCR-Freigabe ist das Image nicht anonym abrufbar.
 
 Der Container läuft als UID 99/GID 100 (`nobody:users`), ohne Docker-Socket,
@@ -23,7 +23,7 @@ Repository, Image-Buildargumente, Logs oder öffentliche Dokumentation eintragen
 ## Unraid: veröffentlichtes Image verwenden
 
 Voraussetzung: Docker Compose auf Unraid, erfolgreich veröffentlichte Version
-`1.0.0` und öffentliche Sichtbarkeit des GHCR-Pakets. Nur
+`1.0.1` und öffentliche Sichtbarkeit des GHCR-Pakets. Nur
 `compose.unraid.yaml` auf den Server kopieren; kein Quellcode und kein lokaler
 Image-Build nötig. Im selben Stackverzeichnis eine private `.env` anlegen:
 
@@ -36,6 +36,7 @@ PGID=100
 MODBUS_HOST=
 COLLECTOR_ENABLED=false
 DISPLAY_TIMEZONE=Europe/Vienna
+MQTT_TLS_PATH=/pfad/zum/client-zertifikatsverzeichnis
 ```
 
 `DATA_PATH` muss ausdrücklich gesetzt sein. Vorher das ausgewählte Verzeichnis
@@ -57,18 +58,20 @@ docker compose -f compose.unraid.yaml logs --tail=50 monitor
 
 Das Dashboard ist unter `http://<Unraid-Host>:8000` erreichbar, bei geändertem
 `WEB_PORT` entsprechend. Nur im Heimnetz/Tailscale bereitstellen, keine
-Router-Portfreigabe. `/api/health`, `/api/version` (Version `1.0.0` samt Revision)
+Router-Portfreigabe. `/api/health`, `/api/version` (Version `1.0.1` samt Revision)
 und `/api/collector/status` prüfen; ohne Ziel bleibt die Erfassung `unconfigured`.
 Healthcheck und Container-Neustart aktivieren keine Messung.
 
-`compose.unraid.yaml` ist die Basis für genau eine Monitor-Instanz. Für optionale
-MQTT-Telemetrie dieselbe Instanz um `compose.mqtt.yaml` ergänzen.
+Der Unraid-Stack bindet das externe Docker-Netz und das private
+Zertifikatsverzeichnis direkt ein. Beide müssen beim Start vorhanden sein.
+`MQTT_ENABLED=false` deaktiviert die MQTT-Ausgabe. Das Netz heißt standardmäßig
+`sommerauer-mqtt` und lässt sich mit `MQTT_NETWORK` festlegen.
 [MQTT-Konfiguration](HOME_ASSISTANT.md).
 
 In einem Compose-Manager diese Dateien als Stack hinterlegen und die Variablen
 im Stack konfigurieren. `APP_VERSION` in der Compose-Umgebung wählt den
-Image-Tag und ist standardmäßig `1.0.0`. Einen älteren Wert in der bestehenden
-Stack-Umgebung beim Upgrade auf `APP_VERSION=1.0.0` ändern. Die Laufzeit meldet
+Image-Tag und ist standardmäßig `1.0.1`. Einen älteren Wert in der bestehenden
+Stack-Umgebung beim Upgrade auf `APP_VERSION=1.0.1` ändern. Die Laufzeit meldet
 Version und Revision aus dem veröffentlichten Image.
 
 Erst nach den Unraid-Prüfungen und gemäß
@@ -181,7 +184,7 @@ veröffentlichtes Image einsetzen:
 
 ```sh
 DATA_PATH=/mnt/user/appdata/sommerauer-monitor
-IMAGE=ghcr.io/lum1nat0r/sommerauer-monitor:1.0.0
+IMAGE=ghcr.io/lum1nat0r/sommerauer-monitor:1.0.1
 docker run --rm --user 99:100 -v "$DATA_PATH:/data" --entrypoint python "$IMAGE" -c "from backend.storage import SQLiteStore; SQLiteStore.restore_from('/data/pre-upgrade.sqlite3', '/data/monitor.sqlite3')"
 ```
 
@@ -191,7 +194,7 @@ Schema-Upgrades behalten; keine aktive Hauptdatei ohne WAL-Sicherung kopieren.
 ## Build- und Prüfgrenzen
 
 Das Dockerfile pinnt Python 3.12.9, Node 26.7.0, npm 12.0.2, npm-Lockdatei und uv 0.12.2;
-Compose setzt das Ziel auf `linux/amd64`. Verfügbarkeit von Version 1.0.0 wird
+Compose setzt das Ziel auf `linux/amd64`. Verfügbarkeit von Version 1.0.1 wird
 über Release-Workflow und anonymen Registry-Abruf geprüft. Lokale Docker-Prüfungen
 sind keine Prüfung auf Unraid 7.3.2.
 Eine tatsächliche Unraid-Installation, Hardware- oder Geräteprüfung wird nur nach
