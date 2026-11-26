@@ -32,8 +32,8 @@ ein ganzes Abfrageintervall abbilden, wie im Monitor.
 4. Das externe Docker-Netz `sommerauer-mqtt` anlegen und den Broker darin mit
    dem zum Zertifikat passenden Alias `sommerauer-mqtt` erreichbar machen.
    In der privaten Compose-Umgebung `MQTT_TLS_PATH` auf das Client-Verzeichnis
-   setzen und das bestehende Compose-Deployment um `-f compose.mqtt.yaml`
-   ergänzen. Der zusätzliche Broker-Port braucht keine Host-Freigabe. Bei
+   setzen. Ab Version 1.0.1 ist MQTT in `compose.unraid.yaml` direkt eingebunden und
+   standardmäßig aktiv. Mit `compose.yaml` weiterhin `-f compose.mqtt.yaml` ergänzen. Der zusätzliche Broker-Port braucht keine Host-Freigabe. Bei
    abweichenden Werten `MQTT_NETWORK`, `MQTT_HOST`, `MQTT_PORT` und
    `MQTT_INSTANCE_ID` setzen. Die Instanz-ID nach der Einrichtung beibehalten.
 
