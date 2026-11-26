@@ -172,6 +172,8 @@ beziehen sich ausschließlich auf diesen historischen Zeitpunkt (Suchnähe
 Suche nach Name, ID oder Beschreibung ändert keine Aufzeichnung. Metadaten
 stehen in aufklappbaren Details; konkrete Wertfehler bleiben direkt sichtbar.
 **Einstellungen** (`#/einstellungen`) bündelt Erfassung, Zeitzone und Ereignisse.
+Mit **Erfassung pausieren** hält der Nutzer die Aufzeichnung im Dauerbetrieb
+an. **Erfassung fortsetzen** oder ein Container-/Prozessneustart startet sie wieder.
 Die Modbus-Seite bleibt beim Navigieren gemountet; lokale Entwürfe bleiben erhalten.
 Der Übernahmestatus zeigt Registeranzahl, Status und gespeicherte Revision
 statt doppelter vollständiger Registerlisten. Bei ausstehender Übernahme
@@ -272,13 +274,11 @@ Fehler einzelner Werte sind jetzt direkt an deren Kachel sichtbar. Fehlende
 Wetterdaten werden als „Nicht verfügbar“ weiter im normalen Intervall geprüft;
 unplausible Werte werden samt Wert gespeichert, markiert und weiter abgefragt;
 registerbezogene Ablehnungen (Modbus 2/3) werden einzeln ausgesetzt,
-während die übrige Erfassung weiterläuft. Verbindungsfehler führen im Dauerbetrieb
-nicht zum Abschalten; Protokoll- und Speicherprobleme behalten ihre Schutzstopps.
-Ein neuer Build übernimmt alte reine Transportstopps automatisch, sofern beide
-Laufkonfigurationen unbeschränkt sind und kein Read-to-clear-Register betroffen ist.
-Im Dauerbetrieb startet jeder Container-/Prozessneustart die Erfassung, auch nach
-Nutzerpause, hartem Stopp oder ungewisser Read-to-clear-Auslesung. Nur endliche
-Prüfläufe bleiben gesperrt.
+während die übrige Erfassung weiterläuft. Im Dauerbetrieb werden fehlerhafte
+Blöcke im normalen Intervall erneut abgefragt. Bei einer ungewissen Read-to-clear-
+Auslesung wird nur der betroffene Block ausgesetzt. Bei Speicherfehlern wartet
+der Sammler auf SQLite und setzt die Aufzeichnung automatisch fort. Endliche
+Prüfläufe behalten ihre Fehlerstopps und Limits.
 [Fehlerbehandlung und bewusste Freigabe](docs/FEHLERVERHALTEN.md).
 Vor dem Upgrade konsistent sichern: Schema 1/2/3 wird auf 4 erweitert;
 eine alte App-Version kann die migrierte Datenbank nicht öffnen.
@@ -286,7 +286,7 @@ eine alte App-Version kann die migrierte Datenbank nicht öffnen.
 ## Docker und Unraid
 
 Für Unraid steht [compose.unraid.yaml](compose.unraid.yaml) als eigenständiger
-Stack mit **`ghcr.io/lum1nat0r/sommerauer-monitor:0.5.0`** bereit, ohne lokalen
+Stack mit **`ghcr.io/lum1nat0r/sommerauer-monitor:0.6.0`** bereit, ohne lokalen
 Build. Einrichtung von `.env`, persistentem Datenpfad und Start:
 [Unraid-Anleitung](docs/UNRAID.md#unraid-veröffentlichtes-image-verwenden).
 Der Container läuft standardmäßig als UID 99/GID 100, bindet Port 8000,
@@ -300,8 +300,8 @@ Die bisherige `compose.yaml` bleibt für lokale Builds:
 `cp .env.example .env`, beschreibbaren `DATA_PATH` setzen und
 `docker compose up --build -d` ausführen. `/api/version` meldet Buildversion
 und Revision. Pull Requests prüfen einen `linux/amd64`-Image-Build ohne Push.
-Der Release-Git-Tag für Version 0.5.0 heißt **`v0.5.0`**; der Workflow veröffentlicht
-nach seinen Offline-Prüfungen das Image mit Tag **`0.5.0`**
+Der Release-Git-Tag für Version 0.6.0 heißt **`v0.6.0`**; der Workflow veröffentlicht
+nach seinen Offline-Prüfungen das Image mit Tag **`0.6.0`**
 ([Strategie und Sperren](docs/UNRAID.md#github-image-build-und-veröffentlichungsgrenze)).
 Bis zur erfolgreichen Veröffentlichung, öffentlicher GHCR-Freigabe und anonymem
 Pull ist dessen Verfügbarkeit nicht belegt. Lokale Docker-Prüfungen belegen

@@ -297,6 +297,100 @@ def test_storage_failure_stops_without_another_read(tmp_path):
     assert collector.error == "Speicherzugriff fehlgeschlagen; Erfassung angehalten."
 
 
+@pytest.mark.parametrize("failure_phase", ["startup", "reservation", "observation"])
+def test_continuous_storage_retry_recovers_without_repeating_read(tmp_path, failure_phase):
+    class FlakyStore(SQLiteStore):
+        fail_config = failure_phase == "startup"
+
+        def get_logging_config(self):
+            if self.fail_config:
+                self.fail_config = False
+                raise StorageError("synthetic startup failure")
+            return super().get_logging_config()
+
+        def save_collector_state(self, state, updated_at):
+            if failure_phase == "reservation" and state["request_in_flight"] and not client.starts:
+                if not waits:
+                    raise StorageError("synthetic reservation failure")
+            super().save_collector_state(state, updated_at)
+
+        def record_cycle(self, request, observations):
+            inserted = super().record_cycle(request, observations)
+            if failure_phase == "observation" and inserted and not waits:
+                raise StorageError("synthetic failure after commit")
+            return inserted
+
+    store = FlakyStore(tmp_path / "retry.sqlite3")
+    collector, client, clock = make_collector(tmp_path, limit=None, store=store)
+    waits = []
+    read = client.read
+
+    def wait(event, seconds):
+        if collector.status()["state"] == "storage_wait":
+            waits.append(seconds)
+            assert len(client.starts) == (1 if failure_phase == "observation" else 0)
+        return clock.wait(event, seconds)
+
+    def read_then_stop(block):
+        result = read(block)
+        if len(client.starts) == 2:
+            collector._stop.set()
+        return result
+
+    collector.wait = wait
+    client.read = read_then_stop
+    collector.run()
+
+    assert waits == ([] if failure_phase == "startup" else [60.0])
+    expected_starts = {
+        "startup": [(4102, 0.0), (28688, 0.0)],
+        "reservation": [(4102, 60.0), (28688, 60.0)],
+        "observation": [(4102, 0.0), (28688, 60.0)],
+    }
+    assert client.starts == expected_starts[failure_phase]
+    measurement, = store.history("boiler.temperature")
+    assert measurement["value"] == 42
+
+
+def test_pause_during_storage_retry_prevents_reserved_read_until_resume(tmp_path):
+    collector, client, clock = make_collector(tmp_path, limit=None)
+    save = collector.store.save_collector_state
+    fail_reservation = True
+    read = client.read
+
+    def save_state(state, updated_at):
+        nonlocal fail_reservation
+        if state["request_in_flight"] and fail_reservation:
+            fail_reservation = False
+            raise StorageError("synthetic reservation failure")
+        save(state, updated_at)
+
+    def wait(event, seconds):
+        if collector.status()["state"] == "storage_wait":
+            collector.pause()
+            assert collector.status()["state"] == "paused"
+            assert client.starts == []
+        elif collector.state == "paused":
+            assert client.starts == []
+            assert collector.store.get_collector_state()["request_count"] == 0
+            # run() is driven on the test thread, so no second worker is needed.
+            collector.start = lambda: None
+            collector.resume()
+        return clock.wait(event, seconds)
+
+    def read_then_stop(block):
+        result = read(block)
+        collector._stop.set()
+        return result
+
+    collector.store.save_collector_state = save_state
+    collector.wait = wait
+    client.read = read_then_stop
+    collector.run()
+
+    assert client.starts == [(4102, pytest.approx(60.1))]
+
+
 def test_connection_failure_keeps_other_reads_and_retries_at_normal_interval(tmp_path):
     clock = FakeClock()
 
@@ -380,6 +474,7 @@ def test_protocol_failure_stops_without_retry_and_restart_resumes(tmp_path, fail
         monotonic=clock.monotonic,
         wait=clock.wait,
         now=clock.now,
+        max_requests=3,
     )
     collector.run()
 
@@ -404,6 +499,32 @@ def test_protocol_failure_stops_without_retry_and_restart_resumes(tmp_path, fail
 
     assert restarted.state == "running"
     assert restarted.error is None
+
+
+@pytest.mark.parametrize("failure", ["protocol", "data", "device"])
+def test_continuous_query_failure_retries_only_at_regular_interval(tmp_path, failure):
+    collector, client, _ = make_collector(tmp_path, limit=None)
+    read = client.read
+
+    def flaky_temperature(block):
+        result = read(block)
+        if block.offset == 4102:
+            if client.clock.monotonic() >= 120:
+                collector._stop.set()
+            elif failure == "protocol":
+                raise ProtocolError("synthetic malformed response")
+            elif failure == "device":
+                raise ModbusExceptionError(6)
+            else:
+                return RegisterRead(block.offset, ())
+        return result
+
+    client.read = flaky_temperature
+    collector.run()
+
+    assert [at for offset, at in client.starts if offset == 4102] == [0, 60, 120]
+    assert [at for offset, at in client.starts if offset == 28688] == [0, 60]
+    assert [row["value"] for row in collector.store.history("boiler.temperature")] == [None, None, 42]
 
 
 def test_restart_from_running_reserves_request_and_waits_conservatively(tmp_path):
@@ -718,7 +839,7 @@ def test_extension_outage_does_not_delay_core_reads(tmp_path):
 @pytest.mark.parametrize("failure_type", [ModbusConnectionError, ProtocolError, IncompleteResponseError])
 def test_read_to_clear_failure_stops_without_retry(tmp_path, failure_type):
     code = "85E0"
-    collector, client, _ = extended_collector(tmp_path)
+    collector, client, _ = extended_collector(tmp_path, limit=3)
     select_extended(collector, (code,), keep_core=False)
 
     def fail(block):
@@ -744,6 +865,38 @@ def test_read_to_clear_failure_stops_without_retry(tmp_path, failure_type):
     # Dauerbetrieb: Betreiber nimmt die Wiederholung der Read-to-clear-Auslesung in Kauf.
     restarted, _, _ = make_collector(tmp_path, store=collector.store, limit=None)
     assert restarted.state in {"running", "reconnect_wait"}
+
+
+@pytest.mark.parametrize("failure_type", [ModbusConnectionError, IncompleteResponseError])
+def test_continuous_read_to_clear_failure_suspends_only_its_block(tmp_path, failure_type):
+    collector, client, clock = extended_collector(tmp_path)
+    select_extended(collector, ("85E0", "85E1"))
+    read = client.read
+
+    def read_until_second_interval(block):
+        result = read(block)
+        if block.offset == 0x85E0:
+            raise failure_type("synthetic uncertain response")
+        if {(0x85E1, 300), (4102, 300)}.issubset(client.starts):
+            collector.pause()
+            collector._stop.set()
+        return result
+
+    client.read = read_until_second_interval
+    collector.run()
+
+    assert [at for offset, at in client.starts if offset == 0x85E0] == [0]
+    assert [at for offset, at in client.starts if offset == 0x85E1] == [0, 300]
+    assert [at for offset, at in client.starts if offset == 4102] == [0, 60, 120, 180, 240, 300]
+    assert collector.status()["can_release_blocked_signals"]
+    restarted, _, _ = make_collector(tmp_path, limit=None, store=collector.store)
+    restarted_block = restarted._block_by_offset(0x85E0)
+    assert restarted.status()["blocked_signal_count"] == 0
+    assert restarted._due_at(restarted_block) - restarted.monotonic() == 300
+    collector.start = lambda: None
+    collector.acknowledge_and_start()
+    assert collector.status()["blocked_signal_count"] == 0
+    assert collector._due_at(restarted_block) - clock.monotonic() == 300
 
 
 @pytest.mark.parametrize("offset", [0x85E0])

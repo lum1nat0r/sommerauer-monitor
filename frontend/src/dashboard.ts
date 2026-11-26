@@ -1,6 +1,7 @@
 export type CollectorStatus = {
   state: string; reason: string | null; reconnect_attempts: number;
   next_action_at: string | null; next_action: string | null;
+  can_release_blocked_signals?: boolean;
 };
 export type Config = { collector_enabled: boolean; host_configured: boolean; display_timezone: string };
 export type Signal = {
@@ -46,6 +47,8 @@ export const stateLabels: Record<string, string> = {
   unconfigured: 'Ersteinrichtung – noch nicht konfiguriert', paused: 'Pausiert',
   running: 'Erfassung läuft', completed: 'Erfassung abgeschlossen',
   reconnect_wait: 'Verbindungsfehler – Wiederaufnahme geplant',
+  retry_wait: 'Abfragefehler – Wiederholung geplant',
+  storage_wait: 'Speicherfehler – Wiederaufnahme geplant',
   stopped_transport: 'Gestoppt – Verbindungsfehler', stopped_protocol: 'Gestoppt – Protokollfehler',
   stopped_data: 'Gestoppt – Datenfehler', stopped_storage: 'Gestoppt – Speicherfehler',
 };

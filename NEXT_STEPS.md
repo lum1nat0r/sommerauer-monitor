@@ -21,7 +21,15 @@ Deployment Tankkapazität und bisherige Lieferungen aus der Betreiber-Excel unte
 im Tab Lieferungen eintragen. Schema 6 ist additiv, ältere Builds öffnen die
 Datenbank danach nicht mehr: vor dem Upgrade konsistent sichern. Keine neuen Modbus-Lesungen.
 
-## Fortlaufendes Polling bei Verbindungsfehlern
+## Fehlererholung im Dauerbetrieb
+
+Nur die Nutzerpause hält den laufenden Dauerbetrieb global an. Abfragefehler
+werden im regulären Blockintervall erneut versucht, ungewisse Read-to-clear-
+Auslesungen blockweise ausgesetzt und SQLite-Fehler automatisch erneut geprüft.
+Ein Container-/Prozessneustart beendet weiterhin die Pause.
+Details stehen unter [Fehlerverhalten](docs/FEHLERVERHALTEN.md).
+
+## Fortlaufendes Polling bei Verbindungsfehlern (bisherige Umsetzung)
 
 Betreiberauftrag vom 19.10.2026 umgesetzt: kein Fünf-Versuche-Limit, keine
 steigenden Retry-Pausen und kein Drei-Kernzyklen-Budgetreset mehr.
@@ -161,7 +169,8 @@ Anlagenkachel gespeichert/angezeigt. Fehlende Wetterdaten blockieren nicht mehr
 den Sammler; unplausible Werte werden samt Wert als `invalid` gespeichert, im Diagramm
 markiert und weiter abgefragt (keine Sperre, alte Wertfehler-Sperren fallen beim Start weg).
 Nur Modbus-Ablehnungen 2/3 werden isoliert ausgesetzt. Globale Geräte-/Protokoll-/
-Speicherfehler bleiben Stopps. Registersperren überstehen Neustart und CSV-Speichern.
+Speicherfehler waren in diesem Entwicklungsstand Stopps. Registersperren
+aus Modbus-Ausnahmen 2/3 überstehen Neustart und CSV-Speichern.
 Die laufende Heizungs-App wurde dafür nicht neu gestartet oder quittiert.
 Vor Nutzung neuen Build laden, konsistent sichern und den bisherigen gespeicherten
 Fehlerstopp erst nach Prüfung bewusst quittieren. Details: [Fehlerverhalten](docs/FEHLERVERHALTEN.md).
@@ -308,15 +317,16 @@ Solarprognose/START-SOLL sind spätere Arbeitspakete. Keine Aktivierung von
 Heizungsänderungen aus dieser Übergabe ableiten.
 
 Image-Workflow: Pull Requests bauen `linux/amd64` ohne Push; Release-Tags
-`vX.Y.Z` veröffentlichen erst nach Offline-Prüfungen. Version 0.4.0 ist getaggt;
-die Veröffentlichung von 0.5.0 (Erfassung startet nach Neustart immer) ist ausdrücklich beauftragt.
+`vX.Y.Z` veröffentlichen erst nach Offline-Prüfungen. Version 0.5.0 ist getaggt.
+Version 0.6.0 bereitet die automatische Fehlererholung im Dauerbetrieb für
+das nächste Release vor.
 MIT ist für eigenen App-Code festgelegt. Branch-/Tag-Schutz und
 GHCR-Sichtbarkeit bleiben bei der Veröffentlichung zu beachten.
 Details: [Unraid-/Release-Strategie](docs/UNRAID.md#github-image-build-und-veröffentlichungsgrenze).
 
-Für Version 0.5.0 ist `compose.unraid.yaml` auf
-`ghcr.io/lum1nat0r/sommerauer-monitor:0.5.0` festgelegt, ohne lokalen Build.
-Git-Tag dafür: `v0.5.0`, nicht `0.5.0`. Nach erfolgreichem Release-Workflow
+Für Version 0.6.0 verwendet `compose.unraid.yaml` das vorbereitete Image
+`ghcr.io/lum1nat0r/sommerauer-monitor:0.6.0`. Der Git-Tag dafür ist `v0.6.0`.
+Nach erfolgreichem Release-Workflow
 die öffentliche GHCR-Verfügbarkeit anonym prüfen; erst danach auf Unraid
 mit privater `.env` und vorbereitetem Datenpfad starten
 ([Anleitung](docs/UNRAID.md#unraid-veröffentlichtes-image-verwenden)).

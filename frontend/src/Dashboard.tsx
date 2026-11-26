@@ -445,9 +445,12 @@ export default function Dashboard({ view }: { view: DashboardView }) {
   </section>;
 
   const matchingDefinitions = visibleDefinitions.filter((definition) => `${definition.label} ${definition.signal_id} ${definition.description}`.toLocaleLowerCase('de').includes(search.toLocaleLowerCase('de')));
-  const canPause = collector?.state === 'running' || collector?.state === 'reconnect_wait';
+  const retryScheduled = collector?.state === 'reconnect_wait' ||
+    collector?.state === 'retry_wait' || collector?.state === 'storage_wait';
+  const canPause = collector?.state === 'running' || retryScheduled;
   const canResume = collector?.state === 'paused';
-  const canAcknowledge = collector?.state === 'completed' || collector?.state.startsWith('stopped_');
+  const canAcknowledge = collector?.state === 'completed' || collector?.state.startsWith('stopped_') ||
+    collector?.can_release_blocked_signals;
 
   return <main className="dashboard">
     {alertTarget ? createPortal(globalAlerts, alertTarget) : globalAlerts}
@@ -498,12 +501,12 @@ export default function Dashboard({ view }: { view: DashboardView }) {
     {view === 'settings' && <>
       <section className="collector-panel" aria-labelledby="collector-title"><div className="collector-copy"><p className="eyebrow">ERFASSUNG · KEINE HEIZUNGSBEDIENUNG</p><h2 id="collector-title">{collector ? stateLabels[collector.state] || 'Unbekannter Zustand' : 'Status wird geladen'}</h2>
         <p>{collector?.reason || (collector?.state === 'unconfigured' ? 'Die Installation ist noch nicht für die Erfassung eingerichtet.' : collector?.state === 'completed' ? 'Der endliche Erfassungslauf ist beendet. Dies ist keine Aussage zum Heizungszustand.' : 'Keine aktive Fehlermeldung.')}</p>
-        <p className="status-meta">Letzte erfolgreiche Messung: <strong>{lastSuccessfulAt ? formatDate(lastSuccessfulAt, timeZone) : 'Noch keine erfolgreiche Messung'}</strong>{collector?.state === 'reconnect_wait' && collector.next_action_at && <> · Nächster Versuch: <strong>{formatDate(collector.next_action_at, timeZone)}</strong></>}</p>
+        <p className="status-meta">Letzte erfolgreiche Messung: <strong>{lastSuccessfulAt ? formatDate(lastSuccessfulAt, timeZone) : 'Noch keine erfolgreiche Messung'}</strong>{retryScheduled && collector?.next_action_at && <> · Nächster Versuch: <strong>{formatDate(collector.next_action_at, timeZone)}</strong></>}</p>
         {collector?.state === 'reconnect_wait' && <p>Die Abfragen werden ohne Versuchslimit im regulären Intervall fortgesetzt.</p>}
       </div><div className="collector-actions">
         {canPause && <button className="button secondary" disabled={busy} onClick={() => void runCollectorAction('pause')}>Erfassung pausieren</button>}
         {canResume && <button className="button primary" disabled={busy} onClick={() => void runCollectorAction('resume')}>Erfassung fortsetzen</button>}
-        {canAcknowledge && <button className="button primary" disabled={busy} onClick={() => void runCollectorAction('acknowledge-and-start')}>{collector?.state === 'completed' ? 'Erfassung geprüft – erneut starten' : 'Fehlerursache geprüft – Erfassung quittieren und starten'}</button>}
+        {canAcknowledge && <button className="button primary" disabled={busy} onClick={() => void runCollectorAction('acknowledge-and-start')}>{collector?.state === 'completed' ? 'Erfassung geprüft – erneut starten' : collector?.can_release_blocked_signals ? 'Gesperrte Werte freigeben und fortsetzen' : 'Fehlerursache geprüft – Erfassung quittieren und starten'}</button>}
       </div></section>
       <section className="settings-panel" aria-labelledby="timezone-title"><h2 id="timezone-title">Anzeigezeitzone</h2><form onSubmit={(event) => void saveTimezone(event)}><label>Zeitzone<select value={timezoneDraft} onChange={(event) => setTimezoneDraft(event.target.value)}>{[...new Set(['Europe/Vienna', 'Europe/Berlin', 'UTC', timeZone])].map((zone) => <option key={zone} value={zone}>{zone}</option>)}</select></label><button className="button secondary" type="submit" disabled={busy || timezoneDraft === timeZone}>Zeitzone speichern</button></form><p className="muted">Das ändert nur die Darstellung. Zieladresse und Heizungsparameter werden hier nicht geändert.</p></section>
       <section className="settings-panel"><h2>Modbus-Aufzeichnung</h2><p>Die gespeicherten Aufzeichnungseinträge bestimmen alle angezeigten Werte und Vergleiche. Eine Diagrammwahl aktiviert keine zusätzlichen Signale.</p><a className="button secondary" href="#/modbus">Aufzeichnung konfigurieren</a></section>
