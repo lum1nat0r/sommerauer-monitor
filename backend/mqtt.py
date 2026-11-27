@@ -1,4 +1,4 @@
-"""Read-only Home Assistant telemetry from the collector's committed observations."""
+"""Read-only Home Assistant telemetry from committed observations and pellet estimates."""
 
 from datetime import datetime, timezone
 import json
@@ -12,6 +12,7 @@ from paho.mqtt import client as mqtt
 
 from backend.collector import Collector
 from backend.config import Settings
+from backend.pellets import OPERATING_COUNTER_SIGNAL, pellet_status
 from backend.registers import SIGNAL_DEFINITIONS, signal_freshness_seconds
 from backend.storage import SQLiteStore, StorageError
 
@@ -21,19 +22,28 @@ PUBLISH_SECONDS = 15
 IO_TIMEOUT = 3
 HA_BIRTH_TOPIC = "homeassistant/status"
 COLLECTING = {"running", "retry_wait", "reconnect_wait"}
+PELLET_SENSORS = {
+    "pellets.tank_level_tonnes": ("Geschätzter Pellet-Tankfüllstand", "t"),
+    "pellets.tank_level_percent": ("Geschätzter Pellet-Tankfüllstand in Prozent", "%"),
+    "pellets.consumed_since_fill_tonnes": ("Geschätzter Pelletverbrauch seit Befüllung", "t"),
+}
 
 
 def discovery_components(instance: str, active: set[str]) -> dict[str, dict]:
     components = {}
     for signal_id in sorted(active):
-        definition = SIGNAL_DEFINITIONS[signal_id]
-        unit = definition["unit"]
+        if signal_id in PELLET_SENSORS:
+            label, unit = PELLET_SENSORS[signal_id]
+            kind = "estimate"
+        else:
+            definition = SIGNAL_DEFINITIONS[signal_id]
+            label, unit, kind = definition["label"], definition["unit"], definition["kind"]
         key = json.dumps(signal_id)
         item = f"value_json.get({key})"
         component = {
             "platform": "sensor",
             "unique_id": f"{instance}_{signal_id}",
-            "name": definition["label"],
+            "name": label,
             "state_topic": f"{instance}/state",
             "value_template": "{{ (" + item + " or {}).get('value') }}",
             "json_attributes_topic": f"{instance}/state",
@@ -59,7 +69,9 @@ def discovery_components(instance: str, active: set[str]) -> dict[str, dict]:
             component["device_class"] = "voltage"
         elif signal_id in {"boiler.operating_minutes", "stoker.operating_minutes"}:
             component["device_class"] = "duration"
-        if definition["kind"] == "measurement" and unit in {"°C", "V"}:
+        if (kind == "measurement" and unit in {"°C", "V"}) or signal_id in {
+            "pellets.tank_level_tonnes", "pellets.tank_level_percent",
+        }:
             component["state_class"] = "measurement"
         if signal_id == "boiler.operating_minutes":
             component["state_class"] = "total_increasing"
@@ -200,13 +212,7 @@ class MqttPublisher:
                     if force_discovery or active != last_active:
                         self._reconcile_discovery(publish, pump, active, force_discovery)
                         last_active = active
-                    state = self.collector.status()["state"]
-                    measurements = {}
-                    if state in COLLECTING:
-                        rows = self.storage.current_signals()
-                        measurements = current_measurements(
-                            rows, active - suspended, self.started_at, datetime.now(timezone.utc),
-                        )
+                    measurements = self._measurements(active - suspended, datetime.now(timezone.utc))
                     publish(f"{self.instance}/state", json.dumps(measurements))
                     publish(self.availability_topic, "online")
                     next_publish = monotonic() + PUBLISH_SECONDS
@@ -216,6 +222,36 @@ class MqttPublisher:
                 # A failed offline publish must leave the broker's Will armed.
                 publish(self.availability_topic, "offline", reliable=True)
                 client.disconnect()
+
+    def _measurements(self, eligible: set[str], now: datetime) -> dict[str, dict]:
+        if self.collector.status()["state"] not in COLLECTING:
+            return {}
+        measurements = current_measurements(
+            self.storage.current_signals(), eligible, self.started_at, now,
+        )
+        counter = measurements.get(OPERATING_COUNTER_SIGNAL)
+        if counter is None:
+            return measurements
+        try:
+            data = self.storage.pellet_data()
+        except StorageError:
+            LOGGER.warning("Pelletschätzungen für MQTT nicht verfügbar.")
+            return measurements
+        capacity = data["capacity_tonnes"]
+        status = pellet_status(data["deliveries"], capacity, counter["value"] / 60)
+        consumed = status["consumed_since_fill_tonnes"]
+        if consumed is None or not math.isfinite(consumed):
+            return measurements
+        level = status["tank_level_tonnes"]
+        estimates = {
+            "pellets.tank_level_tonnes": level,
+            "pellets.tank_level_percent": level / capacity * 100 if level is not None else None,
+            "pellets.consumed_since_fill_tonnes": consumed,
+        }
+        for signal_id, value in estimates.items():
+            if value is not None:
+                measurements[signal_id] = {"value": value, "observed_at": counter["observed_at"]}
+        return measurements
 
     def _discovery_payload(self, components: dict[str, dict]) -> str:
         return json.dumps({
@@ -252,8 +288,7 @@ class MqttPublisher:
                     pump(0.2)
             tombstones = {signal_id: {"platform": "sensor"} for signal_id in sorted(removed)}
             publish(self.discovery_topic, self._discovery_payload(tombstones), reliable=True)
-        components = discovery_components(self.instance, active)
-        payload = self._discovery_payload(components) if active else ""
-        publish(self.discovery_topic, payload, reliable=True, retain=True)
+        components = discovery_components(self.instance, active | PELLET_SENSORS.keys())
+        publish(self.discovery_topic, self._discovery_payload(components), reliable=True, retain=True)
         if removed and ha_started:
             self._save_discovery(active, set())

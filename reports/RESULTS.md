@@ -2007,3 +2007,35 @@ Rollback-Konfiguration sind vorhanden. Die Verfügbarkeitsfehler wurden offline
 geprüft. Der produktive Sammler hatte bei der Abnahme keine gesperrten Signale.
 Es wurde keine zusätzliche Modbus-Abfrage ausgelöst, und der neue MQTT-Port
 hat keine Host-Freigabe.
+
+## Pelletschätzungen in Home Assistant (27.11.2026)
+
+**Offline-Prüfung mit synthetischen Daten:** Der Monitor lief mit dem
+Loopback-Modbus-Simulator und versorgte Home Assistant 2026.11.3 über
+Mosquitto 2.1.4 und mTLS. Bei 8 t Kapazität und 0,5 t Verbrauch zeigte Home
+Assistant 7,5 t und 93,75 % Füllstand sowie 0,5 t Verbrauch an. Alle drei
+Sensoren führten die Originalzeit des Betriebszählers. Lieferant und Preis
+erschienen nicht in den Sensorattributen.
+
+Lieferungen wurden über die Monitor-API erfasst und korrigiert. Die Sensoren
+reagierten auf fehlende Berechnungsgrundlagen, Änderungen der Liefermenge und
+einen Verbrauch von 0 t. Nach Pause der Erfassung wurden die Werte unverfügbar,
+nach Fortsetzung kamen sie wieder. Beim Neustart von Home Assistant blieben die
+Entitäts-IDs erhalten. Beim Beenden des Monitors wurden die Werte unverfügbar.
+
+Die Python-Suite meldete 450 bestandene Tests. Ruff, Dashboard-Test und
+Frontend-Build waren erfolgreich. Auf Apollo, der produktiven
+Home-Assistant-Instanz und der Heizung fand keine Abnahme statt.
+
+## Release-Kandidat 1.1.0 (27.11.2026)
+
+**Lokale Prüfung:** 450 Python-Tests und 26 Dashboard-Prüfungen bestanden.
+Ruff, Installation aus den Lockdateien und Frontend-Build waren erfolgreich.
+Nach dem Update auf Vite 6.4.6 meldete `npm audit` keine bekannten
+Schwachstellen. Beide Compose-Dateien lösen ohne Versions-Override den
+Image-Tag `1.1.0` auf.
+
+Das `linux/amd64`-Image wurde lokal gebaut. Der Starttest bestätigte eine
+erreichbare API, eine funktionsfähige SQLite-Datenbank, die Version 1.1.0
+und den Sammlerstatus `unconfigured`. Die MQTT-Sensoren wurden wie oben
+beschrieben mit synthetischen Daten geprüft.

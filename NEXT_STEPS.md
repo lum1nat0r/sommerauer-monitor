@@ -314,13 +314,15 @@ App-/Dashboard-Prüfprozesse wurden beendet; `.env` blieb unverändert.
 Version 1.0.0 enthält die optionale MQTT-Anbindung mit Home Assistant Discovery.
 Die Produktionsabnahme des MQTT-Kandidaten ist in [RESULTS.md](reports/RESULTS.md)
 dokumentiert. Pull Requests bauen das Image für `linux/amd64` ohne Registry-Push.
-Der vorbereitete Release 1.0.1 bindet MQTT direkt in den Unraid-Stack ein.
-Der Tag `v1.0.1` auf `main` startet den Workflow für das Image
-`ghcr.io/lum1nat0r/sommerauer-monitor:1.0.1`.
+Seit Version 1.0.1 ist MQTT direkt in den Unraid-Stack eingebunden.
+Version 1.1.0 ergänzt über MQTT den geschätzten Pellet-Tankfüllstand in Tonnen
+und Prozent und den geschätzten Verbrauch seit Befüllung in Tonnen.
+Der Tag `v1.1.0` auf `main` startet den Workflow für das Image
+`ghcr.io/lum1nat0r/sommerauer-monitor:1.1.0`.
 
 Ein Server-Upgrade ist ein eigener Schritt. Bei bestehenden MQTT-Deployments
-die Zertifikate und die Instanz-ID beibehalten. Mit `compose.unraid.yaml` 1.0.1
-entfällt das zusätzliche MQTT-Override.
+die Zertifikate und die Instanz-ID beibehalten. `compose.unraid.yaml` bindet
+MQTT direkt ein.
 Details stehen in [Home Assistant](docs/HOME_ASSISTANT.md) und [Unraid](docs/UNRAID.md).
 
 Verwaltungszugriffsschutz, Solarthermie und externe Prognosen bleiben separate
