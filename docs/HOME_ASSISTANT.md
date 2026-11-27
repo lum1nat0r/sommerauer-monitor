@@ -6,6 +6,22 @@ und enthalten `observed_at` mit der UTC-Zeit der Originalmessung. Rohwerte
 und Sollwerte sind numerische Leseentitäten. Aufgezeichnete Bitmasken können
 ein ganzes Abfrageintervall abbilden, wie im Monitor.
 
+## Pelletlager
+
+Das Gerät enthält zusätzlich drei Sensoren für den geschätzten Tankfüllstand
+(Tonnen und Prozent) und den geschätzten Verbrauch seit der letzten Befüllung
+(Tonnen). Lieferungen und Tankkapazität werden im Monitor gepflegt. MQTT
+überträgt die berechneten Werte und die Originalzeit des Betriebszählers.
+
+Die Schätzung benötigt mindestens zwei Lieferungen und setzt voraus, dass jede
+Lieferung den Tank randvoll füllt. Der Anlagen-Betriebszähler muss aktiv
+aufgezeichnet werden und im laufenden Monitor-Prozess eine gültige, frische
+Beobachtung geliefert haben. Ohne diese Voraussetzungen zeigen die Sensoren
+„nicht verfügbar“. Ohne Tankkapazität kann der Verbrauch weiterhin vorliegen.
+Änderungen an Lieferungen oder Kapazität erscheinen beim nächsten MQTT-Update.
+Der Verbrauch beginnt bei einer neuen Befüllung wieder bei null und kann sich
+durch nachträgliche Korrekturen ändern.
+
 ## Aktivieren
 
 1. In Home Assistant die MQTT-Integration mit Discovery unter `homeassistant`
